@@ -1,0 +1,42 @@
+name: Bug report
+description: Report a defect or regression in the matching engine or server.
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe the bug and the observed impact.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Provide steps, requests, commands, or test cases that reproduce the issue.
+      placeholder: |
+        1. Start matcher-server with ...
+        2. Submit order ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: JDK, OS, module, deployment mode, and relevant config.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or diagnostics
+      description: Include stack traces, readiness output, metrics, or WAL/snapshot context if relevant.

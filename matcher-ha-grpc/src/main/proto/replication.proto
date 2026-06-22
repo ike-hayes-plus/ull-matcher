@@ -1,0 +1,69 @@
+syntax = "proto3";
+
+option java_package = "io.github.ike.ullmatcher.ha.grpc.proto";
+option java_multiple_files = true;
+
+package ullmatcher.replication.v1;
+
+message CursorRequest {}
+
+message CommandEnvelope {
+  int32 type = 1;
+  int64 sequence = 2;
+  int64 order_id = 3;
+  int64 user_id = 4;
+  int32 symbol_id = 5;
+  int32 side = 6;
+  int32 order_type = 7;
+  int32 time_in_force = 8;
+  int64 price = 9;
+  int64 quantity = 10;
+}
+
+message ReplicationCursorEnvelope {
+  int64 last_received_sequence = 1;
+  int64 last_durable_sequence = 2;
+  int64 last_applied_sequence = 3;
+  int64 snapshot_sequence = 4;
+}
+
+message NodeControlStateEnvelope {
+  string node_id = 1;
+  string role = 2;
+  int64 fencing_epoch = 3;
+  bool accepting_client_commands = 4;
+  string loop_state = 5;
+  int64 processed_command_count = 6;
+  ReplicationCursorEnvelope cursor = 7;
+}
+
+message SnapshotRequest {}
+
+message SnapshotChunkEnvelope {
+  int64 last_sequence = 1;
+  int64 last_trade_id = 2;
+  int64 live_order_count = 3;
+  int64 total_bytes = 4;
+  int32 chunk_index = 5;
+  bool last_chunk = 6;
+  bytes payload = 7;
+}
+
+message ReplicationBatchRequest {
+  int64 batch_id = 1;
+  repeated CommandEnvelope commands = 2;
+}
+
+message ReplicationBatchAck {
+  int64 batch_id = 1;
+  int32 acked_commands = 2;
+  ReplicationCursorEnvelope cursor = 3;
+}
+
+service ReplicationService {
+  rpc Replicate(CommandEnvelope) returns (ReplicationCursorEnvelope);
+  rpc FetchCursor(CursorRequest) returns (ReplicationCursorEnvelope);
+  rpc FetchNodeState(CursorRequest) returns (NodeControlStateEnvelope);
+  rpc DownloadLatestSnapshot(SnapshotRequest) returns (stream SnapshotChunkEnvelope);
+  rpc OpenReplicationStream(stream ReplicationBatchRequest) returns (stream ReplicationBatchAck);
+}

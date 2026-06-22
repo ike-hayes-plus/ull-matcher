@@ -1,0 +1,5 @@
+target/
+$PWD/
+.DS_Store
+*.log
+.idea/

@@ -1,0 +1,56 @@
+groups:
+  - name: ull-matcher-http-route-budget
+    rules:
+      - alert: UllMatcherGlobalHttpOverload
+        expr: increase(ull_matcher_http_global_overload_total[5m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "matcher-server 全局 HTTP 预算开始拒绝请求"
+          description: "过去 5 分钟发生了全局 HTTP budget overload。"
+
+      - alert: UllMatcherWriteRouteSaturationHigh
+        expr: ull_matcher_http_route_saturation{route="write"} > 0.8
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "写路由预算接近打满"
+          description: "write route saturation 持续高于 0.8。"
+
+      - alert: UllMatcherWriteRouteOverload
+        expr: increase(ull_matcher_http_route_overload_total{route="write"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "写路由已发生过载拒绝"
+          description: "过去 5 分钟 write 路由出现 overload。"
+
+      - alert: UllMatcherReadRouteTimeoutSpike
+        expr: increase(ull_matcher_http_route_timeout_total{route="read"}[10m]) > 20
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "读路由超时显著上升"
+          description: "查询/健康接口超时增加。"
+
+      - alert: UllMatcherSubmitEndpointOverload
+        expr: increase(ull_matcher_http_endpoint_overload_total{endpoint="submit_order"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "下单入口已触发 endpoint 级过载拒绝"
+          description: "submit_order 自身预算或全局预算已开始拒绝请求。"
+
+      - alert: UllMatcherMetricsEndpointBudgetHigh
+        expr: ull_matcher_http_endpoint_budget_saturation{endpoint="metrics"} > 0.8
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "metrics 接口预算接近打满"
+          description: "metrics 抓取接口正在过度占用读预算。"

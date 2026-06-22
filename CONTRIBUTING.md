@@ -1,0 +1,116 @@
+# 参与贡献
+
+## 作用域
+
+本仓库聚焦于撮合内核与撮合节点服务。提交修改时，请保持在以下边界内：
+
+- 撮合核心
+- WAL、快照、重放
+- runtime loop 与 gateway
+- HA 控制面与复制链
+- 独立 matcher 节点服务
+
+不要把账户账本、清结算、行情分发或无关业务流程混入本仓库。
+
+## 环境要求
+
+必需：
+
+- JDK 21
+- Maven 3.9+
+
+推荐初始化方式：
+
+```bash
+sdk install java 21.0.11-tem
+sdk env install
+sdk env
+```
+
+仓库已提交 `.sdkmanrc`。请使用 `sdk env` 选择的项目本地 JDK，不要依赖 shell 的全局默认 Java。
+
+当使用 `matcher.replicationTransport=AERON_PREVIEW` 且运行在 Java 21 上时，需要补充：
+
+```bash
+--add-exports=java.base/jdk.internal.misc=ALL-UNNAMED
+--add-opens=java.base/sun.nio.ch=ALL-UNNAMED
+```
+
+复制传输类型跨重启切换受持久化锁保护，必须显式指定变更窗口：
+
+```bash
+-Dmatcher.allowTransportChange=true
+-Dmatcher.transportChangeWindowId=<ticket-or-window-id>
+```
+
+## 构建与测试
+
+提交 Pull Request 前至少运行：
+
+```bash
+mvn test
+```
+
+混沌测试按需开启：
+
+```bash
+mvn test -Pchaos-tests
+```
+
+样式检查在本地可选，在发布自动化里会强制执行：
+
+```bash
+mvn -Pstyle-check validate
+```
+
+签名发布到中央仓库的路径：
+
+```bash
+mvn -Pstyle-check,release-signing,central-publish -DskipTests deploy
+```
+
+## 代码约束
+
+- 保持撮合热路径简单、可控，并关注分配开销。
+- 不要把 discovery、TTL、TLS 或集群协调逻辑塞进 `matcher-core`。
+- 新增服务层策略必须经过标准命令、WAL、复制和重放主链。
+- 优先沿用现有模块边界与模式，不随意引入新抽象。
+- 测试要聚焦真实行为风险，避免低信号的大而全测试。
+- 遵循 `.editorconfig` 的缩进与空白约定。
+- Java 代码避免通配符导入。
+- 源文件中不要引入 tab。
+
+## 模块边界
+
+- `matcher-core`：纯撮合引擎
+- `matcher-storage`：WAL、快照、重放
+- `matcher-runtime`：loop 与 gateway
+- `matcher-ha`：HA 契约与编排
+- `matcher-ha-zookeeper`：ZooKeeper lease / fencing 实现
+- `matcher-discovery-*`：可插拔服务发现实现
+- `matcher-ha-grpc`：gRPC 复制传输
+- `matcher-server`：独立撮合节点服务
+
+## Pull Request 要求
+
+- Pull Request 保持聚焦，不要同时夹带无关改动。
+- 当用户可见行为、API 或配置变更时，必须同步更新 `README.md`。
+- 坐标、包名、持久化格式或 API 契约变更时，必须补迁移说明。
+- 如果修改影响发布产物或公开元数据，请确认 `.github/workflows/release.yml` 仍与预期产物集合一致。
+
+## 发布说明
+
+发布流程支持三层：
+
+1. Git tag 与 GitHub Release 产物发布
+2. 可选的 GitHub Packages Maven 发布
+3. 可选的 Maven Central 发布
+
+发布到 Maven Central 需要以下 secret：
+
+- `MAVEN_CENTRAL_USERNAME`
+- `MAVEN_CENTRAL_PASSWORD`
+- `MAVEN_GPG_PRIVATE_KEY`
+- `MAVEN_GPG_PASSPHRASE`
+
+GitHub Packages 使用仓库默认的 `GITHUB_TOKEN`。

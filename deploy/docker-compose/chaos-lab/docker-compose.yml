@@ -1,0 +1,41 @@
+services:
+  zookeeper:
+    image: zookeeper:3.9
+    container_name: ull-chaos-zookeeper
+    restart: unless-stopped
+    ports:
+      - "2181:2181"
+
+  nacos:
+    image: nacos/nacos-server:v2.4.2
+    container_name: ull-chaos-nacos
+    restart: unless-stopped
+    environment:
+      MODE: standalone
+      PREFER_HOST_MODE: hostname
+    ports:
+      - "8848:8848"
+
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.12.0
+    container_name: ull-chaos-toxiproxy
+    restart: unless-stopped
+    ports:
+      - "8474:8474"
+      - "8666:8666"
+      - "8667:8667"
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: ull-chaos-prometheus
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts/ull-matcher-http-routes.yml:/etc/prometheus/alerts/ull-matcher-http-routes.yml:ro
+    ports:
+      - "${LAB_PROMETHEUS_PORT:-19091}:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
