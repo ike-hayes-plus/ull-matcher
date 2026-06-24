@@ -26,7 +26,7 @@ from pathlib import Path
 base = Path(sys.argv[1])
 urls = sys.argv[2:]
 for url in urls:
-    safe = url.replace("http://", "http___").replace("https://", "https___").replace("/", "_").replace(":", "_")
+    safe = url.split("://", 1)[-1].replace("/", "_").replace(":", "_")
     readiness = json.loads((base / safe / "readiness.json").read_text())
     if readiness.get("clientTrafficReady") is True:
         print(url)

@@ -115,7 +115,7 @@ from pathlib import Path
 base = Path(sys.argv[1])
 urls = sys.argv[2:]
 for url in urls:
-    safe = url.replace("http://", "http___").replace("https://", "https___").replace("/", "_").replace(":", "_")
+    safe = url.split("://", 1)[-1].replace("/", "_").replace(":", "_")
     readiness = json.loads((base / safe / "readiness.json").read_text())
     if readiness.get("clientTrafficReady") is True:
         print(url)
@@ -201,7 +201,7 @@ cluster_dir = Path(sys.argv[6])
 replicated = True
 node_states = []
 if cluster_dir.exists():
-    for health_path in sorted(cluster_dir.glob("http_*/health.json")):
+    for health_path in sorted(cluster_dir.glob("*/health.json")):
         health = json.loads(health_path.read_text())
         node_states.append({
             "nodeId": health.get("nodeId"),
@@ -278,7 +278,7 @@ urls = sys.argv[3:]
 for url in urls:
     if url == failed_url:
         continue
-    safe = url.replace("http://", "http___").replace("https://", "https___").replace("/", "_").replace(":", "_")
+    safe = url.split("://", 1)[-1].replace("/", "_").replace(":", "_")
     readiness = json.loads((base / safe / "readiness.json").read_text())
     if readiness.get("clientTrafficReady") is True:
         print(url)
