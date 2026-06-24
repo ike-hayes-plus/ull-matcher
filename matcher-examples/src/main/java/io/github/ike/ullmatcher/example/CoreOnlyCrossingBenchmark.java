@@ -11,7 +11,6 @@ import io.github.ike.ullmatcher.core.MatcherConfig;
 import io.github.ike.ullmatcher.core.UltraLowLatencyMatcher;
 
 import java.util.ArrayList;
-import java.util.List;
 import java.util.Locale;
 
 /**

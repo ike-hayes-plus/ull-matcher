@@ -26,8 +26,6 @@ import java.security.Signature;
 import java.security.cert.X509Certificate;
 import java.security.spec.NamedParameterSpec;
 import java.security.spec.X509EncodedKeySpec;
-import java.time.Clock;
-import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
 

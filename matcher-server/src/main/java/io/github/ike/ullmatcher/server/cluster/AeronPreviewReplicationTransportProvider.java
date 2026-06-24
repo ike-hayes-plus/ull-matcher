@@ -4,7 +4,6 @@ import io.aeron.Aeron;
 import io.github.ike.ullmatcher.ha.aeron.AeronPreviewIngressService;
 import io.github.ike.ullmatcher.ha.aeron.AeronTransportMetrics;
 import io.github.ike.ullmatcher.ha.discovery.DiscoveredNode;
-import io.github.ike.ullmatcher.ha.grpc.client.GrpcReplicationTarget;
 import io.github.ike.ullmatcher.server.security.ServerSecurityConfig;
 
 import java.io.IOException;
