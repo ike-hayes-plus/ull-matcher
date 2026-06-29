@@ -1,16 +1,16 @@
-# 生产灰度发布检查清单
+# Shard Rollout 检查清单
 
-本文档用于生产灰度发布时逐项勾选，避免遗漏关键检查点。
+本文档用于按 shard 切换流量时逐项勾选，避免遗漏关键检查点。
 
-## 1. 发布前
+## 1. 切换前
 
 - [ ] 已确认版本间 `WAL / snapshot / replication` 协议兼容
-- [ ] 已完成 current 基线对应的 benchmark 验证
+- [ ] 已完成基线 benchmark 验证
 - [ ] 已完成至少一轮 `soak / failover smoke / chaos` 验证
-- [ ] 已明确本次灰度的 shard 范围
-- [ ] 已明确本次灰度使用的复制传输：`GRPC` 或 `AERON`
+- [ ] 已明确 rollout 的 shard 范围
+- [ ] 已明确使用的复制传输：`GRPC` 或 `AERON`
 - [ ] 已确认生产一次只启用一种权威复制传输
-- [ ] 已准备好旧版本节点与回滚版本
+- [ ] 已准备好回滚节点
 - [ ] 已确认日志目录、数据目录、证书目录可用
 - [ ] 已确认监控、告警、采样脚本可用
 
@@ -36,7 +36,7 @@
 - [ ] 已在低峰窗口执行
 - [ ] 已明确人工切主负责人
 - [ ] 已明确回滚负责人
-- [ ] 已执行切主或下线旧 primary
+- [ ] 已执行切主或下线原 primary
 - [ ] 新 primary 已出现
 - [ ] 未出现双主
 
@@ -61,7 +61,7 @@
 
 ## 5. 扩大灰度范围前
 
-- [ ] 当前 shard 已稳定通过观察窗口
+- [ ] 目标 shard 已稳定通过观察窗口
 - [ ] 没有出现 committed tail 明显拉长
 - [ ] 没有出现 standby apply backlog 持续堆积
 - [ ] 没有出现 readiness 与真实主节点状态不一致
@@ -87,8 +87,7 @@
   http://127.0.0.1:8081
 ```
 
-- [ ] 旧版本节点重新成为唯一 `PRIMARY`
+- [ ] 回滚节点重新成为唯一 `PRIMARY`
 - [ ] `clientTrafficReady` 与唯一 `PRIMARY` 一致
 - [ ] `replicationCommittedSequence` 恢复正常推进
 - [ ] 已暂停继续扩大灰度范围
-

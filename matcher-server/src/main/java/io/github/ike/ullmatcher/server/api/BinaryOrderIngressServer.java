@@ -55,6 +55,9 @@ public final class BinaryOrderIngressServer implements Closeable {
     private static final int REQUEST_RECORD_BYTES = 48;
     private static final int CANCEL_RECORD_BYTES = 16;
     private static final int RESPONSE_RECORD_BYTES = 24;
+    private static final Side[] SIDES_BY_WIRE_CODE = indexSides();
+    private static final OrderType[] ORDER_TYPES_BY_WIRE_CODE = indexOrderTypes();
+    private static final TimeInForce[] TIME_IN_FORCES_BY_WIRE_CODE = indexTimeInForces();
 
     private final MatcherNodeService nodeService;
     private final String bindHost;
@@ -451,28 +454,50 @@ public final class BinaryOrderIngressServer implements Closeable {
     }
 
     private static Side decodeSide(byte encoded) {
-        return switch (encoded) {
-            case 'B' -> Side.BUY;
-            case 'S' -> Side.SELL;
-            default -> throw new IllegalArgumentException("unsupported side: " + encoded);
-        };
+        Side side = SIDES_BY_WIRE_CODE[encoded & 0xFF];
+        if (side != null) {
+            return side;
+        }
+        throw new IllegalArgumentException("unsupported side: " + encoded);
     }
 
     private static OrderType decodeOrderType(byte encoded) {
-        return switch (encoded) {
-            case 'L' -> OrderType.LIMIT;
-            case 'M' -> OrderType.MARKET_WITH_PROTECTION;
-            default -> throw new IllegalArgumentException("unsupported order type: " + encoded);
-        };
+        OrderType orderType = ORDER_TYPES_BY_WIRE_CODE[encoded & 0xFF];
+        if (orderType != null) {
+            return orderType;
+        }
+        throw new IllegalArgumentException("unsupported order type: " + encoded);
     }
 
     private static TimeInForce decodeTimeInForce(byte encoded) {
-        return switch (encoded) {
-            case 'G' -> TimeInForce.GTC;
-            case 'I' -> TimeInForce.IOC;
-            case 'F' -> TimeInForce.FOK;
-            default -> throw new IllegalArgumentException("unsupported timeInForce: " + encoded);
-        };
+        TimeInForce tif = TIME_IN_FORCES_BY_WIRE_CODE[encoded & 0xFF];
+        if (tif != null) {
+            return tif;
+        }
+        throw new IllegalArgumentException("unsupported timeInForce: " + encoded);
+    }
+
+    private static Side[] indexSides() {
+        Side[] index = new Side[256];
+        index['B'] = Side.BUY;
+        index['S'] = Side.SELL;
+        return index;
+    }
+
+    private static OrderType[] indexOrderTypes() {
+        OrderType[] index = new OrderType[256];
+        index['L'] = OrderType.LIMIT;
+        index['M'] = OrderType.MARKET_WITH_PROTECTION;
+        return index;
+    }
+
+    private static TimeInForce[] indexTimeInForces() {
+        TimeInForce[] index = new TimeInForce[256];
+        index['G'] = TimeInForce.GTC;
+        index['I'] = TimeInForce.IOC;
+        index['F'] = TimeInForce.FOK;
+        index['P'] = TimeInForce.POST_ONLY;
+        return index;
     }
 
     private static int statusCode(SubmitResult result) {

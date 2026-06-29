@@ -83,7 +83,7 @@ start_matcher_node() {
 
   local cmd=(
     "$java_bin"
-    "${java_opts[@]}"
+    ${java_opts[@]+"${java_opts[@]}"}
     -Dmatcher.serverMode="$server_mode"
     -Dmatcher.nodeId="$node_id"
     -Dmatcher.symbolId="$symbol_id"

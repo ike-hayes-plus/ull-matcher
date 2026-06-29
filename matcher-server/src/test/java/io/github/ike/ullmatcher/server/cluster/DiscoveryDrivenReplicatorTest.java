@@ -102,7 +102,7 @@ final class DiscoveryDrivenReplicatorTest {
     }
 
     @Test
-    void preferredBatchHintsShrinkForAeronMultiStandby() throws Exception {
+    void preferredBatchHintsUseBoundedBatchAndFullWindowForAeronMultiStandby() throws Exception {
         try (DiscoveryDrivenReplicator replicator = new DiscoveryDrivenReplicator("primary-a", new ControlledTransportProvider(
                 ReplicationTransportType.AERON,
                 Map.of(
@@ -114,9 +114,9 @@ final class DiscoveryDrivenReplicatorTest {
                     new DiscoveredNode("standby-b", "127.0.0.1", 9002, HaRole.STANDBY, Map.of()),
                     new DiscoveredNode("standby-c", "127.0.0.1", 9003, HaRole.STANDBY, Map.of())
             ));
-            assertEquals(128, replicator.preferredMaxBatchSize());
-            assertEquals(8, replicator.preferredInFlightBatches());
-            assertTrue(replicator.preferredAccumulationNanos() < TimeUnit.MICROSECONDS.toNanos(200));
+            assertEquals(256, replicator.preferredMaxBatchSize());
+            assertEquals(16, replicator.preferredInFlightBatches());
+            assertEquals(0L, replicator.preferredAccumulationNanos());
         }
     }
 

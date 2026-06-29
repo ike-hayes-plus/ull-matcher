@@ -7,10 +7,10 @@ import io.github.ike.ullmatcher.server.telemetry.SubmissionMetricsSnapshot;
 
 import java.io.IOException;
 import java.time.Clock;
-import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
@@ -25,7 +25,7 @@ final class SubmissionTracker {
     private final AtomicLong nextSubmissionId = new AtomicLong(1L);
     private final ConcurrentHashMap<String, TrackedSubmission> bySubmissionId = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, TrackedSubmission> byIdempotencyKey = new ConcurrentHashMap<>();
-    private final ArrayDeque<String> finalizedSubmissionIds = new ArrayDeque<>();
+    private final ConcurrentLinkedQueue<String> finalizedSubmissionIds = new ConcurrentLinkedQueue<>();
     private final Object evictionLock = new Object();
     private final Clock clock;
     private final OrderStateTracker orderStateTracker;
@@ -55,10 +55,20 @@ final class SubmissionTracker {
      * 热路径只维护最必要的状态；对外查询视图在读取时再与订单状态拼接。
      */
     Registration register(String operationType, String idempotencyKey, Long userId, long orderId) {
+        return register(operationType, idempotencyKey, userId, orderId, requestFingerprint(operationType, userId, orderId));
+    }
+
+    Registration register(String operationType, String idempotencyKey, Long userId, long orderId, long requestFingerprint) {
+        return register(operationType, idempotencyKey, userId, orderId, RequestFingerprint.generic(requestFingerprint));
+    }
+
+    Registration register(String operationType, String idempotencyKey, Long userId, long orderId, RequestFingerprint requestFingerprint) {
         Objects.requireNonNull(operationType, "operationType");
+        Objects.requireNonNull(requestFingerprint, "requestFingerprint");
         String normalizedKey = normalizeIdempotencyKey(idempotencyKey);
         TrackedSubmission existing = byIdempotencyKey.get(normalizedKey);
         if (existing != null) {
+            existing.verifySameRequest(operationType, userId, orderId, requestFingerprint);
             return new Registration(existing, true);
         }
         long now = clock.millis();
@@ -69,16 +79,20 @@ final class SubmissionTracker {
                 operationType,
                 userId,
                 orderId,
+                requestFingerprint,
                 now
         );
         TrackedSubmission raced = byIdempotencyKey.putIfAbsent(normalizedKey, created);
         if (raced != null) {
+            raced.verifySameRequest(operationType, userId, orderId, requestFingerprint);
             return new Registration(raced, true);
         }
         bySubmissionId.put(created.submissionId(), created);
         trackedCount.increment();
         pendingCount.increment();
-        evictFinalizedIfNeeded();
+        if (trackedCount.sum() > maxTrackedSubmissions) {
+            evictFinalizedIfNeeded();
+        }
         return new Registration(created, false);
     }
 
@@ -157,6 +171,7 @@ final class SubmissionTracker {
         private final String operationType;
         private final Long userId;
         private final long orderId;
+        private final RequestFingerprint requestFingerprint;
         private final long createdAtEpochMillis;
         private final OutcomeSignal localOutcome = new OutcomeSignal();
         private final OutcomeSignal committedOutcome = new OutcomeSignal();
@@ -183,6 +198,7 @@ final class SubmissionTracker {
                                   String operationType,
                                   Long userId,
                                   long orderId,
+                                  RequestFingerprint requestFingerprint,
                                   long createdAtEpochMillis) {
             this.owner = owner;
             this.submissionId = submissionId;
@@ -190,6 +206,7 @@ final class SubmissionTracker {
             this.operationType = operationType;
             this.userId = userId;
             this.orderId = orderId;
+            this.requestFingerprint = requestFingerprint;
             this.createdAtEpochMillis = createdAtEpochMillis;
             this.updatedAtEpochMillis = createdAtEpochMillis;
         }
@@ -204,6 +221,13 @@ final class SubmissionTracker {
 
         long orderId() {
             return orderId;
+        }
+
+        void verifySameRequest(String operationType, Long userId, long orderId, RequestFingerprint requestFingerprint) {
+            if (this.orderId != orderId || !this.requestFingerprint.equals(requestFingerprint) ||
+                    !this.operationType.equals(operationType) || !Objects.equals(this.userId, userId)) {
+                throw new IllegalStateException("idempotency key reused with different request");
+            }
         }
 
         synchronized void markLocalOutcome(long sequence,
@@ -229,6 +253,7 @@ final class SubmissionTracker {
                 owner.failedCount.increment();
                 localOutcome.complete();
                 committedOutcome.complete();
+                owner.onFinalized(this);
                 return;
             }
             if (!replicationRequired) {
@@ -239,6 +264,7 @@ final class SubmissionTracker {
                 owner.committedCount.increment();
                 localOutcome.complete();
                 committedOutcome.complete();
+                owner.onFinalized(this);
                 return;
             }
             this.phase = SubmissionPhase.REPLICATION_PENDING;
@@ -276,6 +302,7 @@ final class SubmissionTracker {
                 owner.retryingCount.decrement();
             }
             committedOutcome.complete();
+            owner.onFinalized(this);
         }
 
         synchronized void markReplicationObservation(ReplicationResult result, ReplicationMode mode, long nowEpochMillis) {
@@ -308,6 +335,7 @@ final class SubmissionTracker {
             }
             localOutcome.complete();
             committedOutcome.complete();
+            owner.onFinalized(this);
         }
 
         boolean finalized() {
@@ -451,30 +479,40 @@ final class SubmissionTracker {
     }
 
     void onFinalized(TrackedSubmission tracked) {
-        synchronized (evictionLock) {
-            finalizedSubmissionIds.addLast(tracked.submissionId());
+        finalizedSubmissionIds.offer(tracked.submissionId());
+        if (trackedCount.sum() <= maxTrackedSubmissions) {
+            return;
         }
-        evictFinalizedIfNeeded();
+        synchronized (evictionLock) {
+            evictFinalizedIfNeededLocked();
+        }
     }
 
     private void evictFinalizedIfNeeded() {
         synchronized (evictionLock) {
-            while (bySubmissionId.size() > maxTrackedSubmissions && !finalizedSubmissionIds.isEmpty()) {
-                String oldest = finalizedSubmissionIds.removeFirst();
-                TrackedSubmission tracked = bySubmissionId.get(oldest);
-                if (tracked == null || !tracked.finalized()) {
-                    continue;
-                }
-                bySubmissionId.remove(oldest, tracked);
-                byIdempotencyKey.remove(tracked.idempotencyKey(), tracked);
-                trackedCount.decrement();
-                if (tracked.phase == SubmissionPhase.COMMITTED) {
-                    committedCount.decrement();
-                } else if (tracked.phase == SubmissionPhase.FAILED) {
-                    failedCount.decrement();
-                } else {
-                    pendingCount.decrement();
-                }
+            evictFinalizedIfNeededLocked();
+        }
+    }
+
+    private void evictFinalizedIfNeededLocked() {
+        while (trackedCount.sum() > maxTrackedSubmissions) {
+            String oldest = finalizedSubmissionIds.poll();
+            if (oldest == null) {
+                return;
+            }
+            TrackedSubmission tracked = bySubmissionId.get(oldest);
+            if (tracked == null || !tracked.finalized()) {
+                continue;
+            }
+            bySubmissionId.remove(oldest, tracked);
+            byIdempotencyKey.remove(tracked.idempotencyKey(), tracked);
+            trackedCount.decrement();
+            if (tracked.phase == SubmissionPhase.COMMITTED) {
+                committedCount.decrement();
+            } else if (tracked.phase == SubmissionPhase.FAILED) {
+                failedCount.decrement();
+            } else {
+                pendingCount.decrement();
             }
         }
     }
@@ -485,5 +523,29 @@ final class SubmissionTracker {
             throw new IllegalArgumentException("idempotencyKey must not be blank");
         }
         return normalized;
+    }
+
+    private static RequestFingerprint requestFingerprint(String operationType, Long userId, long orderId) {
+        long hash = 0x9E3779B97F4A7C15L;
+        hash = mix(hash, operationType.hashCode());
+        hash = mix(hash, userId == null ? Long.MIN_VALUE : userId);
+        return RequestFingerprint.generic(mix(hash, orderId));
+    }
+
+    static long mix(long hash, long value) {
+        long x = value + 0x9E3779B97F4A7C15L + (hash << 6) + (hash >>> 2);
+        return hash ^ x;
+    }
+
+    record RequestFingerprint(long hash,
+                              byte side,
+                              byte orderType,
+                              byte timeInForce,
+                              long price,
+                              long quantity,
+                              long ttlMillisOrMinValue) {
+        static RequestFingerprint generic(long hash) {
+            return new RequestFingerprint(hash, (byte) 0, (byte) 0, (byte) 0, 0L, 0L, Long.MIN_VALUE);
+        }
     }
 }

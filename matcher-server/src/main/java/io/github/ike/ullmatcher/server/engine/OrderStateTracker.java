@@ -4,6 +4,7 @@ import io.github.ike.ullmatcher.api.MatchEventHandler;
 import io.github.ike.ullmatcher.api.OrderEvent;
 import io.github.ike.ullmatcher.api.OrderType;
 import io.github.ike.ullmatcher.api.OrderStatus;
+import io.github.ike.ullmatcher.api.RejectReason;
 import io.github.ike.ullmatcher.api.Side;
 import io.github.ike.ullmatcher.api.TimeInForce;
 import io.github.ike.ullmatcher.api.TradeEvent;
@@ -94,6 +95,13 @@ final class OrderStateTracker implements MatchEventHandler {
     public void onOrder(OrderEvent event) {
         SubmittedOrder submitted = submittedOrders.get(event.orderId);
         TrackedOrderState state = states.get(event.orderId);
+        boolean terminal = event.status == OrderStatus.FILLED || event.status == OrderStatus.CANCELLED ||
+                event.status == OrderStatus.REJECTED;
+        if (terminal && event.rejectReason == RejectReason.DUPLICATE_ORDER_ID &&
+                state != null && isActive(state.status)) {
+            submittedOrders.remove(event.orderId);
+            return;
+        }
         if (state == null) {
             TrackedOrderState created = new TrackedOrderState(event.orderId);
             TrackedOrderState raced = states.putIfAbsent(event.orderId, created);
@@ -116,9 +124,13 @@ final class OrderStateTracker implements MatchEventHandler {
         }
         state.updatedAtEpochMillis = clock.millis();
         remember(event.orderId);
-        if (event.status == OrderStatus.FILLED || event.status == OrderStatus.CANCELLED || event.status == OrderStatus.REJECTED) {
+        if (terminal) {
             submittedOrders.remove(event.orderId);
         }
+    }
+
+    private static boolean isActive(String status) {
+        return OrderStatus.NEW.name().equals(status) || OrderStatus.PARTIALLY_FILLED.name().equals(status);
     }
 
     private void remember(long orderId) {

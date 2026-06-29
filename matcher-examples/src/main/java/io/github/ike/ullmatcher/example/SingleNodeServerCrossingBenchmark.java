@@ -248,6 +248,7 @@ public final class SingleNodeServerCrossingBenchmark {
             System.out.println("  \"success\": " + (rejected.get() == 0 && tradeEvents == parsed.crossingOrders()) + ",");
             System.out.println("  \"scenario\": \"single_node_server_crossing_benchmark\",");
             System.out.println("  \"topology\": \"single_node_http\",");
+            BenchmarkSupport.printJsonMetadata();
             System.out.printf(Locale.ROOT, "  \"restingOrders\": %d,%n", parsed.restingOrders());
             System.out.printf(Locale.ROOT, "  \"crossingOrders\": %d,%n", parsed.crossingOrders());
             System.out.printf(Locale.ROOT, "  \"concurrency\": %d,%n", parsed.concurrency());

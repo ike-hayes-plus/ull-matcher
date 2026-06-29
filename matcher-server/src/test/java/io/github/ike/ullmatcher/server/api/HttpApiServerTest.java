@@ -124,6 +124,20 @@ final class HttpApiServerTest {
                 Map<String, Object> secondPayload = new com.fasterxml.jackson.databind.ObjectMapper().readValue(second.body(), Map.class);
                 assertEquals(submissionId, secondPayload.get("submissionId"));
 
+                String changedBody = "{\"userId\":1,\"orderId\":1001,\"side\":\"BUY\",\"orderType\":\"LIMIT\"," +
+                        "\"timeInForce\":\"GTC\",\"price\":101,\"quantity\":1}";
+                HttpResponse<String> changed = client.send(
+                        HttpRequest.newBuilder()
+                                .uri(URI.create("http://127.0.0.1:" + server.port() + "/api/v1/orders"))
+                                .header("Content-Type", "application/json")
+                                .header("Idempotency-Key", "submit-1001")
+                                .POST(HttpRequest.BodyPublishers.ofString(changedBody))
+                                .build(),
+                        HttpResponse.BodyHandlers.ofString()
+                );
+                assertEquals(409, changed.statusCode());
+                assertTrue(changed.body().contains("idempotency key reused with different request"));
+
                 HttpResponse<String> query = client.send(
                         request(server.port(), "GET", "/api/v1/submissions/" + submissionId, null),
                         HttpResponse.BodyHandlers.ofString()

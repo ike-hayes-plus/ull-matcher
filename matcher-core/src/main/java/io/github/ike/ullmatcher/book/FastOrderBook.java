@@ -201,6 +201,14 @@ public final class FastOrderBook {
      */
     public boolean hasFillableQuantity(byte takerSide, long limitPrice, long requiredQty,
                                        long takerUserId, boolean preventSelfTrade) {
+        PriceLevel bestLevel = bestOppositeLevelFor(takerSide);
+        if (bestLevel == null || !crosses(takerSide, limitPrice, bestLevel.price)) {
+            return false;
+        }
+        if (requiredQty <= bestLevel.totalQuantity) {
+            return levelHasFillableQuantity(bestLevel, requiredQty, takerUserId, preventSelfTrade);
+        }
+
         long remaining = requiredQty;
         LongObjectHashMap<PriceLevel> side = oppositeLevelsFor(takerSide);
         LongHeap prices = oppositeScanPricesFor(takerSide);
@@ -236,6 +244,14 @@ public final class FastOrderBook {
      * @return 会与同用户挂单相遇时返回 {@code true}
      */
     public boolean hasSelfTradeInFillPath(byte takerSide, long limitPrice, long takerUserId, long quantity) {
+        PriceLevel bestLevel = bestOppositeLevelFor(takerSide);
+        if (bestLevel == null || !crosses(takerSide, limitPrice, bestLevel.price)) {
+            return false;
+        }
+        if (quantity <= bestLevel.totalQuantity) {
+            return levelHasSelfTradeBeforeFilled(bestLevel, takerUserId, quantity);
+        }
+
         long remaining = quantity;
         LongObjectHashMap<PriceLevel> side = oppositeLevelsFor(takerSide);
         LongHeap prices = oppositeScanPricesFor(takerSide);
@@ -324,6 +340,31 @@ public final class FastOrderBook {
             prices.poll();
         }
         return null;
+    }
+
+    private boolean levelHasFillableQuantity(PriceLevel level, long requiredQty,
+                                             long takerUserId, boolean preventSelfTrade) {
+        long remaining = requiredQty;
+        for (Order order = level.head; order != null; order = order.next) {
+            if (preventSelfTrade && order.userId == takerUserId) return false;
+            remaining -= order.remaining;
+            if (remaining <= 0) return true;
+        }
+        return false;
+    }
+
+    private boolean levelHasSelfTradeBeforeFilled(PriceLevel level, long takerUserId, long quantity) {
+        long remaining = quantity;
+        for (Order order = level.head; order != null; order = order.next) {
+            if (order.userId == takerUserId) return true;
+            remaining -= order.remaining;
+            if (remaining <= 0) return false;
+        }
+        return false;
+    }
+
+    private PriceLevel bestOppositeLevelFor(byte takerSide) {
+        return takerSide == Side.BUY.code ? bestAskLevel() : bestBidLevel();
     }
 
     /**

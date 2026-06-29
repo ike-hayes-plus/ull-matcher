@@ -11,6 +11,12 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from benchmark_metadata import benchmark_metadata
+from replication_metrics import all_standbys_watermark
+from replication_metrics import mode_ready
+from replication_metrics import mode_watermark
+from replication_metrics import watermark_delta
+
 
 REQUEST_MAGIC = 0x554C4C42
 RESPONSE_MAGIC = 0x554C4C52
@@ -207,16 +213,6 @@ def run_worker(start_latch: threading.Event, binary_host: str, binary_port: int,
     }
 
 
-def required_standby_acks(mode: str, standby_count: int) -> int:
-    if mode == "any":
-        return min(1, standby_count)
-    if mode == "quorum":
-        return 0 if standby_count == 0 else (standby_count // 2) + 1
-    if mode == "all":
-        return standby_count
-    raise ValueError(f"unsupported standby commit mode: {mode}")
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", required=True)
@@ -264,16 +260,17 @@ def main():
         if args.standby_base_url:
             def standby_preload_ready():
                 payloads = [fetch_json(f"{url}/api/v1/runtime/health") for url in args.standby_base_url]
-                if all(
-                    item.get("lastDurableSequence", 0) >= preload_target_sequence
-                    and item.get("lastAppliedSequence", 0) >= preload_target_sequence
-                    for item in payloads
-                ):
+                if mode_ready(args.standby_commit_mode, payloads, preload_target_sequence):
                     return payloads
                 return None
 
             phase = "wait_preload_standby_durable"
-            wait_for("standby preload durable progression", standby_preload_ready, 90.0, args.poll_interval_seconds)
+            wait_for(
+                "standby preload durable progression for requested commit mode",
+                standby_preload_ready,
+                90.0,
+                args.poll_interval_seconds,
+            )
 
         next_order_id_start = args.order_id_start + args.resting_orders
         if args.warmup_orders > 0:
@@ -300,16 +297,17 @@ def main():
             if args.standby_base_url:
                 def standby_warmup_ready():
                     payloads = [fetch_json(f"{url}/api/v1/runtime/health") for url in args.standby_base_url]
-                    if all(
-                        item.get("lastDurableSequence", 0) >= warmup_target_sequence
-                        and item.get("lastAppliedSequence", 0) >= warmup_target_sequence
-                        for item in payloads
-                    ):
+                    if mode_ready(args.standby_commit_mode, payloads, warmup_target_sequence):
                         return payloads
                     return None
 
                 phase = "wait_warmup_standby_durable"
-                standby_before = wait_for("standby warmup durable progression", standby_warmup_ready, 90.0, args.poll_interval_seconds)
+                standby_before = wait_for(
+                    "standby warmup durable progression for requested commit mode",
+                    standby_warmup_ready,
+                    90.0,
+                    args.poll_interval_seconds,
+                )
             else:
                 standby_before = []
             health_before = warmup_ready
@@ -397,22 +395,26 @@ def main():
     commit_catchup_seconds = max(0.0, total_elapsed_seconds - submit_elapsed_seconds)
     accepted_commands = max(0, health_after.get("gatewayAcceptedTotal", 0) - health_before.get("gatewayAcceptedTotal", 0))
     trade_events = max(0, health_after.get("tradeCount", 0) - health_before.get("tradeCount", 0))
+    before_committed = health_before.get("replicationCommittedSequence", health_before.get("lastDurableSequence", 0))
+    after_committed = health_after.get("replicationCommittedSequence", health_after.get("lastDurableSequence", 0))
     if standby_before and standby_after:
-        before_any = max(item.get("lastDurableSequence", 0) for item in standby_before)
-        after_any = max(item.get("lastDurableSequence", 0) for item in standby_after)
-        before_all = min(item.get("lastDurableSequence", 0) for item in standby_before)
-        after_all = min(item.get("lastDurableSequence", 0) for item in standby_after)
+        before_mode_durable = mode_watermark(args.standby_commit_mode, standby_before)
+        after_mode_durable = mode_watermark(args.standby_commit_mode, standby_after)
+        before_all = all_standbys_watermark(standby_before)
+        after_all = all_standbys_watermark(standby_after)
     else:
-        before_any = health_before.get("lastDurableSequence", 0)
-        after_any = health_after.get("lastDurableSequence", 0)
-        before_all = before_any
-        after_all = after_any
-    committed_submissions = max(0, after_any - before_any)
-    fully_durable_on_all_standbys = max(0, after_all - before_all)
+        before_mode_durable = before_committed
+        after_mode_durable = after_committed
+        before_all = before_committed
+        after_all = after_committed
+    committed_submissions = min(accepted_commands, watermark_delta(before_committed, after_committed))
+    mode_durable_submissions = watermark_delta(before_mode_durable, after_mode_durable)
+    fully_durable_on_all_standbys = watermark_delta(before_all, after_all)
     success = (not timed_out) and rejected == 0 and committed_submissions >= accepted_commands
     report = {
         "success": success,
         "scenario": "binary_replication_commit_benchmark",
+        **benchmark_metadata(),
         "category": "matcher-benchmark",
         "severity": "ok" if success else "critical",
         "conclusion": "binary replication committed chain caught up within the benchmark window"
@@ -435,12 +437,14 @@ def main():
         "tradeEvents": trade_events,
         "matchedOrderSides": trade_events * 2,
         "replicationCommittedSubmissions": committed_submissions,
+        "standbyCommitModeDurableCommands": mode_durable_submissions,
         "allStandbysDurableCommands": fully_durable_on_all_standbys,
         "rejectedCommands": rejected,
         "submissionPendingDelta": health_after.get("submissionPendingCount", 0) - health_before.get("submissionPendingCount", 0),
         "acceptedCommandsPerSecond": 0.0 if submit_elapsed_seconds == 0.0 else accepted_commands / submit_elapsed_seconds,
         "tradeEventsPerSecond": 0.0 if submit_elapsed_seconds == 0.0 else trade_events / submit_elapsed_seconds,
         "replicationCommittedSubmissionsPerSecond": 0.0 if total_elapsed_seconds == 0.0 else committed_submissions / total_elapsed_seconds,
+        "standbyCommitModeDurableCommandsPerSecond": 0.0 if total_elapsed_seconds == 0.0 else mode_durable_submissions / total_elapsed_seconds,
         "allStandbysDurableCommandsPerSecond": 0.0 if total_elapsed_seconds == 0.0 else fully_durable_on_all_standbys / total_elapsed_seconds,
         "healthBefore": health_before,
         "healthAfter": health_after,

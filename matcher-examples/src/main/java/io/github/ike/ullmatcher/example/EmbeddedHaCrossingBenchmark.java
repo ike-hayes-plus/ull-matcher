@@ -146,6 +146,7 @@ public final class EmbeddedHaCrossingBenchmark {
             System.out.println("  \"success\": " + (rejected.get() == 0 && tradeEvents == parsed.crossingOrders()) + ",");
             System.out.println("  \"scenario\": \"embedded_ha_crossing_benchmark\",");
             System.out.println("  \"topology\": \"1P1S\",");
+            BenchmarkSupport.printJsonMetadata();
             System.out.printf(Locale.ROOT, "  \"restingOrders\": %d,%n", parsed.restingOrders());
             System.out.printf(Locale.ROOT, "  \"crossingOrders\": %d,%n", parsed.crossingOrders());
             System.out.printf(Locale.ROOT, "  \"concurrency\": %d,%n", parsed.concurrency());

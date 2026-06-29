@@ -60,7 +60,7 @@ java \
 - HA 控制面演练
 - ZooKeeper / Nacos / chaos 入口验证
 
-当前仓库提供的是**基础设施 compose**，而不是把 `matcher-server` 变成“容器优先产品”。
+仓库提供的是**基础设施 compose**，而不是把 `matcher-server` 变成“容器优先产品”。
 
 文件：
 
@@ -95,7 +95,7 @@ docker compose -f deploy/docker-compose/infra-lab/docker-compose.yml up -d
 
 - 低延迟撮合更看重 CPU/NUMA/磁盘局部性
 - 容器编排不一定是最高性能部署方式
-- 当前项目更适合“可容器化”，而不是“必须容器化”
+- 项目更适合“可容器化”，而不是“必须容器化”
 
 结论：
 

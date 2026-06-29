@@ -154,7 +154,12 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
                                                                     long quantity,
                                                                     Long ttlMillis,
                                                                     String idempotencyKey) throws IOException {
-        SubmissionTracker.Registration registration = submissionTracker.register("NEW_ORDER", idempotencyKey, userId, orderId);
+        SubmissionTracker.RequestFingerprint requestFingerprint = newOrderRequestFingerprint(
+                userId, orderId, side, orderType, tif, price, quantity, ttlMillis
+        );
+        SubmissionTracker.Registration registration = submissionTracker.register(
+                "NEW_ORDER", idempotencyKey, userId, orderId, requestFingerprint
+        );
         if (!registration.existing()) {
             enqueueTrackedSubmit(
                     new SubmitTask(new SubmissionRequest.NewOrderRequest(userId, orderId, side, orderType, tif, price, quantity, ttlMillis)),
@@ -265,12 +270,12 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
                     requests.priceAt(i),
                     requests.quantityAt(i),
                     requests.ttlMillisAt(i)
-            ));
+            ), false);
         }
         enqueueSubmitEnvelope(SubmitEnvelope.batch(tasks, tasks.length));
         for (int i = 0; i < tasks.length; i++) {
-            SubmitResponse response = tasks[i].awaitResult();
-            consumer.accept(i, response.result(), response.sequence());
+            tasks[i].awaitCompletion();
+            consumer.accept(i, tasks[i].result(), tasks[i].sequence());
         }
     }
 
@@ -285,17 +290,19 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
         }
         SubmitTask[] tasks = new SubmitTask[orderIds.size()];
         for (int i = 0; i < tasks.length; i++) {
-            tasks[i] = new SubmitTask(new SubmissionRequest.CancelOrderRequest(orderIds.orderIdAt(i)));
+            tasks[i] = new SubmitTask(new SubmissionRequest.CancelOrderRequest(orderIds.orderIdAt(i)), false);
         }
         enqueueSubmitEnvelope(SubmitEnvelope.batch(tasks, tasks.length));
         for (int i = 0; i < tasks.length; i++) {
-            SubmitResponse response = tasks[i].awaitResult();
-            consumer.accept(i, response.result(), response.sequence());
+            tasks[i].awaitCompletion();
+            consumer.accept(i, tasks[i].result(), tasks[i].sequence());
         }
     }
 
     public SubmissionTracker.SubmissionHandle submitTrackedCancelOrder(long orderId, String idempotencyKey) throws IOException {
-        SubmissionTracker.Registration registration = submissionTracker.register("CANCEL_ORDER", idempotencyKey, null, orderId);
+        SubmissionTracker.Registration registration = submissionTracker.register(
+                "CANCEL_ORDER", idempotencyKey, null, orderId, cancelRequestFingerprint(orderId)
+        );
         if (!registration.existing()) {
             enqueueTrackedSubmit(new SubmitTask(new SubmissionRequest.CancelOrderRequest(orderId)), registration.trackedSubmission());
         }
@@ -767,6 +774,42 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
         }
     }
 
+    private static SubmissionTracker.RequestFingerprint newOrderRequestFingerprint(long userId,
+                                                                                   long orderId,
+                                                                                   Side side,
+                                                                                   OrderType orderType,
+                                                                                   TimeInForce tif,
+                                                                                   long price,
+                                                                                   long quantity,
+                                                                                   Long ttlMillis) {
+        long hash = 0xD6E8FEB86659FD93L;
+        hash = SubmissionTracker.mix(hash, 1L);
+        hash = SubmissionTracker.mix(hash, userId);
+        hash = SubmissionTracker.mix(hash, orderId);
+        hash = SubmissionTracker.mix(hash, side.code);
+        hash = SubmissionTracker.mix(hash, orderType.code);
+        hash = SubmissionTracker.mix(hash, tif.code);
+        hash = SubmissionTracker.mix(hash, price);
+        hash = SubmissionTracker.mix(hash, quantity);
+        long ttlFingerprint = ttlMillis == null ? Long.MIN_VALUE : ttlMillis;
+        hash = SubmissionTracker.mix(hash, ttlFingerprint);
+        return new SubmissionTracker.RequestFingerprint(
+                hash,
+                side.code,
+                orderType.code,
+                tif.code,
+                price,
+                quantity,
+                ttlFingerprint
+        );
+    }
+
+    private static SubmissionTracker.RequestFingerprint cancelRequestFingerprint(long orderId) {
+        long hash = 0xD6E8FEB86659FD93L;
+        hash = SubmissionTracker.mix(hash, 2L);
+        return SubmissionTracker.RequestFingerprint.generic(SubmissionTracker.mix(hash, orderId));
+    }
+
     private static int submitQueueCapacity(MatcherServerConfig config) {
         int minimum = Math.max(config.ringCapacity(), config.httpSubmitEndpointMaxConcurrentRequests() * 4);
         int highest = Integer.highestOneBit(Math.max(2, minimum - 1));
@@ -804,14 +847,22 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
 
     private static final class SubmitTask {
         private final SubmissionRequest request;
+        private final boolean responseRequired;
         private SubmissionTracker.TrackedSubmission trackedSubmission;
         private volatile boolean done;
+        private SubmitResult result;
+        private long sequence;
         private volatile SubmitResponse response;
         private volatile Throwable failure;
         private volatile Thread waiter;
 
         private SubmitTask(SubmissionRequest request) {
+            this(request, true);
+        }
+
+        private SubmitTask(SubmissionRequest request, boolean responseRequired) {
             this.request = Objects.requireNonNull(request, "request");
+            this.responseRequired = responseRequired;
         }
 
         private SubmissionRequest request() {
@@ -827,7 +878,11 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
         }
 
         private void complete(SubmitResult result, long sequence) {
-            response = new SubmitResponse(result, sequence);
+            this.result = result;
+            this.sequence = sequence;
+            if (responseRequired) {
+                response = new SubmitResponse(result, sequence);
+            }
             done = true;
             Thread parked = waiter;
             if (parked != null) {
@@ -844,7 +899,21 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
             }
         }
 
+        private SubmitResult result() {
+            return result;
+        }
+
+        private long sequence() {
+            return sequence;
+        }
+
         private SubmitResponse awaitResult() throws IOException {
+            awaitCompletion();
+            SubmitResponse completedResponse = response;
+            return completedResponse != null ? completedResponse : new SubmitResponse(result, sequence);
+        }
+
+        private void awaitCompletion() throws IOException {
             if (!done) {
                 waiter = Thread.currentThread();
                 while (!done) {
@@ -869,7 +938,6 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
                 }
                 throw new IOException("matcher submit task failed", failure);
             }
-            return response;
         }
     }
 

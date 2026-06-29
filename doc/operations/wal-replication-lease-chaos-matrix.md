@@ -23,7 +23,7 @@
 
 ## 自动化执行入口
 
-当前项目已经把一部分可在单机进程内稳定复现的混沌场景收成 `@Tag("chaos")` 测试，可直接执行：
+项目把一部分可在单机进程内稳定复现的混沌场景收成 `@Tag("chaos")` 测试，可直接执行：
 
 ```bash
 mvn -Pchaos-tests test
@@ -174,11 +174,11 @@ PRIMARY_PID=12345 ./scripts/run-chaos-tests.sh env kill-primary
 - 重点观察单批丢失窗口是否符合预期
 - 建议记录：
   - batch size
-  - 最近一次 force 前累计命令数
+  - force 前累计命令数
 
 ### `OS_BUFFERED`
 
-- 只建议在吞吐优先、允许最近命令丢失的场景验证
+- 只建议在吞吐优先、允许尚未刷盘命令丢失的场景验证
 - 重点检查：
   - 宕机后最多丢多少命令
   - 上游是否能接受该 durability 语义

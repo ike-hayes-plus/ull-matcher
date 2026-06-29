@@ -1,95 +1,79 @@
-# 当前稳定压测基线
+# Benchmark 基线
 
-本文档用于归档当前仓库状态下，适合在开源 README 中引用的稳定压测事实源。
+本文档定义 README 和容量规划使用的 benchmark 基线。
 
-以下数据全部来自当前代码状态，只能视为当前基线，不应被表述成永久承诺。
+这些数字是本地参考机器上的基线，不是服务等级承诺。吞吐会受到 CPU、磁盘、内核调度、JVM 版本、网络路径、WAL durability、复制拓扑和 benchmark 参数影响。
 
-原始 JSON 报告由仓库内 benchmark 脚本生成，并通过 `scripts/ops/archive-current-benchmarks.sh` 归档。开源文档不把 `target/current/**` 当成对外可见路径。
-
-## 压测机器
+## 参考机器
 
 - Apple M4 Pro
 - 12 逻辑 CPU
 - 24 GiB 内存
 - 本地 SSD
+- JDK 21
 
-## 基线场景
+## 标准场景
 
-### 纯撮合主链
+除非单项 benchmark 另有说明，crossing 场景使用：
 
-- 口径：
-  - 单 JVM
-  - 只测 `UltraLowLatencyMatcher.onCommand(...)`
-  - 不包含 HTTP
-  - 不包含 WAL
-  - 不包含 HA
-  - 不包含 IPC
+- `restingOrders = 2048`
+- `crossingOrders = 2048`
+- `concurrency = 24`
+- binary ingress 场景使用 `batchSize = 64`
 
-当前基线：
-- accepted orders/s：`6,992,019.06`
-- p99 延迟：`0.46 µs`
+`restingOrders = 2048` 不是容量上限。它用于形成固定且可完全成交的盘口：先放入 2048 笔 resting sell orders，再用 2048 笔 crossing buy orders 吃掉盘口。2048 是 2 的幂，足够覆盖队列、批次、WAL force 和复制水位，又能让本地压测保持可重复。
 
-### 单 JVM 本地持久化主链
+## 压测结果
 
-- 口径：
-  - 单 JVM
-  - 包含撮合主链、本地 WAL 和事件分发
-  - 不包含外部网络边界
-  - 不包含 HA
+| 场景 | 入口 | 复制 | 口径 | Accepted orders/s | Trade events/s | Committed submissions/s | Catch-up | p99 延迟 |
+| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Core-only matcher | 直接内存调用 | 无 | 只测 `UltraLowLatencyMatcher.onCommand(...)`，不含 HTTP、WAL、HA、IPC | `24,855,862.10` | `N/A` | `N/A` | `N/A` | `0.13 us` |
+| 本地持久化服务路径 | JVM 内服务调用 | 无 | 撮合主链 + 本地 WAL + 事件分发 | `171,211.81` | `171,211.81` | `N/A` | `N/A` | `N/A` |
+| Single-node HTTP | REST | 无 | REST 下单入口 + 本地 WAL | `6,531.96` | `6,531.96` | `6,531.96` | `N/A` | `86.08 ms` |
+| Single-node binary | Binary ingress | 无 | Binary ingress + 本地 WAL | `132,048.10` | `132,048.10` | `132,048.10` | `N/A` | `0.21 ms` |
+| External `1P1S` REST + `GRPC` | REST | `GRPC` | 外部 REST 写入 + 单备复制 | `4,249.67` | `4,249.67` | `4,239.82` | `0.0011 s` | `11.90 ms` |
+| External `1P1S` REST + `AERON` | REST | `AERON` | 外部 REST 写入 + 单备复制 | `4,157.51` | `4,157.51` | `4,147.76` | `0.0012 s` | `13.66 ms` |
+| External `1P1S` binary + `GRPC` | Binary ingress | `GRPC` | 外部 binary 写入 + 单备复制 | `118,535.39` | `118,535.39` | `107,297.23` | `0.0018 s` | `0.35 ms` |
+| External `1P1S` binary + `AERON` | Binary ingress | `AERON` | 外部 binary 写入 + 单备复制 | `103,706.48` | `103,706.48` | `92,479.28` | `0.0024 s` | `0.40 ms` |
+| External `1P2S` binary + `GRPC` quorum | Binary ingress | `GRPC` | 外部 binary 写入 + 两备 quorum | `90,381.18` | `90,381.18` | `83,693.46` | `0.0018 s` | `0.57 ms` |
+| External `1P2S` binary + `AERON` quorum | Binary ingress | `AERON` | 外部 binary 写入 + 两备 quorum | `119,573.78` | `119,573.78` | `71,270.73` | `0.0116 s` | `0.24 ms` |
+| External `1P3S` binary + `GRPC` quorum | Binary ingress | `GRPC` | 外部 binary 写入 + 三备 quorum | `60,545.52` | `60,545.52` | `57,556.45` | `0.0018 s` | `0.66 ms` |
+| External `1P3S` binary + `AERON` quorum | Binary ingress | `AERON` | 外部 binary 写入 + 三备 quorum | `82,831.98` | `82,831.98` | `14,390.44` | `0.1176 s` | `0.24 ms` |
 
-当前基线：
-- accepted orders/s：`48,977.35`
+Core-only matcher 是纯内存撮合基线，用来证明核心数据结构、价格队列和撮合逻辑的上限。它不经过服务入口、WAL、复制或提交确认，因此不参与 committed 容量规划。
 
-### 单节点 Binary ingress
+REST HA 的 REST 只表示外部调用撮合服务的方式。主备复制不走 HTTP，只走配置的复制传输。
 
-- 口径：
-  - binary ingress
-  - 本地单进程
-  - 不包含 HA
+容量规划应使用 `Committed submissions/s`，不要只看 `Accepted orders/s`。
 
-当前基线：
-- accepted orders/s：`20,075.79`
+## 解读
 
-### 外部 Binary + 复制确认闭环
+- 撮合核心不是主要容量瓶颈。
+- Binary ingress 是高频写入主入口。
+- REST 适合管理、查询、后台操作和低频普通业务流量。
+- REST HA 的吞吐低于 binary HA，主要来自 HTTP 解析、请求响应、WAL、复制确认和外部进程调度成本。
+- 生产容量规划以 replication committed throughput 为准。
+- `GRPC` 是保守默认复制传输。
+- `AERON` 可用于高性能场景，但应在目标拓扑下使用同样的 benchmark、soak 和 chaos 口径验证。
 
-当前基线：
+## 复现
 
-| 场景 | Accepted orders/s | Replication committed/s | Catch-up |
-|---|---:|---:|---:|
-| External `1P1S` binary + `GRPC` | `21,648.10` | `19,935.02` | `0.0081 s` |
-| External `1P1S` binary + `AERON` | `17,359.70` | `16,136.80` | `0.0089 s` |
-| External `1P2S` binary + `GRPC` quorum | `17,739.98` | `16,495.97` | `0.0087 s` |
-| External `1P2S` binary + `AERON` quorum | `12,319.45` | `10,404.45` | `0.0306 s` |
-| External `1P3S` binary + `GRPC` quorum | `13,697.46` | `12,887.54` | `0.0094 s` |
-| External `1P3S` binary + `AERON` quorum | `27,829.30` | `21,109.76` | `0.0234 s` |
+生成 benchmark 报告到 `target/`：
 
-## 解释
+```bash
+mvn --batch-mode --no-transfer-progress -DskipTests install
+scripts/lab/run-binary-ingress-benchmark.sh \
+  --mode replication-commit \
+  --transport GRPC \
+  --standbys 1 \
+  --standby-commit-mode any \
+  --report target/current/binary-commit/grpc-1p1s-current.json
+```
 
-- 当前主瓶颈不是 matcher core。
-- binary ingress 是当前高频接单的正确主入口。
-- 当前生产主问题是 HA 持久化复制链里的 `accepted -> committed` 折损。
-- `GRPC` 仍然是当前保守默认值，因为单备 committed 曲线最稳定。
-- `AERON` 是高性能可选实现，但多备曲线仍然需要更长时间的 soak 和 chaos 证据，才能替代保守默认值。
+归档通过校验的报告：
 
-## 最终 Soak / Chaos 证据
+```bash
+scripts/ops/archive-current-benchmarks.sh <archive-name>
+```
 
-最终发布前，已对当前 `GRPC` 三节点拓扑跑过一轮 soak / failover 收尾验证。
-
-验证范围：
-
-- 60 秒稳定采样
-- `serviceReady`、`clientTrafficReady` 持续观测
-- failover smoke
-- 复制传输策略一致性验证
-
-当前结论：
-
-- soak 窗口内 `allAccepting=true`
-- soak 窗口内 `allServiceReady=true`
-- soak 窗口内 `allClientTrafficReady=true`
-- failover smoke 汇总结果为 `success=true`
-
-说明：
-
-- 该轮证据用于证明当前 `GRPC` 默认拓扑具备稳定的 readiness 与 failover 基线。
-- 该轮证据不等同于长时间生产 soak，也不替代更长期的 chaos 演练。
+归档脚本会拒绝非法 JSON 和 `success=false` 报告，并校验 Java 与 Python benchmark 报告的 schema metadata。

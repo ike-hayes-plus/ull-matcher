@@ -127,12 +127,15 @@ public final class UltraLowLatencyMatcher {
         taker.sequence = c.sequence;
         taker.expireAtEpochMillis = c.expireAtEpochMillis;
 
-        if (cfg.preventSelfTrade() && book.hasSelfTradeInFillPath(taker.side, taker.price, taker.userId, taker.quantity)) {
+        Order opposite = bestOpposite(taker);
+        boolean crossesBest = opposite != null && crosses(taker, opposite);
+        if (cfg.preventSelfTrade() && crossesBest &&
+                book.hasSelfTradeInFillPath(taker.side, taker.price, taker.userId, taker.quantity)) {
             emitOrder(c.sequence, c.symbolId, c.orderId, OrderStatus.REJECTED, RejectReason.SELF_TRADE_PREVENTED, c.quantity);
             pool.release(taker);
             return;
         }
-        if (c.timeInForce == TimeInForce.POST_ONLY.code && wouldTake(taker)) {
+        if (c.timeInForce == TimeInForce.POST_ONLY.code && crossesBest) {
             emitOrder(c.sequence, c.symbolId, c.orderId, OrderStatus.REJECTED, RejectReason.POST_ONLY_WOULD_TAKE, c.quantity);
             pool.release(taker);
             return;
@@ -255,17 +258,6 @@ public final class UltraLowLatencyMatcher {
         book.remove(o);
         pool.release(o);
         emitOrder(c.sequence, c.symbolId, c.orderId, OrderStatus.CANCELLED, RejectReason.NONE, remaining);
-    }
-
-    /**
-     * 检查订单是否会立即吃掉对手方流动性。
-     *
-     * @param o 待检查订单
-     * @return 当订单穿透当前最优对手价时返回 {@code true}
-     */
-    private boolean wouldTake(Order o) {
-        Order opp = bestOpposite(o);
-        return opp != null && crosses(o, opp);
     }
 
     /**

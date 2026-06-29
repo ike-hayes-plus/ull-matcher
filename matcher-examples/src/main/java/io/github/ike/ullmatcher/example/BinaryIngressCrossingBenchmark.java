@@ -167,6 +167,7 @@ public final class BinaryIngressCrossingBenchmark {
             System.out.println("  \"success\": " + (rejected.get() == 0 && tradeEvents == parsed.crossingOrders()) + ",");
             System.out.println("  \"scenario\": \"binary_ingress_crossing_benchmark\",");
             System.out.println("  \"topology\": \"single_node_binary\",");
+            BenchmarkSupport.printJsonMetadata();
             System.out.printf(Locale.ROOT, "  \"restingOrders\": %d,%n", parsed.restingOrders());
             System.out.printf(Locale.ROOT, "  \"crossingOrders\": %d,%n", parsed.crossingOrders());
             System.out.printf(Locale.ROOT, "  \"concurrency\": %d,%n", parsed.concurrency());

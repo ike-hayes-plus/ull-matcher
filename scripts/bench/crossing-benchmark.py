@@ -9,6 +9,8 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from benchmark_metadata import benchmark_metadata
+
 
 def fetch_json(url: str):
     with urllib.request.urlopen(url, timeout=5) as response:
@@ -190,6 +192,7 @@ def main() -> int:
     report = {
         "success": result_counts.get("ACCEPTED", 0) == args.resting_orders and trade_events == args.resting_orders,
         "scenario": "crossing_match_benchmark",
+        **benchmark_metadata(),
         "category": "matcher-benchmark",
         "severity": "ok" if result_counts.get("ACCEPTED", 0) == args.resting_orders and trade_events == args.resting_orders else "critical",
         "conclusion": "crossing benchmark completed" if result_counts.get("ACCEPTED", 0) == args.resting_orders and trade_events == args.resting_orders else "crossing benchmark did not produce the expected trade count",

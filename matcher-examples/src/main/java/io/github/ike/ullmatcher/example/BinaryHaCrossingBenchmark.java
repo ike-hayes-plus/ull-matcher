@@ -113,12 +113,14 @@ public final class BinaryHaCrossingBenchmark {
             long started = System.nanoTime();
             start.countDown();
             workers.shutdown();
-            ArrayList<Double> latencies = new ArrayList<>(parsed.crossingOrders());
+            double[] latencies = new double[parsed.crossingOrders()];
+            int latencyCount = 0;
             AtomicInteger rejected = new AtomicInteger();
             long maxAcceptedSequence = 0L;
             for (var future : futures) {
                 WorkerResult result = future.get(30, TimeUnit.SECONDS);
-                latencies.addAll(result.latenciesMs());
+                System.arraycopy(result.latenciesMs(), 0, latencies, latencyCount, result.latencyCount());
+                latencyCount += result.latencyCount();
                 rejected.addAndGet(result.rejected());
                 maxAcceptedSequence = Math.max(maxAcceptedSequence, result.maxAcceptedSequence());
             }
@@ -138,6 +140,7 @@ public final class BinaryHaCrossingBenchmark {
             System.out.println("  \"success\": " + (rejected.get() == 0 && tradeEvents == parsed.crossingOrders()) + ",");
             System.out.println("  \"scenario\": \"binary_ha_crossing_benchmark\",");
             System.out.println("  \"topology\": \"1P1S_binary\",");
+            BenchmarkSupport.printJsonMetadata();
             System.out.printf(Locale.ROOT, "  \"restingOrders\": %d,%n", parsed.restingOrders());
             System.out.printf(Locale.ROOT, "  \"crossingOrders\": %d,%n", parsed.crossingOrders());
             System.out.printf(Locale.ROOT, "  \"concurrency\": %d,%n", parsed.concurrency());
@@ -153,8 +156,8 @@ public final class BinaryHaCrossingBenchmark {
             System.out.printf(Locale.ROOT, "  \"tradeEventsPerSecond\": %.2f,%n", BenchmarkSupport.perSecond(tradeEvents, elapsedSeconds));
             System.out.printf(Locale.ROOT, "  \"matchedOrderSidesPerSecond\": %.2f,%n", BenchmarkSupport.perSecond(tradeEvents * 2L, elapsedSeconds));
             System.out.printf(Locale.ROOT, "  \"replicationCommittedSubmissionsPerSecond\": %.2f,%n", BenchmarkSupport.perSecond(committedSubmissions, elapsedSeconds));
-            System.out.printf(Locale.ROOT, "  \"meanLatencyMs\": %.2f,%n", BenchmarkSupport.mean(latencies));
-            System.out.printf(Locale.ROOT, "  \"p99LatencyMs\": %.2f,%n", BenchmarkSupport.percentile(latencies, 0.99));
+            System.out.printf(Locale.ROOT, "  \"meanLatencyMs\": %.2f,%n", BenchmarkSupport.mean(latencies, latencyCount));
+            System.out.printf(Locale.ROOT, "  \"p99LatencyMs\": %.2f,%n", BenchmarkSupport.percentile(latencies, latencyCount, 0.99));
             System.out.printf(Locale.ROOT, "  \"standbyLastDurableSequence\": %d,%n", standby.standbySyncService().cursor().lastDurableSequence());
             System.out.printf(Locale.ROOT, "  \"standbyApplyQueueDepth\": %d,%n", standby.metricsSnapshot().standbySyncMetrics().maxObservedApplyQueueDepth());
             System.out.printf(Locale.ROOT, "  \"rejectedOrders\": %d%n", rejected.get());
@@ -217,7 +220,8 @@ public final class BinaryHaCrossingBenchmark {
         try (SocketChannel channel = SocketChannel.open()) {
             channel.configureBlocking(true);
             channel.connect(new InetSocketAddress("127.0.0.1", port));
-            ArrayList<Double> latencies = new ArrayList<>((int) orderCount);
+            double[] latencies = new double[(int) orderCount];
+            int latencyCount = 0;
             ByteBuffer request = ByteBuffer.allocateDirect(FRAME_HEADER_BYTES + batchSize * REQUEST_RECORD_BYTES).order(ByteOrder.BIG_ENDIAN);
             ByteBuffer responseHeader = ByteBuffer.allocateDirect(FRAME_HEADER_BYTES).order(ByteOrder.BIG_ENDIAN);
             ByteBuffer responseBody = ByteBuffer.allocateDirect(batchSize * RESPONSE_RECORD_BYTES).order(ByteOrder.BIG_ENDIAN);
@@ -276,15 +280,15 @@ public final class BinaryHaCrossingBenchmark {
                     } else {
                         maxAcceptedSequence = Math.max(maxAcceptedSequence, sequence);
                     }
-                    latencies.add(perOrderLatencyMs);
+                    latencies[latencyCount++] = perOrderLatencyMs;
                 }
                 sent += frameCount;
             }
-            return new WorkerResult(latencies, rejected, maxAcceptedSequence);
+            return new WorkerResult(latencies, latencyCount, rejected, maxAcceptedSequence);
         }
     }
 
-    private record WorkerResult(List<Double> latenciesMs, int rejected, long maxAcceptedSequence) {
+    private record WorkerResult(double[] latenciesMs, int latencyCount, int rejected, long maxAcceptedSequence) {
     }
 
     private record Arguments(int restingOrders,
@@ -338,8 +342,12 @@ public final class BinaryHaCrossingBenchmark {
     }
 
     private static final class DirectStandbyReplicator implements CommandReplicator, AutoCloseable {
+        private static final OrderType[] ORDER_TYPES_BY_CODE = indexOrderTypes();
+        private static final TimeInForce[] TIME_IN_FORCE_BY_CODE = indexTimeInForces();
+
         private final String standbyNodeId;
         private final MatcherNodeService standby;
+        private final ArrayList<io.github.ike.ullmatcher.api.Command> batchCopies = new ArrayList<>();
 
         private DirectStandbyReplicator(String standbyNodeId, MatcherNodeService standby) {
             this.standbyNodeId = standbyNodeId;
@@ -354,11 +362,15 @@ public final class BinaryHaCrossingBenchmark {
 
         @Override
         public ReplicationResult replicateBatch(List<io.github.ike.ullmatcher.api.Command> commands, long timeoutNanos) throws IOException {
-            ArrayList<io.github.ike.ullmatcher.api.Command> copies = new ArrayList<>(commands.size());
-            for (io.github.ike.ullmatcher.api.Command command : commands) {
-                copies.add(copy(command));
+            batchCopies.clear();
+            try {
+                for (io.github.ike.ullmatcher.api.Command command : commands) {
+                    batchCopies.add(copy(command));
+                }
+                standby.standbySyncService().replicateBatch(batchCopies, timeoutNanos);
+            } finally {
+                batchCopies.clear();
             }
-            standby.standbySyncService().replicateBatch(copies, timeoutNanos);
             return new ReplicationResult(1, 1, List.of(standbyNodeId), List.of());
         }
 
@@ -387,21 +399,35 @@ public final class BinaryHaCrossingBenchmark {
         }
 
         private static OrderType decodeOrderType(byte code) {
-            for (OrderType type : OrderType.values()) {
-                if (type.code == code) {
-                    return type;
-                }
+            int index = code & 0xFF;
+            if (index < ORDER_TYPES_BY_CODE.length && ORDER_TYPES_BY_CODE[index] != null) {
+                return ORDER_TYPES_BY_CODE[index];
             }
             throw new IllegalArgumentException("unknown orderType code " + code);
         }
 
         private static TimeInForce decodeTimeInForce(byte code) {
-            for (TimeInForce tif : TimeInForce.values()) {
-                if (tif.code == code) {
-                    return tif;
-                }
+            int index = code & 0xFF;
+            if (index < TIME_IN_FORCE_BY_CODE.length && TIME_IN_FORCE_BY_CODE[index] != null) {
+                return TIME_IN_FORCE_BY_CODE[index];
             }
             throw new IllegalArgumentException("unknown timeInForce code " + code);
+        }
+
+        private static OrderType[] indexOrderTypes() {
+            OrderType[] index = new OrderType[256];
+            for (OrderType type : OrderType.values()) {
+                index[type.code & 0xFF] = type;
+            }
+            return index;
+        }
+
+        private static TimeInForce[] indexTimeInForces() {
+            TimeInForce[] index = new TimeInForce[256];
+            for (TimeInForce tif : TimeInForce.values()) {
+                index[tif.code & 0xFF] = tif;
+            }
+            return index;
         }
 
         @Override

@@ -42,20 +42,24 @@ final class MatcherNodeServiceConcurrencyTest {
             Thread.sleep(50L);
             int orderCount = 64;
             ExecutorService clients = Executors.newFixedThreadPool(8);
-            CountDownLatch start = new CountDownLatch(1);
-            List<java.util.concurrent.Future<MatcherNodeService.SubmitResponse>> futures = new ArrayList<>();
-            for (int i = 0; i < orderCount; i++) {
-                final long orderId = 10_000L + i;
-                futures.add(clients.submit(() -> {
-                    start.await();
-                    return service.submitNewOrder(1L, orderId, Side.BUY, OrderType.LIMIT, TimeInForce.GTC, 100L, 1L);
-                }));
+            try {
+                CountDownLatch start = new CountDownLatch(1);
+                List<java.util.concurrent.Future<MatcherNodeService.SubmitResponse>> futures = new ArrayList<>();
+                for (int i = 0; i < orderCount; i++) {
+                    final long orderId = 10_000L + i;
+                    futures.add(clients.submit(() -> {
+                        start.await();
+                        return service.submitNewOrder(1L, orderId, Side.BUY, OrderType.LIMIT, TimeInForce.GTC, 100L, 1L);
+                    }));
+                }
+                start.countDown();
+                for (var future : futures) {
+                    assertEquals(io.github.ike.ullmatcher.hft.SubmitResult.ACCEPTED, future.get(5, TimeUnit.SECONDS).result());
+                }
+            } finally {
+                clients.shutdownNow();
+                assertTrue(clients.awaitTermination(5, TimeUnit.SECONDS));
             }
-            start.countDown();
-            for (var future : futures) {
-                assertEquals(io.github.ike.ullmatcher.hft.SubmitResult.ACCEPTED, future.get(5, TimeUnit.SECONDS).result());
-            }
-            clients.shutdownNow();
             assertTrue(await(() -> service.liveOrderCount() == orderCount, 5_000L));
         }
     }
@@ -104,31 +108,35 @@ final class MatcherNodeServiceConcurrencyTest {
             service.configureReplication(replicator, ReplicationMode.WAIT_FOR_ANY_STANDBY, TimeUnit.SECONDS.toNanos(1));
 
             ExecutorService clients = Executors.newFixedThreadPool(2);
-            CountDownLatch start = new CountDownLatch(1);
-            CompletableFuture<List<MatcherNodeService.SubmitResponse>> firstFuture = new CompletableFuture<>();
-            CompletableFuture<List<MatcherNodeService.SubmitResponse>> secondFuture = new CompletableFuture<>();
+            try {
+                CountDownLatch start = new CountDownLatch(1);
+                CompletableFuture<List<MatcherNodeService.SubmitResponse>> firstFuture = new CompletableFuture<>();
+                CompletableFuture<List<MatcherNodeService.SubmitResponse>> secondFuture = new CompletableFuture<>();
 
-            clients.submit(() -> {
-                try {
-                    start.await();
-                    firstFuture.complete(service.submitNewOrderBatch(newOrderBatch(30_000L, 200)));
-                } catch (Throwable error) {
-                    firstFuture.completeExceptionally(error);
-                }
-            });
-            clients.submit(() -> {
-                try {
-                    start.await();
-                    secondFuture.complete(service.submitNewOrderBatch(newOrderBatch(40_000L, 200)));
-                } catch (Throwable error) {
-                    secondFuture.completeExceptionally(error);
-                }
-            });
-            start.countDown();
+                clients.submit(() -> {
+                    try {
+                        start.await();
+                        firstFuture.complete(service.submitNewOrderBatch(newOrderBatch(30_000L, 200)));
+                    } catch (Throwable error) {
+                        firstFuture.completeExceptionally(error);
+                    }
+                });
+                clients.submit(() -> {
+                    try {
+                        start.await();
+                        secondFuture.complete(service.submitNewOrderBatch(newOrderBatch(40_000L, 200)));
+                    } catch (Throwable error) {
+                        secondFuture.completeExceptionally(error);
+                    }
+                });
+                start.countDown();
 
-            assertEquals(200, firstFuture.get(5, TimeUnit.SECONDS).size());
-            assertEquals(200, secondFuture.get(5, TimeUnit.SECONDS).size());
-            clients.shutdownNow();
+                assertEquals(200, firstFuture.get(5, TimeUnit.SECONDS).size());
+                assertEquals(200, secondFuture.get(5, TimeUnit.SECONDS).size());
+            } finally {
+                clients.shutdownNow();
+                assertTrue(clients.awaitTermination(5, TimeUnit.SECONDS));
+            }
 
             assertTrue(await(() -> replicator.invocations.get() == 2, 5_000L));
             assertEquals(List.of(200, 200), replicator.batchSizes);

@@ -153,8 +153,8 @@ public final class MmapCommandWal implements WalWriter, WalReader {
      */
     @Override
     public void force() throws IOException {
+        // WAL segments are fixed-size mapped files; submit-path durability only needs mapped content flushed.
         buffer.force();
-        channel.force(true);
     }
 
     /**

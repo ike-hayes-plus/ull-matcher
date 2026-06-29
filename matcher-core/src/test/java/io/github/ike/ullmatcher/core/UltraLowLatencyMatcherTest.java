@@ -134,6 +134,66 @@ class UltraLowLatencyMatcherTest {
     }
 
     /**
+     * 验证防自成交 fast path 不会因为可达数量之后的同用户挂单误拒来单。
+     */
+    @Test
+    void selfTradeFastPathAllowsFillBeforeLaterSelfOrder() {
+        RecordingHandler h = new RecordingHandler();
+        UltraLowLatencyMatcher m = matcher(h);
+
+        m.onCommand(limit(1, 101, 12, Side.SELL, 100, 5));
+        m.onCommand(limit(2, 102, 11, Side.SELL, 100, 5));
+        m.onCommand(Command.newOrder(3, 201, 11, SYMBOL, Side.BUY, OrderType.LIMIT, TimeInForce.IOC, 100, 5));
+
+        assertEquals(1, h.trades.size());
+        assertEquals(101, h.trades.getFirst().sellOrderId());
+        assertEquals(5, h.trades.getFirst().quantity());
+        assertEquals(1, m.liveOrderCount(), "later same-user resting order must remain untouched");
+        assertFalse(h.orders.stream().anyMatch(o -> o.orderId() == 201 && o.status().equals("REJECTED")));
+    }
+
+    /**
+     * 验证 FOK fast path 只按实际填满路径判断，不会扫描到填满之后的同用户挂单后误取消。
+     */
+    @Test
+    void fokFastPathAllowsFullFillBeforeLaterSelfOrder() {
+        RecordingHandler h = new RecordingHandler();
+        UltraLowLatencyMatcher m = matcher(h);
+
+        m.onCommand(limit(1, 101, 12, Side.SELL, 100, 5));
+        m.onCommand(limit(2, 102, 11, Side.SELL, 100, 5));
+        m.onCommand(Command.newOrder(3, 201, 11, SYMBOL, Side.BUY, OrderType.LIMIT, TimeInForce.FOK, 100, 5));
+
+        assertEquals(1, h.trades.size());
+        assertEquals(101, h.trades.getFirst().sellOrderId());
+        assertEquals(5, h.trades.getFirst().quantity());
+        assertEquals(1, m.liveOrderCount(), "FOK should fill only the first resting order");
+        assertFalse(h.orders.stream().anyMatch(o -> o.orderId() == 201 && o.status().equals("CANCELLED")
+                && o.rejectReason().equals("FOK_NOT_FILLABLE")));
+        assertFalse(h.orders.stream().anyMatch(o -> o.orderId() == 201 && o.status().equals("REJECTED")
+                && o.rejectReason().equals("SELF_TRADE_PREVENTED")));
+    }
+
+    /**
+     * 验证不穿透盘口的同用户 IOC 不应走防自成交拒绝路径。
+     */
+    @Test
+    void nonCrossingIocIsCancelledInsteadOfSelfTradeRejected() {
+        RecordingHandler h = new RecordingHandler();
+        UltraLowLatencyMatcher m = matcher(h);
+
+        m.onCommand(limit(1, 101, 11, Side.SELL, 100, 5));
+        m.onCommand(Command.newOrder(2, 201, 11, SYMBOL, Side.BUY, OrderType.LIMIT, TimeInForce.IOC, 99, 5));
+
+        assertEquals(0, h.trades.size());
+        assertEquals(1, m.liveOrderCount());
+        assertTrue(h.orders.stream().anyMatch(o -> o.orderId() == 201 && o.status().equals("CANCELLED")
+                && o.rejectReason().equals("NONE")));
+        assertFalse(h.orders.stream().anyMatch(o -> o.orderId() == 201 && o.status().equals("REJECTED")
+                && o.rejectReason().equals("SELF_TRADE_PREVENTED")));
+    }
+
+    /**
      * 验证 FOK 预检查失败不会修改订单簿。
      */
     @Test

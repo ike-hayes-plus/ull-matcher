@@ -21,10 +21,13 @@ MIXED_MAKER_BATCH_SIZE="${MIXED_MAKER_BATCH_SIZE:-16}"
 MIXED_TAKER_BATCH_SIZE="${MIXED_TAKER_BATCH_SIZE:-16}"
 DATA_ROOT="${DATA_ROOT:-$ROOT_DIR/target/binary-bench-lab}"
 LOG_ROOT="${LOG_ROOT:-$ROOT_DIR/target/binary-bench-logs}"
-CLUSTER_NAME="${CLUSTER_NAME:-binary-bench}"
+CLUSTER_NAME="${CLUSTER_NAME:-binary-bench-$(date +%Y%m%d%H%M%S)-$$}"
 SHARD_KEY="${SHARD_KEY:-merchant:42}"
 SYMBOL_ID="${SYMBOL_ID:-1}"
 ZK_CONNECT="${ZK_CONNECT:-127.0.0.1:2181}"
+CLUSTER_STABLE_ROUNDS="${CLUSTER_STABLE_ROUNDS:-8}"
+CLUSTER_STABLE_TIMEOUT_SECONDS="${CLUSTER_STABLE_TIMEOUT_SECONDS:-30}"
+BENCHMARK_RETRIES="${BENCHMARK_RETRIES:-1}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -47,13 +50,53 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+require_positive_integer() {
+  local name="$1"
+  local value="$2"
+  if [[ ! "$value" =~ ^[1-9][0-9]*$ ]]; then
+    echo "${name} must be a positive integer: ${value}" >&2
+    exit 2
+  fi
+}
+
+case "$TRANSPORT" in
+  GRPC|AERON) ;;
+  *)
+    echo "--transport must be GRPC or AERON: ${TRANSPORT}" >&2
+    exit 2
+    ;;
+esac
+
+case "$MODE" in
+  crossing|mixed|replication-commit) ;;
+  *)
+    echo "--mode must be crossing, mixed, or replication-commit: ${MODE}" >&2
+    exit 2
+    ;;
+esac
+
 if [[ -z "$REPORT" ]]; then
   echo "--report is required" >&2
   exit 2
 fi
+require_positive_integer "--standbys" "$STANDBYS"
+require_positive_integer "RESTING_ORDERS" "$RESTING_ORDERS"
+require_positive_integer "CONCURRENCY" "$CONCURRENCY"
+require_positive_integer "BATCH_SIZE" "$BATCH_SIZE"
+require_positive_integer "CROSSING_ORDERS" "$CROSSING_ORDERS"
+require_positive_integer "MIXED_ROUNDS" "$MIXED_ROUNDS"
+require_positive_integer "MIXED_MAKER_BATCH_SIZE" "$MIXED_MAKER_BATCH_SIZE"
+require_positive_integer "MIXED_TAKER_BATCH_SIZE" "$MIXED_TAKER_BATCH_SIZE"
+require_positive_integer "CLUSTER_STABLE_ROUNDS" "$CLUSTER_STABLE_ROUNDS"
+require_positive_integer "CLUSTER_STABLE_TIMEOUT_SECONDS" "$CLUSTER_STABLE_TIMEOUT_SECONDS"
+require_positive_integer "BENCHMARK_RETRIES" "$BENCHMARK_RETRIES"
 if [[ "$STANDBYS" -lt 1 || "$STANDBYS" -gt 3 ]]; then
   echo "--standbys must be 1, 2, or 3" >&2
   exit 2
+fi
+if [[ "$MODE" != "replication-commit" && "$STANDBY_COMMIT_MODE" != "any" ]]; then
+  echo "[bench] --standby-commit-mode=${STANDBY_COMMIT_MODE} only applies to replication-commit; using any for ${MODE}" >&2
+  STANDBY_COMMIT_MODE="any"
 fi
 
 NODE_IDS=(node-a node-b node-c node-d)
@@ -161,16 +204,18 @@ print(json.loads(sys.argv[1])["nodeId"])
 PY
 )"
 
-python3 - <<'PY' "$NODE_COUNT" "${HTTP_PORTS[@]}"
+python3 - <<'PY' "$NODE_COUNT" "$CLUSTER_STABLE_ROUNDS" "$CLUSTER_STABLE_TIMEOUT_SECONDS" "${HTTP_PORTS[@]}"
 import json
 import sys
 import time
 import urllib.request
 
 node_count = int(sys.argv[1])
-http_ports = [int(x) for x in sys.argv[2:6]]
+required_stable_rounds = int(sys.argv[2])
+timeout_seconds = float(sys.argv[3])
+http_ports = [int(x) for x in sys.argv[4:8]]
 stable_rounds = 0
-deadline = time.time() + 15.0
+deadline = time.time() + timeout_seconds
 while time.time() < deadline:
     reachable = True
     for index in range(node_count):
@@ -183,11 +228,77 @@ while time.time() < deadline:
             break
     if reachable:
         stable_rounds += 1
-        if stable_rounds >= 5:
+        if stable_rounds >= required_stable_rounds:
             raise SystemExit(0)
     time.sleep(0.2)
 raise SystemExit("cluster did not stay stable long enough before benchmark")
 PY
+
+PRIMARY_JSON="$(python3 - <<'PY' "$NODE_COUNT" "$CLUSTER_STABLE_ROUNDS" "$CLUSTER_STABLE_TIMEOUT_SECONDS" "${HTTP_PORTS[@]}" "${BINARY_PORTS[@]}"
+import json
+import sys
+import time
+import urllib.request
+
+node_count = int(sys.argv[1])
+required_stable_rounds = int(sys.argv[2])
+timeout_seconds = float(sys.argv[3])
+http_ports = [int(x) for x in sys.argv[4:8]]
+binary_ports = [int(x) for x in sys.argv[8:12]]
+stable_primary = None
+stable_rounds = 0
+deadline = time.time() + timeout_seconds
+while time.time() < deadline:
+    payloads = []
+    try:
+        for index in range(node_count):
+            with urllib.request.urlopen(f"http://127.0.0.1:{http_ports[index]}/api/v1/runtime/health", timeout=2) as response:
+                payloads.append(json.loads(response.read().decode("utf-8")))
+    except Exception:
+        stable_primary = None
+        stable_rounds = 0
+        time.sleep(0.2)
+        continue
+    accepting = [
+        index for index, payload in enumerate(payloads)
+        if payload.get("acceptingClientCommands") and payload.get("role") == "PRIMARY"
+    ]
+    if len(accepting) == 1:
+        primary = accepting[0]
+        if stable_primary == primary:
+            stable_rounds += 1
+        else:
+            stable_primary = primary
+            stable_rounds = 1
+        if stable_rounds >= required_stable_rounds:
+            print(json.dumps({
+                "baseUrl": f"http://127.0.0.1:{http_ports[primary]}",
+                "binaryPort": binary_ports[primary],
+                "nodeId": f"node-{chr(ord('a') + primary)}"
+            }))
+            raise SystemExit(0)
+    else:
+        stable_primary = None
+        stable_rounds = 0
+    time.sleep(0.2)
+raise SystemExit("cluster did not keep a single stable primary before benchmark")
+PY
+)"
+PRIMARY_URL="$(python3 - <<'PY' "$PRIMARY_JSON"
+import json, sys
+print(json.loads(sys.argv[1])["baseUrl"])
+PY
+)"
+BINARY_PORT="$(python3 - <<'PY' "$PRIMARY_JSON"
+import json, sys
+print(json.loads(sys.argv[1])["binaryPort"])
+PY
+)"
+PRIMARY_NODE_ID="$(python3 - <<'PY' "$PRIMARY_JSON"
+import json, sys
+print(json.loads(sys.argv[1])["nodeId"])
+PY
+)"
 
 CMD=(
   python3 "$ROOT_DIR/scripts/bench/binary-ingress-benchmark.py"
@@ -224,4 +335,17 @@ for ((i = 0; i < NODE_COUNT; i++)); do
     CMD+=(--standby-base-url "http://127.0.0.1:${HTTP_PORTS[$i]}")
   fi
 done
-"${CMD[@]}"
+attempt=1
+while true; do
+  if "${CMD[@]}"; then
+    break
+  else
+    status=$?
+  fi
+  if [[ "$attempt" -ge "$BENCHMARK_RETRIES" ]]; then
+    exit "$status"
+  fi
+  attempt=$((attempt + 1))
+  echo "[bench] attempt failed with status ${status}; retrying ${attempt}/${BENCHMARK_RETRIES}" >&2
+  sleep 1
+done

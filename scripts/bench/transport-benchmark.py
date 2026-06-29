@@ -9,6 +9,8 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from benchmark_metadata import benchmark_metadata
+
 DEFAULT_THROUGHPUT_PROFILES = "6x240x1,12x480x2,24x960x2"
 
 
@@ -321,6 +323,7 @@ def main() -> int:
     report = {
         "success": readiness_after.get("serviceReady") is True and first_failure is None and best_throughput is not None,
         "scenario": "transport_benchmark",
+        **benchmark_metadata(),
         "category": "ha-benchmark",
         "severity": "ok" if readiness_after.get("serviceReady") is True and first_failure is None else "critical",
         "conclusion": "transport benchmark completed" if first_failure is None else f"transport benchmark hit instability at {first_failure['concurrency']}x{first_failure['operationsPerRound']}x{first_failure['rounds']}",

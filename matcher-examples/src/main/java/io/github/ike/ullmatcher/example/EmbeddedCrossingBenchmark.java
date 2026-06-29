@@ -166,6 +166,7 @@ public final class EmbeddedCrossingBenchmark {
             System.out.println("{");
             System.out.printf(Locale.ROOT, "  \"success\": %s,%n", accepted.get() == parsed.crossingOrders() && rejected.get() == 0L);
             System.out.println("  \"scenario\": \"embedded_crossing_benchmark\",");
+            BenchmarkSupport.printJsonMetadata();
             System.out.printf(Locale.ROOT, "  \"restingOrders\": %d,%n", parsed.restingOrders());
             System.out.printf(Locale.ROOT, "  \"crossingOrders\": %d,%n", parsed.crossingOrders());
             System.out.printf(Locale.ROOT, "  \"concurrency\": %d,%n", parsed.concurrency());

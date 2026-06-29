@@ -11,6 +11,12 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from benchmark_metadata import benchmark_metadata
+from replication_metrics import all_standbys_watermark
+from replication_metrics import mode_watermark
+from replication_metrics import required_standby_acks
+from replication_metrics import watermark_delta
+
 
 REQUEST_MAGIC = 0x554C4C42
 RESPONSE_MAGIC = 0x554C4C52
@@ -494,21 +500,25 @@ def main():
     accepted_commands = max(0, health_after.get("gatewayAcceptedTotal", 0) - health_before.get("gatewayAcceptedTotal", 0))
     processed_commands = max(0, health_after.get("processedCommandCount", 0) - health_before.get("processedCommandCount", 0))
     trade_events = max(0, health_after.get("tradeCount", 0) - health_before.get("tradeCount", 0))
+    before_committed = health_before.get("replicationCommittedSequence", health_before.get("submissionCommittedCount", 0))
+    after_committed = health_after.get("replicationCommittedSequence", health_after.get("submissionCommittedCount", 0))
     if standby_before and standby_after:
-        before_any = max(item.get("lastDurableSequence", 0) for item in standby_before)
-        after_any = max(item.get("lastDurableSequence", 0) for item in standby_after)
-        before_all = min(item.get("lastDurableSequence", 0) for item in standby_before)
-        after_all = min(item.get("lastDurableSequence", 0) for item in standby_after)
+        before_mode_durable = mode_watermark(args.standby_commit_mode, standby_before)
+        after_mode_durable = mode_watermark(args.standby_commit_mode, standby_after)
+        before_all = all_standbys_watermark(standby_before)
+        after_all = all_standbys_watermark(standby_after)
     else:
-        before_any = health_before.get("submissionCommittedCount", 0)
-        after_any = health_after.get("submissionCommittedCount", 0)
-        before_all = before_any
-        after_all = after_any
-    committed_submissions = max(0, after_any - before_any)
-    fully_durable_on_all_standbys = max(0, after_all - before_all)
+        before_mode_durable = before_committed
+        after_mode_durable = after_committed
+        before_all = before_committed
+        after_all = after_committed
+    committed_submissions = min(accepted_commands, watermark_delta(before_committed, after_committed))
+    mode_durable_submissions = watermark_delta(before_mode_durable, after_mode_durable)
+    fully_durable_on_all_standbys = watermark_delta(before_all, after_all)
     report = {
         "success": rejected == 0,
         "scenario": f"binary_{args.mode}_benchmark",
+        **benchmark_metadata(),
         "category": "matcher-benchmark",
         "severity": "ok" if rejected == 0 else "critical",
         "conclusion": "binary ingress benchmark completed" if rejected == 0 else "binary ingress benchmark completed with rejected commands",
@@ -527,6 +537,7 @@ def main():
         "tradeEvents": trade_events,
         "matchedOrderSides": trade_events * 2,
         "replicationCommittedSubmissions": committed_submissions,
+        "standbyCommitModeDurableCommands": mode_durable_submissions,
         "allStandbysDurableCommands": fully_durable_on_all_standbys,
         "clientAcceptedNewOrders": accepted_new if args.mode == "mixed" else accepted_commands,
         "clientAcceptedCancelCommands": accepted_cancel,
@@ -538,6 +549,7 @@ def main():
         "tradeEventsPerSecond": 0.0 if elapsed_seconds == 0.0 else trade_events / elapsed_seconds,
         "matchedOrderSidesPerSecond": 0.0 if elapsed_seconds == 0.0 else (trade_events * 2) / elapsed_seconds,
         "replicationCommittedSubmissionsPerSecond": 0.0 if elapsed_seconds == 0.0 else committed_submissions / elapsed_seconds,
+        "standbyCommitModeDurableCommandsPerSecond": 0.0 if elapsed_seconds == 0.0 else mode_durable_submissions / elapsed_seconds,
         "allStandbysDurableCommandsPerSecond": 0.0 if elapsed_seconds == 0.0 else fully_durable_on_all_standbys / elapsed_seconds,
         "healthBefore": health_before,
         "healthAfter": health_after,
@@ -548,16 +560,6 @@ def main():
     Path(args.report).write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(Path(args.report))
     return 0
-
-
-def required_standby_acks(mode: str, standby_count: int) -> int:
-    if mode == "any":
-        return min(1, standby_count)
-    if mode == "quorum":
-        return 0 if standby_count == 0 else (standby_count // 2) + 1
-    if mode == "all":
-        return standby_count
-    raise ValueError(f"unsupported standby commit mode: {mode}")
 
 
 if __name__ == "__main__":

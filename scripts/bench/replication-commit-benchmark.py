@@ -11,6 +11,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Optional
 
+from benchmark_metadata import benchmark_metadata
+
 
 def fetch_json(url: str):
     with urllib.request.urlopen(url, timeout=5) as response:
@@ -282,6 +284,7 @@ def main() -> int:
     report = {
         "success": success,
         "scenario": "replication_commit_benchmark",
+        **benchmark_metadata(),
         "category": "matcher-benchmark",
         "severity": "ok" if success else "critical",
         "conclusion": "replication committed chain caught up within the benchmark window"

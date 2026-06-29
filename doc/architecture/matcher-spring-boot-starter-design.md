@@ -38,9 +38,9 @@ Spring Cloud Gateway / Ingress
  core / storage / runtime / ha / grpc
 ```
 
-## 当前 starter 范围
+## Starter 范围
 
-当前 starter 提供：
+starter 提供：
 
 - `ull.matcher.*` 基础属性
 - 独立 `MatcherServerConfig` Bean
@@ -50,16 +50,16 @@ Spring Cloud Gateway / Ingress
 - `TtlCancelConfig` 属性绑定
 - WAL durability 相关属性绑定
 
-当前 starter 故意不做：
+starter 故意不做：
 
 - 平台级控制器
 - Spring MVC / WebFlux API 包装
 
 原因是这些能力会把主项目重新拉回“重 Spring 服务框架”路线，污染撮合节点边界。
 
-## 后续扩展建议
+## 扩展建议
 
-如需继续扩展，优先顺序应为：
+如需扩展，优先顺序应为：
 
 1. 健康指标桥接到 Actuator
 2. Nacos / ZooKeeper 条件化装配样例
