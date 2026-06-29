@@ -205,6 +205,9 @@ public final class FastOrderBook {
         if (bestLevel == null || !crosses(takerSide, limitPrice, bestLevel.price)) {
             return false;
         }
+        if (!preventSelfTrade) {
+            return hasAggregateFillableQuantity(takerSide, limitPrice, requiredQty);
+        }
         if (requiredQty <= bestLevel.totalQuantity) {
             return levelHasFillableQuantity(bestLevel, requiredQty, takerUserId, preventSelfTrade);
         }
@@ -351,6 +354,28 @@ public final class FastOrderBook {
             if (remaining <= 0) return true;
         }
         return false;
+    }
+
+    private boolean hasAggregateFillableQuantity(byte takerSide, long limitPrice, long requiredQty) {
+        long remaining = requiredQty;
+        LongObjectHashMap<PriceLevel> side = oppositeLevelsFor(takerSide);
+        LongHeap prices = oppositeScanPricesFor(takerSide);
+        oppositePricesFor(takerSide).copyInto(prices);
+        boolean hasLastPrice = false;
+        long lastPrice = 0;
+        while (remaining > 0 && !prices.isEmpty()) {
+            long price = prices.poll();
+            if (hasLastPrice && price == lastPrice) continue;
+            hasLastPrice = true;
+            lastPrice = price;
+
+            PriceLevel level = side.get(price);
+            if (level == null || level.isEmpty()) continue;
+            if (!crosses(takerSide, limitPrice, price)) break;
+
+            remaining -= level.totalQuantity;
+        }
+        return remaining <= 0;
     }
 
     private boolean levelHasSelfTradeBeforeFilled(PriceLevel level, long takerUserId, long quantity) {

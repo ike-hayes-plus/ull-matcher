@@ -77,3 +77,9 @@ scripts/ops/archive-current-benchmarks.sh <archive-name>
 ```
 
 归档脚本会拒绝非法 JSON 和 `success=false` 报告，并校验 Java 与 Python benchmark 报告的 schema metadata。
+
+校验当前报告不低于本文档基线：
+
+```bash
+scripts/ops/validate-benchmark-baseline.py
+```

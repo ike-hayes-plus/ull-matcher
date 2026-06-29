@@ -92,6 +92,13 @@ final class SubmissionTracker {
         pendingCount.increment();
         if (trackedCount.sum() > maxTrackedSubmissions) {
             evictFinalizedIfNeeded();
+            if (trackedCount.sum() > maxTrackedSubmissions) {
+                bySubmissionId.remove(created.submissionId(), created);
+                byIdempotencyKey.remove(normalizedKey, created);
+                trackedCount.decrement();
+                pendingCount.decrement();
+                throw new IllegalStateException("too many tracked submissions");
+            }
         }
         return new Registration(created, false);
     }

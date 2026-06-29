@@ -210,6 +210,26 @@ class UltraLowLatencyMatcherTest {
     }
 
     /**
+     * 验证 FOK 跨多个价格档时仍按价格时间优先完全成交。
+     */
+    @Test
+    void fokFillsAcrossMultiplePriceLevels() {
+        RecordingHandler h = new RecordingHandler();
+        UltraLowLatencyMatcher m = matcher(h);
+
+        m.onCommand(limit(1, 101, 11, Side.SELL, 100, 4));
+        m.onCommand(limit(2, 102, 12, Side.SELL, 101, 6));
+        m.onCommand(Command.newOrder(3, 201, 21, SYMBOL, Side.BUY, OrderType.LIMIT, TimeInForce.FOK, 101, 10));
+
+        assertEquals(2, h.trades.size());
+        assertEquals(101, h.trades.get(0).sellOrderId());
+        assertEquals(102, h.trades.get(1).sellOrderId());
+        assertEquals(0, m.liveOrderCount());
+        assertFalse(h.orders.stream().anyMatch(o -> o.orderId() == 201 && o.status().equals("CANCELLED")
+                && o.rejectReason().equals("FOK_NOT_FILLABLE")));
+    }
+
+    /**
      * 验证只挂单订单在会穿透时被拒绝。
      */
     @Test

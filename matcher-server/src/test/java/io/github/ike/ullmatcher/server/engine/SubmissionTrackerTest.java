@@ -35,6 +35,25 @@ final class SubmissionTrackerTest {
     }
 
     @Test
+    void activeSubmissionsAreRejectedWhenTrackedLimitIsExceeded() {
+        SubmissionTracker tracker = new SubmissionTracker(
+                new OrderStateTracker(16),
+                Clock.fixed(Instant.ofEpochMilli(1_000L), ZoneOffset.UTC),
+                1
+        );
+
+        SubmissionTracker.Registration first = tracker.register("NEW_ORDER", "key-1", 1L, 101L, 11L);
+
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> tracker.register("NEW_ORDER", "key-2", 1L, 102L, 12L));
+        assertEquals("too many tracked submissions", error.getMessage());
+        assertEquals(1L, tracker.metricsSnapshot().trackedCount());
+        assertEquals(1L, tracker.metricsSnapshot().pendingCount());
+        assertNull(tracker.findByIdempotencyKey("key-2"));
+        assertEquals(first.trackedSubmission().submissionId(), tracker.findByIdempotencyKey("key-1").submissionId());
+    }
+
+    @Test
     void reusedIdempotencyKeyWithDifferentRequestIsRejected() {
         SubmissionTracker tracker = new SubmissionTracker(new OrderStateTracker(16));
 

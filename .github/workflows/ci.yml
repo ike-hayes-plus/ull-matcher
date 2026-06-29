@@ -29,6 +29,12 @@ jobs:
       - name: Run style and prerequisite validation
         run: mvn --batch-mode --no-transfer-progress -Pstyle-check validate
 
+      - name: Run benchmark tooling self-tests
+        run: |
+          ./scripts/ops/test-benchmark-replication-metrics.sh
+          ./scripts/ops/test-archive-current-benchmarks.sh
+          ./scripts/ops/test-validate-benchmark-baseline.sh
+
       - name: Run unit and integration tests
         run: mvn --batch-mode --no-transfer-progress test
 
