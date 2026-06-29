@@ -37,6 +37,7 @@
 - 最后一跳仍然是单消费者 ring
 - 高频主入口是 binary ingress
 - 通用业务入口是 HTTP/REST
+- Java SDK 复用服务端 HTTP / binary ingress 协议
 - 提交链是：
   1. 入口接收请求
   2. 多生产者聚合进入 submit queue
@@ -149,6 +150,34 @@ bash scripts/deploy/stop-node.sh node-b
 - `scripts/lab/`: 本地实验拓扑和临时压测编排
 - `scripts/ops/`: 运维采样和状态收集
 - `scripts/chaos/`: 混沌验证和 failover 演练
+
+## Java SDK
+
+Java SDK 模块：
+
+- `matcher-sdk-java`
+
+SDK 用于生产服务集成，封装 HTTP API 与 binary ingress 两类入口。HTTP 客户端适合管理面、查询、补单和普通业务接入：
+
+```java
+import io.github.ike.ullmatcher.sdk.MatcherClientConfig;
+import io.github.ike.ullmatcher.sdk.MatcherHttpClient;
+import io.github.ike.ullmatcher.sdk.NewOrderRequest;
+
+MatcherHttpClient client = new MatcherHttpClient(MatcherClientConfig.localDefault());
+client.submitOrder(NewOrderRequest.limit(7L, 1001L, "BUY", "GTC", 100L, 1L, "order-1001"));
+```
+
+binary ingress 客户端适合高频、低延迟、批量接单路径：
+
+```java
+import io.github.ike.ullmatcher.sdk.BinaryNewOrder;
+import io.github.ike.ullmatcher.sdk.MatcherBinaryClient;
+
+try (MatcherBinaryClient client = new MatcherBinaryClient("127.0.0.1", 18080, java.time.Duration.ofSeconds(2))) {
+    client.submitOrders(java.util.List.of(BinaryNewOrder.buyLimit(7L, 1002L, 100L, 1L)));
+}
+```
 
 ## 对外接口
 

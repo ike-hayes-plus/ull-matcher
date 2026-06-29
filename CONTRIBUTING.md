@@ -2,13 +2,14 @@
 
 ## 作用域
 
-本仓库聚焦于撮合内核与撮合节点服务。提交修改时，请保持在以下边界内：
+本仓库聚焦于撮合内核、撮合节点服务与配套 Java SDK。提交修改时，请保持在以下边界内：
 
 - 撮合核心
 - WAL、快照、重放
 - runtime loop 与 gateway
 - HA 控制面与复制链
 - 独立 matcher 节点服务
+- Java SDK 接入封装
 
 不要把账户账本、清结算、行情分发或无关业务流程混入本仓库。
 
@@ -93,6 +94,7 @@ mvn -Pstyle-check,release-signing,central-publish -DskipTests deploy
 - `matcher-ha-grpc`：gRPC 复制传输
 - `matcher-ha-aeron`：Aeron 复制传输
 - `matcher-server`：独立撮合节点服务
+- `matcher-sdk-java`：Java SDK，封装 HTTP API 与 binary ingress 客户端
 - `matcher-spring-boot-starter`：Spring Boot 集成入口
 - `matcher-examples`：benchmark、实验和示例入口
 

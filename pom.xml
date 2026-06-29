@@ -46,6 +46,7 @@
         <module>matcher-ha-grpc</module>
         <module>matcher-ha-aeron</module>
         <module>matcher-server</module>
+        <module>matcher-sdk-java</module>
         <module>matcher-spring-boot-starter</module>
         <module>matcher-examples</module>
         <module>matcher-benchmarks</module>
