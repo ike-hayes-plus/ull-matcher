@@ -12,7 +12,7 @@
 
 - 至少 2 个 matcher 节点
 - 1 套 ZooKeeper
-- 可选 1 套 Nacos
+- 可选 1 套三成员 etcd quorum
 - 独立数据目录
 - 可观察项：
   - HTTP readiness
@@ -35,7 +35,7 @@ mvn -Pchaos-tests test
 ./scripts/run-chaos-tests.sh
 ```
 
-环境级场景也已经提供统一脚本入口：
+环境级场景使用统一脚本入口：
 
 ```bash
 ./scripts/run-chaos-tests.sh env help
@@ -69,7 +69,7 @@ PRIMARY_PID=12345 ./scripts/run-chaos-tests.sh env kill-primary
 `lab up` 会拉起：
 
 - ZooKeeper
-- Nacos
+- etcd
 - Toxiproxy
 - Prometheus
 
@@ -79,7 +79,7 @@ PRIMARY_PID=12345 ./scripts/run-chaos-tests.sh env kill-primary
 
 - [`ha-sharding-lab.md`](ha-sharding-lab.md)
 
-这些自动化用例覆盖的是“可重复、可断言、无需外部系统干预”的场景。涉及磁盘打满、`tc netem`、真实 ZooKeeper/Nacos 网络分区的场景仍然保留为运维级手工/集成演练。
+这些自动化用例覆盖的是“可重复、可断言、无需外部系统干预”的场景。涉及磁盘打满、`tc netem`、真实 ZooKeeper/etcd 网络分区的场景仍然保留为运维级手工/集成演练。
 
 ## 关注指标
 
@@ -105,9 +105,9 @@ PRIMARY_PID=12345 ./scripts/run-chaos-tests.sh env kill-primary
 | C7 | primary 与 ZooKeeper 断联 | 切断 ZK 网络 | primary 自我 fencing | 断联后仍继续接单 |
 | C8 | standby 与 ZooKeeper 断联 | 切断 standby 到 ZK | standby 不误 promote | 出现双主 |
 | C9 | primary 进程 kill -9 | 直接杀进程 | standby 接管，重启后 snapshot + replay | 接管失败或恢复回退 |
-| C10 | Nacos 地址漂移 | 改实例地址 / 端口 | client 重建连接 | 仍访问旧 endpoint |
+| C10 | discovery 地址漂移 | 改实例地址 / 端口 | client 重建连接 | 仍访问旧 endpoint |
 
-## 当前自动化覆盖
+## 自动化覆盖
 
 | 编号 | 自动化状态 | 对应用例 |
 | --- | --- | --- |
@@ -117,16 +117,16 @@ PRIMARY_PID=12345 ./scripts/run-chaos-tests.sh env kill-primary
 | C7 | 已自动化 | `HaCoordinatorTest#primaryFencesItselfAfterLeaseLoss` |
 | C10 | 已自动化 | `DiscoveryDrivenReplicatorTest#refreshRebuildsTargetWhenEndpointChanges` |
 
-其余场景现在已提供脚本化入口，但仍需要真实环境执行与观测，因为它们依赖：
+其余场景需要在真实环境执行与观测，因为它们依赖：
 
 - 真实磁盘抖动或磁盘打满
-- 真实 ZooKeeper / Nacos 网络分区
+- 真实 ZooKeeper / etcd 网络分区
 - 跨节点流量控制与 `tc netem`
 - 外部进程 `kill -9`
 
 ## 观测采集与状态校验
 
-新增脚本：
+采集与校验脚本：
 
 - `./scripts/run-chaos-tests.sh collect <out-dir> <base-url>`
 - `./scripts/run-chaos-tests.sh validate <node-dir> [<node-dir> ...]`

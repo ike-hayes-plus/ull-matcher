@@ -35,20 +35,92 @@ public final class MatcherBinaryClient implements Closeable {
     /** 响应记录固定 24 字节：orderId + sequence + resultCode + reserved。 */
     private static final int RESPONSE_RECORD_BYTES = 24;
 
-    private final Socket socket;
+    private final String host;
+    private final int port;
     private final Duration timeout;
+    private Socket socket;
+    private boolean closed;
 
     public MatcherBinaryClient(String host, int port, Duration timeout) throws IOException {
-        Objects.requireNonNull(host, "host");
-        Objects.requireNonNull(timeout, "timeout");
-        this.timeout = timeout;
-        this.socket = new Socket();
-        int timeoutMillis = Math.toIntExact(Math.min(Integer.MAX_VALUE, timeout.toMillis()));
+        this.host = Objects.requireNonNull(host, "host");
+        this.port = port;
+        this.timeout = Objects.requireNonNull(timeout, "timeout");
+        if (port < 1 || port > 65_535) {
+            throw new IllegalArgumentException("port must be between 1 and 65535");
+        }
+        if (!timeout.isPositive()) {
+            throw new IllegalArgumentException("timeout must be positive");
+        }
+        this.socket = connectSocket();
+    }
+
+    private Socket connectSocket() throws IOException {
+        Socket next = new Socket();
+        int timeoutMillis = timeoutMillis();
         // binary ingress 是长连接协议；连接超时和读超时都使用调用方提供的请求预算。
-        socket.connect(new InetSocketAddress(host, port), timeoutMillis);
-        socket.setSoTimeout(timeoutMillis);
+        next.connect(new InetSocketAddress(host, port), timeoutMillis);
+        next.setSoTimeout(timeoutMillis);
         // 接单路径不依赖 Nagle 合并，默认关闭以降低单批次尾延迟。
-        socket.setTcpNoDelay(true);
+        next.setTcpNoDelay(true);
+        return next;
+    }
+
+    private int timeoutMillis() {
+        return Math.toIntExact(Math.min(Integer.MAX_VALUE, timeout.toMillis()));
+    }
+
+    /**
+     * 显式重建长连接。
+     * <p>
+     * SDK 不会在提交失败后自动重发请求，因为连接中断时无法判断服务端是否已经收到并处理了该批订单。
+     * 调用方应在业务层用 orderId / 幂等策略决定是否重试。
+     */
+    public synchronized void reconnect() throws IOException {
+        ensureOpen();
+        closeCurrentSocket();
+        socket = connectSocket();
+    }
+
+    public synchronized boolean connected() {
+        return !closed && isUsable(socket);
+    }
+
+    private void ensureOpen() throws IOException {
+        if (closed) {
+            throw new IOException("binary client is closed");
+        }
+    }
+
+    private Socket ensureConnected() throws IOException {
+        ensureOpen();
+        if (!isUsable(socket)) {
+            closeCurrentSocket();
+            socket = connectSocket();
+        }
+        return socket;
+    }
+
+    private static boolean isUsable(Socket socket) {
+        return socket != null
+                && socket.isConnected()
+                && !socket.isClosed()
+                && !socket.isInputShutdown()
+                && !socket.isOutputShutdown();
+    }
+
+    private void closeCurrentSocket() throws IOException {
+        Socket current = socket;
+        socket = null;
+        if (current != null) {
+            current.close();
+        }
+    }
+
+    private void discardCurrentSocket() {
+        try {
+            closeCurrentSocket();
+        } catch (IOException ignored) {
+        }
     }
 
     /**
@@ -58,7 +130,7 @@ public final class MatcherBinaryClient implements Closeable {
      * @return 服务端逐条返回的本地提交结果
      * @throws IOException 网络或协议错误
      */
-    public List<BinaryCommandResult> submitOrders(List<BinaryNewOrder> orders) throws IOException {
+    public synchronized List<BinaryCommandResult> submitOrders(List<BinaryNewOrder> orders) throws IOException {
         if (orders == null || orders.isEmpty()) {
             throw new IllegalArgumentException("orders must not be empty");
         }
@@ -85,7 +157,7 @@ public final class MatcherBinaryClient implements Closeable {
      * @return 服务端逐条返回的本地提交结果
      * @throws IOException 网络或协议错误
      */
-    public List<BinaryCommandResult> cancelOrders(List<Long> orderIds) throws IOException {
+    public synchronized List<BinaryCommandResult> cancelOrders(List<Long> orderIds) throws IOException {
         if (orderIds == null || orderIds.isEmpty()) {
             throw new IllegalArgumentException("orderIds must not be empty");
         }
@@ -110,13 +182,19 @@ public final class MatcherBinaryClient implements Closeable {
         frame.putInt(recordCount);
         frame.putInt(payload.remaining());
         frame.put(payload);
-        socket.getOutputStream().write(frame.array());
-        socket.getOutputStream().flush();
-        return readResponse();
+        Socket active = ensureConnected();
+        try {
+            active.getOutputStream().write(frame.array());
+            active.getOutputStream().flush();
+            return readResponse(active);
+        } catch (IOException e) {
+            discardCurrentSocket();
+            throw e;
+        }
     }
 
-    private List<BinaryCommandResult> readResponse() throws IOException {
-        byte[] headerBytes = socket.getInputStream().readNBytes(FRAME_HEADER_BYTES);
+    private List<BinaryCommandResult> readResponse(Socket active) throws IOException {
+        byte[] headerBytes = active.getInputStream().readNBytes(FRAME_HEADER_BYTES);
         if (headerBytes.length != FRAME_HEADER_BYTES) {
             throw new IOException("binary ingress response header truncated");
         }
@@ -133,7 +211,7 @@ public final class MatcherBinaryClient implements Closeable {
         if (payloadBytes != count * RESPONSE_RECORD_BYTES) {
             throw new IOException("invalid binary ingress response payload size");
         }
-        byte[] payload = socket.getInputStream().readNBytes(payloadBytes);
+        byte[] payload = active.getInputStream().readNBytes(payloadBytes);
         if (payload.length != payloadBytes) {
             throw new IOException("binary ingress response payload truncated");
         }
@@ -150,7 +228,8 @@ public final class MatcherBinaryClient implements Closeable {
     }
 
     @Override
-    public void close() throws IOException {
-        socket.close();
+    public synchronized void close() throws IOException {
+        closed = true;
+        closeCurrentSocket();
     }
 }

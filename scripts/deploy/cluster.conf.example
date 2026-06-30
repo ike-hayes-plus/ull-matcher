@@ -1,0 +1,47 @@
+# shellcheck shell=bash
+#
+# Copy this file and edit it for one shard, for example:
+#   cp scripts/deploy/cluster.conf.example conf/merchant-42.env
+#
+# Then run:
+#   scripts/deploy/cluster.sh -c conf/merchant-42.env start
+
+CLUSTER_NAME="merchant-prod"
+SHARD_KEY="merchant:42"
+SYMBOL_ID="1"
+ZK_CONNECT="10.0.0.10:2181,10.0.0.11:2181,10.0.0.12:2181"
+ETCD_ENDPOINT="http://10.0.0.10:2379,http://10.0.0.11:2379,http://10.0.0.12:2379"
+
+# Control plane providers:
+#   lease: zk | etcd
+#   discovery: zk | etcd
+LEASE_PROVIDER="zk"
+DISCOVERY_PROVIDER="zk"
+
+REPLICATION_TRANSPORT="GRPC"
+REPLICATION_MODE="WAIT_FOR_ANY_STANDBY"
+WAL_DURABILITY_MODE="SYNC"
+
+# Default is availability-first: one healthy standby is enough for promotion.
+# For a 1P3S topology that must avoid single-node promotion, set this to 2.
+FAILOVER_MIN_STANDBY_REPLICAS="1"
+
+# The same checkout or release directory must exist on every remote host.
+REMOTE_ROOT="/opt/ull-matcher"
+REMOTE_USER=""
+SSH_OPTS="-o BatchMode=yes -o StrictHostKeyChecking=accept-new"
+
+# Optional TLS settings.
+ENABLE_TRANSPORT_TLS="false"
+TRANSPORT_TLS_DIR="/etc/ull-matcher/tls"
+
+# Format:
+#   nodeId|host|httpPort|grpcPort|aeronPort|binaryPort|dataDir|logDir
+#
+# Set binaryPort to "-" to disable binary ingress for that node.
+# dataDir is the exact WAL/snapshot directory for this node.
+NODES=(
+  "node-a|10.0.1.11|8080|9190|15090|10080|/data/ull-matcher/node-a|/var/log/ull-matcher/node-a"
+  "node-b|10.0.1.12|8080|9190|15090|10080|/data/ull-matcher/node-b|/var/log/ull-matcher/node-b"
+  "node-c|10.0.1.13|8080|9190|15090|10080|/data/ull-matcher/node-c|/var/log/ull-matcher/node-c"
+)

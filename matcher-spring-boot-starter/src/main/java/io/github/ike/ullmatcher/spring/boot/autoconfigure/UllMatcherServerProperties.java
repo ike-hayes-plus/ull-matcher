@@ -1,6 +1,7 @@
 package io.github.ike.ullmatcher.spring.boot.autoconfigure;
 
 import io.github.ike.ullmatcher.ha.replication.ReplicationMode;
+import io.github.ike.ullmatcher.ha.failover.FailoverPolicy;
 import io.github.ike.ullmatcher.hft.WalDurabilityMode;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerMode;
 import io.github.ike.ullmatcher.server.cluster.ReplicationTransportPolicyConfig;
@@ -507,6 +508,10 @@ public class UllMatcherServerProperties {
         private long coordinatorTickMillis = 250L;
         private long discoveryRpcTimeoutMillis = 1_000L;
         private long leaseTtlMillis = 5_000L;
+        private long failoverPrimaryHeartbeatTimeoutMillis =
+                java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(FailoverPolicy.defaults().primaryHeartbeatTimeoutNanos());
+        private long failoverMaxPromotionLag = FailoverPolicy.defaults().maxPromotionLag();
+        private int failoverMinStandbyReplicas = FailoverPolicy.defaults().minStandbyReplicas();
         private long snapshotSyncThreshold;
         private long snapshotSyncTimeoutMillis = 5_000L;
         private ReplicationMode replicationMode = ReplicationMode.WAIT_FOR_ANY_STANDBY;
@@ -553,6 +558,30 @@ public class UllMatcherServerProperties {
 
         public void setLeaseTtlMillis(long leaseTtlMillis) {
             this.leaseTtlMillis = leaseTtlMillis;
+        }
+
+        public long getFailoverPrimaryHeartbeatTimeoutMillis() {
+            return failoverPrimaryHeartbeatTimeoutMillis;
+        }
+
+        public void setFailoverPrimaryHeartbeatTimeoutMillis(long failoverPrimaryHeartbeatTimeoutMillis) {
+            this.failoverPrimaryHeartbeatTimeoutMillis = failoverPrimaryHeartbeatTimeoutMillis;
+        }
+
+        public long getFailoverMaxPromotionLag() {
+            return failoverMaxPromotionLag;
+        }
+
+        public void setFailoverMaxPromotionLag(long failoverMaxPromotionLag) {
+            this.failoverMaxPromotionLag = failoverMaxPromotionLag;
+        }
+
+        public int getFailoverMinStandbyReplicas() {
+            return failoverMinStandbyReplicas;
+        }
+
+        public void setFailoverMinStandbyReplicas(int failoverMinStandbyReplicas) {
+            this.failoverMinStandbyReplicas = failoverMinStandbyReplicas;
         }
 
         public long getSnapshotSyncThreshold() {

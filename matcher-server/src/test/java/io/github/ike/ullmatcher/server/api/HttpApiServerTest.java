@@ -1,9 +1,13 @@
 package io.github.ike.ullmatcher.server.api;
 
+import io.github.ike.ullmatcher.api.Command;
 import io.github.ike.ullmatcher.core.MatcherConfig;
 import io.github.ike.ullmatcher.ha.coordination.HaRole;
 import io.github.ike.ullmatcher.ha.grpc.server.GrpcReplicationServerConfig;
 import io.github.ike.ullmatcher.ha.grpc.telemetry.GrpcTransportMetrics;
+import io.github.ike.ullmatcher.ha.replication.CommandReplicator;
+import io.github.ike.ullmatcher.ha.replication.ReplicationMode;
+import io.github.ike.ullmatcher.ha.replication.ReplicationResult;
 import io.github.ike.ullmatcher.hft.WalDurabilityMode;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerConfig;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerMode;
@@ -25,10 +29,13 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class HttpApiServerTest {
@@ -145,6 +152,147 @@ final class HttpApiServerTest {
                 assertEquals(200, query.statusCode());
                 assertTrue(query.body().contains("\"replicationCommitted\":true"));
                 assertTrue(query.body().contains("\"orderId\":1001"));
+            }
+        }
+    }
+
+    @Test
+    void committedAckWaitsForReplicationCommit() throws Exception {
+        Path dir = Files.createTempDirectory("http-api-committed-ack");
+        MatcherServerConfig config = MatcherServerConfig.defaults("node-a", 1, dir);
+        ControlledReplicator replicator = new ControlledReplicator();
+        try (MatcherNodeService nodeService = new MatcherNodeService(config)) {
+            nodeService.start();
+            nodeService.configureReplication(replicator, ReplicationMode.WAIT_FOR_ANY_STANDBY, TimeUnit.SECONDS.toNanos(1));
+            try (HttpApiServer server = new HttpApiServer(
+                    0, "127.0.0.1", 2, 256, 256, 2_000L,
+                    128, 96, 16, 2_000L, 1_000L, 5_000L,
+                    96, 64, 2, 16, 8, "symbol-1", WriteAdmissionPolicyConfig.defaults(),
+                    HttpSubmitAckMode.LOCAL,
+                    nodeService, new GrpcTransportMetrics(),
+                    () -> new ClusterSupervisorMetricsSnapshot(0L, 0L, null, null, Map.of(), List.of(), "IDLE", "", TransportMetricsSnapshot.none("NONE")),
+                    () -> new ReadinessSnapshot(
+                            true, true, true, false, false, false, 0L, 0L, 0L, "", "READY", List.of(),
+                            null, null, "NONE", "", "", 0L, 0L, 0L, 0L,
+                            "STABLE", "transport policy is stable", "DISABLED",
+                            "sequence reconciliation is disabled for this transport mode", "ready"
+                    ))) {
+                server.start();
+                HttpClient client = HttpClient.newHttpClient();
+                String body = "{\"userId\":1,\"orderId\":2001,\"side\":\"BUY\",\"orderType\":\"LIMIT\",\"timeInForce\":\"GTC\",\"price\":100,\"quantity\":1,\"ack\":\"committed\"}";
+
+                CompletableFuture<HttpResponse<String>> response = client.sendAsync(
+                        HttpRequest.newBuilder()
+                                .uri(URI.create("http://127.0.0.1:" + server.port() + "/api/v1/orders"))
+                                .header("Content-Type", "application/json")
+                                .header("Idempotency-Key", "submit-2001")
+                                .POST(HttpRequest.BodyPublishers.ofString(body))
+                                .build(),
+                        HttpResponse.BodyHandlers.ofString()
+                );
+
+                assertTrue(replicator.awaitInvocations(1));
+                Thread.sleep(50L);
+                assertFalse(response.isDone());
+
+                replicator.completeNext(new ReplicationResult(1, 1, List.of("standby-a"), List.of()));
+
+                HttpResponse<String> committed = response.get(2, TimeUnit.SECONDS);
+                assertEquals(200, committed.statusCode());
+                assertTrue(committed.body().contains("\"phase\":\"COMMITTED\""));
+                assertTrue(committed.body().contains("\"replicationCommitted\":true"));
+            }
+        }
+    }
+
+    @Test
+    void batchSubmissionEndpointReturnsPerOrderReceipts() throws Exception {
+        Path dir = Files.createTempDirectory("http-api-batch-submission");
+        MatcherServerConfig config = MatcherServerConfig.defaults("node-a", 1, dir);
+        try (MatcherNodeService nodeService = new MatcherNodeService(config)) {
+            nodeService.start();
+            try (HttpApiServer server = new HttpApiServer(
+                    0, "127.0.0.1", 2, 2048, 256, 2_000L,
+                    128, 96, 16, 2_000L, 1_000L, 5_000L,
+                    96, 64, 2, 16, 8, "symbol-1", WriteAdmissionPolicyConfig.defaults(),
+                    nodeService, new GrpcTransportMetrics(),
+                    () -> new ClusterSupervisorMetricsSnapshot(0L, 0L, null, null, Map.of(), List.of(), "IDLE", "", TransportMetricsSnapshot.none("NONE")),
+                    () -> new ReadinessSnapshot(
+                            true, true, true, false, false, false, 0L, 0L, 0L, "", "READY", List.of(),
+                            null, null, "NONE", "", "", 0L, 0L, 0L, 0L,
+                            "STABLE", "transport policy is stable", "DISABLED",
+                            "sequence reconciliation is disabled for this transport mode", "ready"
+                    ))) {
+                server.start();
+                HttpClient client = HttpClient.newHttpClient();
+                String body = """
+                        {
+                          "ack":"local",
+                          "orders":[
+                            {"userId":1,"orderId":3001,"side":"BUY","orderType":"LIMIT","timeInForce":"GTC","price":100,"quantity":1,"idempotencyKey":"batch-3001"},
+                            {"userId":1,"orderId":3002,"side":"BUY","orderType":"LIMIT","timeInForce":"GTC","price":101,"quantity":1,"idempotencyKey":"batch-3002"}
+                          ]
+                        }
+                        """;
+
+                HttpResponse<String> response = client.send(
+                        request(server.port(), "POST", "/api/v1/orders/batch", body),
+                        HttpResponse.BodyHandlers.ofString()
+                );
+
+                assertTrue(Set.of(200, 202).contains(response.statusCode()));
+                @SuppressWarnings("unchecked")
+                Map<String, Object> payload = new com.fasterxml.jackson.databind.ObjectMapper().readValue(response.body(), Map.class);
+                assertEquals(2, payload.get("accepted"));
+                assertEquals(0, payload.get("failed"));
+                assertEquals(2, payload.get("count"));
+                @SuppressWarnings("unchecked")
+                List<Map<String, Object>> submissions = (List<Map<String, Object>>) payload.get("submissions");
+                assertEquals(2, submissions.size());
+                assertEquals(3001, submissions.get(0).get("orderId"));
+                assertEquals(3002, submissions.get(1).get("orderId"));
+                assertTrue(submissions.get(0).containsKey("submissionId"));
+                assertTrue(submissions.get(1).containsKey("submissionId"));
+            }
+        }
+    }
+
+    @Test
+    void batchSubmissionRejectsOversizedBatch() throws Exception {
+        Path dir = Files.createTempDirectory("http-api-batch-too-large");
+        MatcherServerConfig config = MatcherServerConfig.defaults("node-a", 1, dir);
+        try (MatcherNodeService nodeService = new MatcherNodeService(config)) {
+            nodeService.start();
+            try (HttpApiServer server = new HttpApiServer(
+                    0, "127.0.0.1", 2, 262_144, 256, 2_000L,
+                    128, 96, 16, 2_000L, 1_000L, 5_000L,
+                    96, 64, 2, 16, 8, "symbol-1", WriteAdmissionPolicyConfig.defaults(),
+                    nodeService, new GrpcTransportMetrics(),
+                    () -> new ClusterSupervisorMetricsSnapshot(0L, 0L, null, null, Map.of(), List.of(), "IDLE", "", TransportMetricsSnapshot.none("NONE")),
+                    () -> new ReadinessSnapshot(
+                            true, true, true, false, false, false, 0L, 0L, 0L, "", "READY", List.of(),
+                            null, null, "NONE", "", "", 0L, 0L, 0L, 0L,
+                            "STABLE", "transport policy is stable", "DISABLED",
+                            "sequence reconciliation is disabled for this transport mode", "ready"
+                    ))) {
+                server.start();
+                String order = "{\"userId\":1,\"orderId\":%d,\"side\":\"BUY\",\"orderType\":\"LIMIT\",\"timeInForce\":\"GTC\",\"price\":100,\"quantity\":1}";
+                StringBuilder body = new StringBuilder("{\"orders\":[");
+                for (int i = 0; i < 1_025; i++) {
+                    if (i > 0) {
+                        body.append(',');
+                    }
+                    body.append(order.formatted(4_000 + i));
+                }
+                body.append("]}");
+
+                HttpResponse<String> response = HttpClient.newHttpClient().send(
+                        request(server.port(), "POST", "/api/v1/orders/batch", body.toString()),
+                        HttpResponse.BodyHandlers.ofString()
+                );
+
+                assertEquals(400, response.statusCode());
+                assertTrue(response.body().contains("exceeds max batch size"));
             }
         }
     }
@@ -423,5 +571,44 @@ final class HttpApiServerTest {
     @FunctionalInterface
     private interface Check {
         boolean ok();
+    }
+
+    private static final class ControlledReplicator implements CommandReplicator {
+        private final java.util.Queue<CompletableFuture<ReplicationResult>> futures = new java.util.concurrent.ConcurrentLinkedQueue<>();
+        private final AtomicInteger invocations = new AtomicInteger();
+
+        @Override
+        public ReplicationResult replicate(Command command, long timeoutNanos) throws java.io.IOException {
+            throw new UnsupportedOperationException("async only");
+        }
+
+        @Override
+        public CompletableFuture<ReplicationResult> replicateBatchAsync(List<Command> commands,
+                                                                        ReplicationMode mode,
+                                                                        long timeoutNanos) {
+            CompletableFuture<ReplicationResult> future = new CompletableFuture<>();
+            futures.add(future);
+            invocations.incrementAndGet();
+            return future;
+        }
+
+        private boolean awaitInvocations(int expected) throws InterruptedException {
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+            while (System.nanoTime() < deadline) {
+                if (invocations.get() >= expected) {
+                    return true;
+                }
+                Thread.sleep(10L);
+            }
+            return invocations.get() >= expected;
+        }
+
+        private void completeNext(ReplicationResult result) {
+            CompletableFuture<ReplicationResult> future = futures.poll();
+            if (future == null) {
+                throw new AssertionError("no replication future");
+            }
+            future.complete(result);
+        }
     }
 }

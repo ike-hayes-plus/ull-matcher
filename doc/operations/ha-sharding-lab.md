@@ -26,7 +26,7 @@
 容器化实验环境负责基础设施：
 
 - ZooKeeper
-- Nacos
+- etcd
 - Toxiproxy
 - Prometheus
 
@@ -42,8 +42,8 @@ matcher 节点本身仍建议直接跑在宿主机。
 
 基础设施端口：
 
-- ZooKeeper：`2181`
-- Nacos：`8848`
+- ZooKeeper：`2181`、`2182`、`2183`
+- etcd：`2379`、`2381`、`2383`
 - Toxiproxy：`8474`
 - Prometheus：`19091`
 
@@ -89,7 +89,7 @@ matcher 节点本身仍建议直接跑在宿主机。
 ./scripts/chaos/cluster.sh failover-smoke
 ```
 
-输出报告：
+输出文件：
 
 - `target/chaos-lab/validation-report.json`
 - `target/chaos-lab/transport-rollout-report.json`
@@ -250,7 +250,7 @@ Java 21 下该模式需要：
 
 该脚本会：
 
-1. 检查 ZooKeeper / Nacos / Toxiproxy / Prometheus
+1. 检查 ZooKeeper / etcd / Toxiproxy / Prometheus
 2. 抓取各节点的：
    - `/api/v1/runtime/health`
    - `/api/v1/runtime/readiness`
@@ -382,4 +382,4 @@ LATENCY_MS=250 ./scripts/run-chaos-tests.sh env grpc-delay
 
 1. 本实验环境用于功能验证，不用于真实性能压测
 2. 真正的低延迟压测仍建议宿主机直跑
-3. `shardKey` 决定控制面隔离，`symbolId` 仍决定当前撮合内核市场标识
+3. `shardKey` 决定控制面隔离，`symbolId` 决定撮合内核市场标识

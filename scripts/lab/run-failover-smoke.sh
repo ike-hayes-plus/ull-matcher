@@ -21,7 +21,7 @@ RUNBOOK_FILE="$OUT_DIR/transport-change-runbook.md"
 SECURITY_ROTATION_REPORT="$OUT_DIR/security-rotation-report.json"
 
 safe_name() {
-  echo "$1" | sed 's#https\?://##; s#[/:]#_#g'
+  echo "$1" | sed -E 's#^https?://##; s#[/:]#_#g'
 }
 
 node_url_for_name() {

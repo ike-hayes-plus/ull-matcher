@@ -47,12 +47,12 @@
         </dependency>
         <dependency>
             <groupId>io.github.ike</groupId>
-            <artifactId>ull-matcher-discovery-zookeeper</artifactId>
+            <artifactId>ull-matcher-ha-etcd</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>io.github.ike</groupId>
-            <artifactId>ull-matcher-discovery-nacos</artifactId>
+            <artifactId>ull-matcher-discovery-zookeeper</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>

@@ -8,6 +8,8 @@ public record SubmissionMetricsSnapshot(
         long pendingCount,
         long committedCount,
         long failedCount,
-        long retryingCount
+        long retryingCount,
+        long committedTotal,
+        long failedTotal
 ) {
 }

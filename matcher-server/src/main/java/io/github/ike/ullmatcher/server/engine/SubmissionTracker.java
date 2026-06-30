@@ -19,7 +19,7 @@ import java.util.concurrent.locks.LockSupport;
 /**
  * 提交幂等、状态跟踪与结果查询存储。
  */
-final class SubmissionTracker {
+public final class SubmissionTracker {
     private static final int DEFAULT_MAX_TRACKED_SUBMISSIONS = 65_536;
 
     private final AtomicLong nextSubmissionId = new AtomicLong(1L);
@@ -35,6 +35,8 @@ final class SubmissionTracker {
     private final LongAdder committedCount = new LongAdder();
     private final LongAdder failedCount = new LongAdder();
     private final LongAdder retryingCount = new LongAdder();
+    private final LongAdder committedTotal = new LongAdder();
+    private final LongAdder failedTotal = new LongAdder();
 
     SubmissionTracker(OrderStateTracker orderStateTracker) {
         this(orderStateTracker, Clock.systemUTC(), DEFAULT_MAX_TRACKED_SUBMISSIONS);
@@ -129,7 +131,9 @@ final class SubmissionTracker {
                 pendingCount.sum(),
                 committedCount.sum(),
                 failedCount.sum(),
-                retryingCount.sum()
+                retryingCount.sum(),
+                committedTotal.sum(),
+                failedTotal.sum()
         );
     }
 
@@ -258,6 +262,7 @@ final class SubmissionTracker {
                 this.finalized = true;
                 owner.pendingCount.decrement();
                 owner.failedCount.increment();
+                owner.failedTotal.increment();
                 localOutcome.complete();
                 committedOutcome.complete();
                 owner.onFinalized(this);
@@ -269,6 +274,7 @@ final class SubmissionTracker {
                 this.finalized = true;
                 owner.pendingCount.decrement();
                 owner.committedCount.increment();
+                owner.committedTotal.increment();
                 localOutcome.complete();
                 committedOutcome.complete();
                 owner.onFinalized(this);
@@ -305,6 +311,7 @@ final class SubmissionTracker {
             finalized = true;
             owner.pendingCount.decrement();
             owner.committedCount.increment();
+            owner.committedTotal.increment();
             if (retryCount > 0L) {
                 owner.retryingCount.decrement();
             }
@@ -337,6 +344,7 @@ final class SubmissionTracker {
                 owner.pendingCount.decrement();
             }
             owner.failedCount.increment();
+            owner.failedTotal.increment();
             if (retryCount > 0L) {
                 owner.retryingCount.decrement();
             }

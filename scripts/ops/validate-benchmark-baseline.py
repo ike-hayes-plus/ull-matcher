@@ -46,6 +46,12 @@ SCENARIOS = [
     Scenario("External `1P1S` REST + `AERON`", "http-ha/aeron-1p1s-current.json",
              "acceptedOrdersPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond",
              "commitCatchupSeconds", "latency.p99Ms", "ms"),
+    Scenario("REST committed single", "http-ha/rest-single-1024-current.json",
+             "acceptedOrdersPerSecond", None, "replicationCommittedSubmissionsPerSecond",
+             "commitCatchupSeconds", "latency.p99Ms", "ms"),
+    Scenario("REST committed batch", "http-ha/rest-batch-1024-current.json",
+             "acceptedOrdersPerSecond", None, "replicationCommittedSubmissionsPerSecond",
+             "commitCatchupSeconds", "latency.p99Ms", "ms"),
     Scenario("External `1P1S` binary + `GRPC`", "binary-commit/grpc-1p1s-current.json",
              "acceptedCommandsPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond",
              "commitCatchupSeconds", "latency.p99Ms", "ms"),
@@ -126,9 +132,11 @@ def check_metric(failures: list[str],
                  scenario: str,
                  metric: str,
                  actual: float | None,
-                 expected_cell: str,
+                 expected_cell: str | None,
                  comparator: Callable[[float, float, float], bool],
                  tolerance: float) -> None:
+    if expected_cell is None:
+        return
     expected = parse_number(expected_cell)
     if expected is None:
         return
@@ -159,6 +167,18 @@ def main() -> int:
         if cells is None:
             failures.append(f"{scenario.name}: missing baseline row")
             continue
+        if len(cells) >= 10:
+            accepted_cell = cells[5]
+            trade_cell = cells[6]
+            committed_cell = cells[7]
+            catch_up_cell = cells[8]
+            p99_cell = cells[9]
+        else:
+            accepted_cell = cells[2] if len(cells) == 6 else cells[4]
+            trade_cell = None if len(cells) == 6 else cells[5]
+            committed_cell = cells[3] if len(cells) == 6 else cells[6]
+            catch_up_cell = cells[5] if len(cells) == 6 else cells[7]
+            p99_cell = cells[4] if len(cells) == 6 else cells[8]
         report_path = args.report_root / scenario.report
         if not report_path.exists():
             failures.append(f"{scenario.name}: missing report {report_path}")
@@ -170,15 +190,15 @@ def main() -> int:
             continue
 
         check_metric(failures, scenario.name, "accepted/s", value_at(payload, scenario.accepted_key),
-                     cells[4], compare_at_least, args.throughput_tolerance)
+                     accepted_cell, compare_at_least, args.throughput_tolerance)
         check_metric(failures, scenario.name, "trade events/s", value_at(payload, scenario.trade_key),
-                     cells[5], compare_at_least, args.throughput_tolerance)
+                     trade_cell, compare_at_least, args.throughput_tolerance)
         check_metric(failures, scenario.name, "committed/s", value_at(payload, scenario.committed_key),
-                     cells[6], compare_at_least, args.throughput_tolerance)
+                     committed_cell, compare_at_least, args.throughput_tolerance)
         check_metric(failures, scenario.name, "catch-up", value_at(payload, scenario.catch_up_key),
-                     cells[7], compare_at_most, args.latency_tolerance)
+                     catch_up_cell, compare_at_most, args.latency_tolerance)
         check_metric(failures, scenario.name, "p99", value_at(payload, scenario.p99_key),
-                     cells[8], compare_at_most, args.latency_tolerance)
+                     p99_cell, compare_at_most, args.latency_tolerance)
         checked += 1
 
     if failures:

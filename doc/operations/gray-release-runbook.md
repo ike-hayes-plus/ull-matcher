@@ -19,7 +19,7 @@
 
 - 同一个 shard 同时存在两个接写 primary
 - 同一个 shard 按流量百分比分写到两个不同节点组
-- 版本间 WAL / snapshot / replication 协议不兼容的迁移场景
+- WAL / snapshot / replication 协议不兼容的迁移场景
 
 ## 2. Rollout 原则
 
@@ -106,7 +106,7 @@
 
 切换前至少确认：
 
-1. 版本间 WAL、snapshot、replication 协议兼容
+1. 目标构建与 WAL、snapshot、replication 协议兼容
 2. 目标构建已经通过基线 benchmark
 3. 已经完成 `soak`、`failover smoke`、`chaos` 基本验证
 4. 目标拓扑只有一个 `PRIMARY`
@@ -211,7 +211,7 @@
 推荐：
 
 - 上游网关根据 `symbol` / `shardKey` 路由
-- 整个 shard 的 binary 流量切到新版本
+- 整个 shard 的 binary 流量切到目标节点组
 
 不推荐：
 
@@ -275,7 +275,7 @@ REST 只作为：
 3. 将目标 shard 切主回回滚节点
 4. 观察稳定窗口
 5. 确认 `PRIMARY` 与 `clientTrafficReady` 一致
-6. 再下线新版本节点
+6. 再下线被替换节点
 
 建议回滚后再次执行：
 

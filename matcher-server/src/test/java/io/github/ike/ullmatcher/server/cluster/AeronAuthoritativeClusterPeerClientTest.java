@@ -219,9 +219,9 @@ final class AeronAuthoritativeClusterPeerClientTest {
                          handshakeRequestStreamId,
                          handshakeResponseChannel,
                          handshakeResponseStreamId)) {
-                client.replicate(command(2L), TimeUnit.SECONDS.toNanos(2));
+                client.replicate(command(1L), TimeUnit.SECONDS.toNanos(2));
                 NodeControlState state = client.fetchNodeState(TimeUnit.SECONDS.toNanos(1));
-                assertEquals(2L, state.cursor().lastReceivedSequence());
+                assertEquals(1L, state.cursor().lastReceivedSequence());
                 Path downloaded = Files.createTempFile("secure-snapshot-copy", ".snap");
                 var result = client.downloadLatestSnapshot(downloaded, TimeUnit.SECONDS.toNanos(2));
                 assertEquals(Files.readString(standby.snapshotFile), Files.readString(downloaded));
@@ -330,9 +330,9 @@ final class AeronAuthoritativeClusterPeerClientTest {
                          handshakeRequestStreamId,
                          handshakeResponseChannel,
                          handshakeResponseStreamId)) {
-                client.replicateBatch(List.of(command(20L), command(21L), command(22L)), TimeUnit.SECONDS.toNanos(2));
+                client.replicateBatch(List.of(command(1L), command(2L), command(3L)), TimeUnit.SECONDS.toNanos(2));
                 NodeControlState state = client.fetchNodeState(TimeUnit.SECONDS.toNanos(1));
-                assertEquals(22L, state.cursor().lastReceivedSequence());
+                assertEquals(3L, state.cursor().lastReceivedSequence());
                 assertEquals(3, standby.wal.appendCount);
             }
         }
@@ -422,7 +422,7 @@ final class AeronAuthoritativeClusterPeerClientTest {
                     handshakeResponseChannel,
                     handshakeResponseStreamId
             );
-            client.replicate(command(30L), TimeUnit.SECONDS.toNanos(2));
+            client.replicate(command(1L), TimeUnit.SECONDS.toNanos(2));
             ackPoller = ackPollerThread(client);
             client.close();
         }

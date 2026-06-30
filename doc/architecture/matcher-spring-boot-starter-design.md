@@ -62,8 +62,8 @@ starter 故意不做：
 如需扩展，优先顺序应为：
 
 1. 健康指标桥接到 Actuator
-2. Nacos / ZooKeeper 条件化装配样例
+2. ZooKeeper / etcd 条件化装配样例
 3. 与 Spring Cloud 配置中心做外部集成
 4. 更细粒度的 Spring Boot configuration metadata
 
-不建议在 starter 中新增统一业务网关控制器。
+starter 不承载统一业务网关控制器。

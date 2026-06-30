@@ -5,6 +5,7 @@ import io.github.ike.ullmatcher.api.Side;
 import io.github.ike.ullmatcher.api.TimeInForce;
 import io.github.ike.ullmatcher.api.CommandPool;
 import io.github.ike.ullmatcher.ha.coordination.FencingToken;
+import io.github.ike.ullmatcher.ha.coordination.HaRole;
 import io.github.ike.ullmatcher.ha.coordination.HaTickResult;
 import io.github.ike.ullmatcher.ha.coordination.LeaseStore;
 import io.github.ike.ullmatcher.ha.failover.FailoverPolicy;
@@ -60,6 +61,7 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
     private static final int RECENT_ORDER_STATE_LIMIT = 512;
     private static final int DEFAULT_SUBMIT_BATCH_LIMIT = 256;
     private static final long DEFAULT_SUBMIT_BATCH_DELAY_MICROS = 200L;
+    private static final long DEFAULT_PRIMARY_LEASE_SUBMIT_CHECK_MICROS = 1_000L;
 
     private final MatcherServerConfig config;
     private final AtomicLong nextSequence = new AtomicLong(1L);
@@ -80,6 +82,7 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
     private volatile SnapshotMaterial lastSnapshot;
     private volatile boolean replicationIngressPaused;
     private volatile boolean closed;
+    private volatile long nextPrimaryLeaseSubmitCheckNanos;
 
     public MatcherNodeService(MatcherServerConfig config) {
         this.config = Objects.requireNonNull(config, "config");
@@ -600,12 +603,14 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
         if (closed) {
             throw new IllegalStateException("matcher node service is closed");
         }
+        guardPrimaryLeaseForSubmit();
         long deadline = System.nanoTime() + submitEnqueueTimeoutNanos(config);
         int spins = 0;
         while (!submitQueue.offer(envelope)) {
             if (closed) {
                 throw new IllegalStateException("matcher node service is closed");
             }
+            guardPrimaryLeaseForSubmit();
             if (System.nanoTime() >= deadline) {
                 throw new IOException("timed out while enqueueing matcher submit task");
             }
@@ -616,6 +621,59 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
                 Thread.onSpinWait();
             }
         }
+    }
+
+    private void guardPrimaryLeaseForSubmit() throws IOException {
+        if (config.clusterConfig() == null) {
+            return;
+        }
+        MatcherEngine current = state;
+        if (current == null || current.runtime().role() != HaRole.PRIMARY) {
+            return;
+        }
+        long nowNanos = System.nanoTime();
+        if (nowNanos < nextPrimaryLeaseSubmitCheckNanos) {
+            return;
+        }
+        synchronized (this) {
+            nowNanos = System.nanoTime();
+            if (nowNanos < nextPrimaryLeaseSubmitCheckNanos) {
+                return;
+            }
+            nextPrimaryLeaseSubmitCheckNanos = nowNanos + primaryLeaseSubmitCheckIntervalNanos();
+        }
+        if (config.clusterConfig().leaseStore().isHeldBy(config.nodeId(), current.runtime().fencingToken(), nowNanos)) {
+            return;
+        }
+
+        boolean leaseLost = false;
+        lifecycleLock.writeLock().lock();
+        try {
+            current = state;
+            nowNanos = System.nanoTime();
+            if (current != null
+                    && current.runtime().role() == HaRole.PRIMARY
+                    && !config.clusterConfig().leaseStore().isHeldBy(config.nodeId(), current.runtime().fencingToken(), nowNanos)) {
+                leaseLost = true;
+                current.runtime().fence();
+                clusterRoleCoordinator.replicationCoordinator().clear();
+                LOG.warn("primary submit fenced after lease loss nodeId={} token={}",
+                        config.nodeId(), current.runtime().fencingToken().epoch());
+            }
+        } finally {
+            lifecycleLock.writeLock().unlock();
+        }
+        if (leaseLost) {
+            throw new IOException("primary lease is not held by local node; rejecting write");
+        }
+    }
+
+    private static long primaryLeaseSubmitCheckIntervalNanos() {
+        long configuredMicros = Long.getLong(
+                "matcher.primaryLeaseSubmitCheckMicros",
+                DEFAULT_PRIMARY_LEASE_SUBMIT_CHECK_MICROS
+        );
+        return TimeUnit.MICROSECONDS.toNanos(Math.max(0L, configuredMicros));
     }
 
     private <T> T invokeWithExecutor(ExecutorService executor, boolean writeLock, Callable<T> task) throws IOException {

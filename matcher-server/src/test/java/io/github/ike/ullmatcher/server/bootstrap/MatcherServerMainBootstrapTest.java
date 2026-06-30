@@ -31,48 +31,107 @@ final class MatcherServerMainBootstrapTest {
     @Test
     void unsupportedDiscoveryProviderFailsFast() {
         ServerBootstrapException error = assertThrows(ServerBootstrapException.class,
-                () -> MatcherServerMain.nodeRegistry("unsupported", "127.0.0.1:2181", "cluster-a"));
+                () -> MatcherServerMain.nodeRegistry("unsupported", "127.0.0.1:2181", "http://127.0.0.1:2379", "cluster-a"));
         assertEquals("unsupported discovery provider: unsupported", error.getMessage());
     }
 
     @Test
-    void nacosProviderRequiresServerAddress() {
-        String previous = System.getProperty("matcher.nacosServerAddr");
+    void unsupportedLeaseProviderFailsFast() {
+        ServerBootstrapException error = assertThrows(ServerBootstrapException.class,
+                () -> MatcherServerMain.leaseStore("unsupported", "127.0.0.1:2181", "http://127.0.0.1:2379", "cluster-a"));
+        assertEquals("unsupported lease provider: unsupported", error.getMessage());
+    }
+
+    @Test
+    void etcdProviderRequiresEndpoint() {
+        ServerBootstrapException error = assertThrows(ServerBootstrapException.class,
+                () -> MatcherServerMain.etcdConfig("", "cluster-a"));
+        assertEquals("matcher.etcdEndpoint is required when using etcd provider", error.getMessage());
+    }
+
+    @Test
+    void etcdProviderUsesConfiguredOverrides() {
+        String previousPrefix = System.getProperty("matcher.etcdKeyPrefix");
+        String previousTtl = System.getProperty("matcher.etcdLeaseTtlSeconds");
+        String previousTimeout = System.getProperty("matcher.etcdTimeoutMillis");
+        String previousCache = System.getProperty("matcher.etcdLocalHeldCheckCacheMillis");
         try {
-            System.clearProperty("matcher.nacosServerAddr");
-            ServerBootstrapException error = assertThrows(ServerBootstrapException.class,
-                    () -> MatcherServerMain.nacosDiscoveryConfig("cluster-a"));
-            assertEquals("matcher.nacosServerAddr is required when matcher.discoveryProvider=nacos", error.getMessage());
+            System.setProperty("matcher.etcdKeyPrefix", "/matcher/prod");
+            System.setProperty("matcher.etcdLeaseTtlSeconds", "15");
+            System.setProperty("matcher.etcdTimeoutMillis", "750");
+            System.setProperty("matcher.etcdLocalHeldCheckCacheMillis", "10");
+            var config = MatcherServerMain.etcdConfig("http://127.0.0.1:2379", "cluster-a");
+            assertEquals("http://127.0.0.1:2379", config.endpoint());
+            assertEquals("/matcher/prod", config.keyPrefix());
+            assertEquals(15L, config.leaseTtlSeconds());
+            assertEquals(750L, config.timeoutMillis());
+            assertEquals(10L, config.localHeldCheckCacheMillis());
         } finally {
-            restoreProperty("matcher.nacosServerAddr", previous);
+            restoreProperty("matcher.etcdKeyPrefix", previousPrefix);
+            restoreProperty("matcher.etcdLeaseTtlSeconds", previousTtl);
+            restoreProperty("matcher.etcdTimeoutMillis", previousTimeout);
+            restoreProperty("matcher.etcdLocalHeldCheckCacheMillis", previousCache);
         }
     }
 
     @Test
-    void nacosProviderUsesConfiguredOverrides() {
-        String previousAddr = System.getProperty("matcher.nacosServerAddr");
-        String previousService = System.getProperty("matcher.nacosServiceName");
-        String previousGroup = System.getProperty("matcher.nacosGroup");
-        String previousNamespace = System.getProperty("matcher.nacosNamespace");
-        String previousCluster = System.getProperty("matcher.nacosClusterName");
+    void etcdEndpointDefaultsLeaseAndDiscoveryProviders() throws Exception {
+        String previousZk = System.getProperty("matcher.zkConnect");
+        String previousEtcd = System.getProperty("matcher.etcdEndpoint");
+        String previousLease = System.getProperty("matcher.leaseProvider");
+        String previousDiscovery = System.getProperty("matcher.discoveryProvider");
         try {
-            System.setProperty("matcher.nacosServerAddr", "127.0.0.1:8848");
-            System.setProperty("matcher.nacosServiceName", "matcher-test");
-            System.setProperty("matcher.nacosGroup", "MATCHER");
-            System.setProperty("matcher.nacosNamespace", "dev");
-            System.setProperty("matcher.nacosClusterName", "cluster-b");
-            var config = MatcherServerMain.nacosDiscoveryConfig("cluster-a");
-            assertEquals("127.0.0.1:8848", config.serverAddress());
-            assertEquals("matcher-test", config.serviceName());
-            assertEquals("MATCHER", config.groupName());
-            assertEquals("dev", config.namespace());
-            assertEquals("cluster-b", config.clusterName());
+            restoreProperty("matcher.zkConnect", null);
+            System.setProperty("matcher.etcdEndpoint", "http://127.0.0.1:2379");
+            restoreProperty("matcher.leaseProvider", null);
+            restoreProperty("matcher.discoveryProvider", null);
+
+            MatcherClusterConfig clusterConfig = MatcherServerMain.clusterConfig("merchant:42");
+
+            assertEquals("EtcdLeaseStore", clusterConfig.leaseStore().getClass().getSimpleName());
+            assertEquals("EtcdNodeRegistry", clusterConfig.nodeRegistry().getClass().getSimpleName());
         } finally {
-            restoreProperty("matcher.nacosServerAddr", previousAddr);
-            restoreProperty("matcher.nacosServiceName", previousService);
-            restoreProperty("matcher.nacosGroup", previousGroup);
-            restoreProperty("matcher.nacosNamespace", previousNamespace);
-            restoreProperty("matcher.nacosClusterName", previousCluster);
+            restoreProperty("matcher.zkConnect", previousZk);
+            restoreProperty("matcher.etcdEndpoint", previousEtcd);
+            restoreProperty("matcher.leaseProvider", previousLease);
+            restoreProperty("matcher.discoveryProvider", previousDiscovery);
+        }
+    }
+
+    @Test
+    void zkDiscoveryProviderRequiresConnectString() {
+        ServerBootstrapException error = assertThrows(ServerBootstrapException.class,
+                () -> MatcherServerMain.nodeRegistry("zk", "", "http://127.0.0.1:2379", "cluster-a"));
+        assertEquals("matcher.zkConnect is required when matcher.discoveryProvider=zk", error.getMessage());
+    }
+
+    @Test
+    void standaloneClusterConfigBindsFailoverAndReplicationModeProperties() throws Exception {
+        String previousZk = System.getProperty("matcher.zkConnect");
+        String previousHeartbeat = System.getProperty("matcher.failoverPrimaryHeartbeatTimeoutMillis");
+        String previousLag = System.getProperty("matcher.failoverMaxPromotionLag");
+        String previousMinStandbys = System.getProperty("matcher.failoverMinStandbyReplicas");
+        String previousReplicationMode = System.getProperty("matcher.replicationMode");
+        try {
+            System.setProperty("matcher.zkConnect", "127.0.0.1:2181");
+            System.setProperty("matcher.failoverPrimaryHeartbeatTimeoutMillis", "2500");
+            System.setProperty("matcher.failoverMaxPromotionLag", "7");
+            System.setProperty("matcher.failoverMinStandbyReplicas", "2");
+            System.setProperty("matcher.replicationMode", "WAIT_FOR_QUORUM_STANDBYS");
+
+            MatcherClusterConfig clusterConfig = MatcherServerMain.clusterConfig("merchant:42");
+
+            assertEquals(TimeUnit.MILLISECONDS.toNanos(2_500L), clusterConfig.failoverPolicy().primaryHeartbeatTimeoutNanos());
+            assertEquals(7L, clusterConfig.failoverPolicy().maxPromotionLag());
+            assertEquals(2, clusterConfig.failoverPolicy().minStandbyReplicas());
+            assertEquals(io.github.ike.ullmatcher.ha.replication.ReplicationMode.WAIT_FOR_QUORUM_STANDBYS,
+                    clusterConfig.replicationMode());
+        } finally {
+            restoreProperty("matcher.zkConnect", previousZk);
+            restoreProperty("matcher.failoverPrimaryHeartbeatTimeoutMillis", previousHeartbeat);
+            restoreProperty("matcher.failoverMaxPromotionLag", previousLag);
+            restoreProperty("matcher.failoverMinStandbyReplicas", previousMinStandbys);
+            restoreProperty("matcher.replicationMode", previousReplicationMode);
         }
     }
 

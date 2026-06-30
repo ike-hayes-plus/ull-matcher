@@ -1,12 +1,16 @@
 package io.github.ike.ullmatcher.server.bootstrap;
 
-import io.github.ike.ullmatcher.discovery.nacos.NacosDiscoveryConfig;
-import io.github.ike.ullmatcher.discovery.nacos.NacosNodeRegistry;
 import io.github.ike.ullmatcher.discovery.zookeeper.ZooKeeperDiscoveryConfig;
 import io.github.ike.ullmatcher.discovery.zookeeper.ZooKeeperNodeRegistry;
+import io.github.ike.ullmatcher.ha.coordination.LeaseStore;
 import io.github.ike.ullmatcher.ha.discovery.NodeRegistry;
+import io.github.ike.ullmatcher.ha.etcd.EtcdConfig;
+import io.github.ike.ullmatcher.ha.etcd.EtcdLeaseStore;
+import io.github.ike.ullmatcher.ha.etcd.EtcdNodeRegistry;
 import io.github.ike.ullmatcher.ha.coordination.HaRole;
+import io.github.ike.ullmatcher.ha.failover.FailoverPolicy;
 import io.github.ike.ullmatcher.ha.grpc.server.GrpcReplicationServerConfig;
+import io.github.ike.ullmatcher.ha.replication.ReplicationMode;
 import io.github.ike.ullmatcher.ha.zookeeper.ZooKeeperLeaseStore;
 import io.github.ike.ullmatcher.ha.zookeeper.ZooKeeperLeaseStoreConfig;
 import io.github.ike.ullmatcher.hft.WalDurabilityMode;
@@ -108,6 +112,21 @@ public final class MatcherServerMain {
         return WalDurabilityMode.valueOf(System.getProperty("matcher.walDurabilityMode", defaultMode.name()).trim().toUpperCase());
     }
 
+    private static ReplicationMode replicationMode(ReplicationMode defaultMode) {
+        return ReplicationMode.valueOf(System.getProperty("matcher.replicationMode", defaultMode.name()).trim().toUpperCase());
+    }
+
+    private static FailoverPolicy failoverPolicy(FailoverPolicy defaults) {
+        return new FailoverPolicy(
+                TimeUnit.MILLISECONDS.toNanos(Long.getLong(
+                        "matcher.failoverPrimaryHeartbeatTimeoutMillis",
+                        TimeUnit.NANOSECONDS.toMillis(defaults.primaryHeartbeatTimeoutNanos())
+                )),
+                Long.getLong("matcher.failoverMaxPromotionLag", defaults.maxPromotionLag()),
+                Integer.getInteger("matcher.failoverMinStandbyReplicas", defaults.minStandbyReplicas())
+        );
+    }
+
     private static WriteAdmissionPolicyConfig writeAdmissionPolicyConfig(WriteAdmissionPolicyConfig defaults) {
         return new WriteAdmissionPolicyConfig(
                 Integer.getInteger("matcher.httpShardWriteMaxConcurrentRequests", defaults.shardMaxConcurrentRequests()),
@@ -123,19 +142,20 @@ public final class MatcherServerMain {
         );
     }
 
-    private static MatcherClusterConfig clusterConfig(String shardKey) throws Exception {
+    static MatcherClusterConfig clusterConfig(String shardKey) throws Exception {
         String zkConnect = System.getProperty("matcher.zkConnect", "");
-        if (zkConnect.isBlank()) {
+        String etcdEndpoint = System.getProperty("matcher.etcdEndpoint", "");
+        String defaultProvider = zkConnect.isBlank() && !etcdEndpoint.isBlank() ? "etcd" : "zk";
+        String leaseProvider = System.getProperty("matcher.leaseProvider", defaultProvider);
+        if (zkConnect.isBlank() && !"etcd".equals(leaseProvider)) {
             return null;
         }
         String clusterName = System.getProperty("matcher.cluster", "default");
         String host = System.getProperty("matcher.advertisedHost", "127.0.0.1");
-        String discoveryProvider = System.getProperty("matcher.discoveryProvider", "zk");
-        ZooKeeperLeaseStore leaseStore = new ZooKeeperLeaseStore(
-                new ZooKeeperLeaseStoreConfig(zkConnect, "/ull-matcher/lease/" + clusterName, 15_000, 5_000)
-        );
-        NodeRegistry nodeRegistry = nodeRegistry(discoveryProvider, zkConnect, clusterName);
-        LOG.info("cluster discovery provider={} advertisedHost={}", discoveryProvider, host);
+        String discoveryProvider = System.getProperty("matcher.discoveryProvider", leaseProvider);
+        LeaseStore leaseStore = leaseStore(leaseProvider, zkConnect, etcdEndpoint, clusterName);
+        NodeRegistry nodeRegistry = nodeRegistry(discoveryProvider, zkConnect, etcdEndpoint, clusterName);
+        LOG.info("cluster lease provider={} discovery provider={} advertisedHost={}", leaseProvider, discoveryProvider, host);
         MatcherClusterConfig defaults = MatcherClusterConfig.defaults(leaseStore, nodeRegistry, host, shardKey);
         return new MatcherClusterConfig(
                 defaults.leaseStore(),
@@ -145,11 +165,11 @@ public final class MatcherServerMain {
                 Long.getLong("matcher.coordinatorTickMillis", defaults.coordinatorTickMillis()),
                 defaults.discoveryRpcTimeoutNanos(),
                 defaults.leaseTtlNanos(),
-                defaults.failoverPolicy(),
+                failoverPolicy(defaults.failoverPolicy()),
                 defaults.readinessPolicy(),
                 Long.getLong("matcher.snapshotSyncThreshold", defaults.snapshotSyncThreshold()),
                 defaults.snapshotSyncTimeoutNanos(),
-                defaults.replicationMode(),
+                replicationMode(defaults.replicationMode()),
                 TimeUnit.MILLISECONDS.toNanos(
                         Long.getLong(
                                 "matcher.replicationTimeoutMillis",
@@ -162,26 +182,45 @@ public final class MatcherServerMain {
         );
     }
 
-    static NodeRegistry nodeRegistry(String provider, String zkConnect, String clusterName) throws Exception {
+    static LeaseStore leaseStore(String provider, String zkConnect, String etcdEndpoint, String clusterName) {
         return switch (provider) {
-            case "zk" -> new ZooKeeperNodeRegistry(ZooKeeperDiscoveryConfig.defaults(zkConnect, clusterName));
-            case "nacos" -> new NacosNodeRegistry(nacosDiscoveryConfig(clusterName));
+            case "zk" -> {
+                if (zkConnect.isBlank()) {
+                    throw new ServerBootstrapException("matcher.zkConnect is required when matcher.leaseProvider=zk");
+                }
+                yield new ZooKeeperLeaseStore(
+                        new ZooKeeperLeaseStoreConfig(zkConnect, "/ull-matcher/lease/" + clusterName, 15_000, 5_000)
+                );
+            }
+            case "etcd" -> new EtcdLeaseStore(etcdConfig(etcdEndpoint, clusterName));
+            default -> throw new ServerBootstrapException("unsupported lease provider: " + provider);
+        };
+    }
+
+    static NodeRegistry nodeRegistry(String provider, String zkConnect, String etcdEndpoint, String clusterName) throws Exception {
+        return switch (provider) {
+            case "zk" -> {
+                if (zkConnect.isBlank()) {
+                    throw new ServerBootstrapException("matcher.zkConnect is required when matcher.discoveryProvider=zk");
+                }
+                yield new ZooKeeperNodeRegistry(ZooKeeperDiscoveryConfig.defaults(zkConnect, clusterName));
+            }
+            case "etcd" -> new EtcdNodeRegistry(etcdConfig(etcdEndpoint, clusterName));
             default -> throw new ServerBootstrapException("unsupported discovery provider: " + provider);
         };
     }
 
-    static NacosDiscoveryConfig nacosDiscoveryConfig(String clusterName) {
-        String serverAddress = System.getProperty("matcher.nacosServerAddr", "");
-        if (serverAddress.isBlank()) {
-            throw new ServerBootstrapException("matcher.nacosServerAddr is required when matcher.discoveryProvider=nacos");
+    static EtcdConfig etcdConfig(String endpoint, String clusterName) {
+        if (endpoint.isBlank()) {
+            throw new ServerBootstrapException("matcher.etcdEndpoint is required when using etcd provider");
         }
-        NacosDiscoveryConfig defaults = NacosDiscoveryConfig.defaults(serverAddress, clusterName);
-        return new NacosDiscoveryConfig(
-                serverAddress,
-                System.getProperty("matcher.nacosServiceName", defaults.serviceName()),
-                System.getProperty("matcher.nacosGroup", defaults.groupName()),
-                System.getProperty("matcher.nacosNamespace", defaults.namespace()),
-                System.getProperty("matcher.nacosClusterName", defaults.clusterName())
+        EtcdConfig defaults = EtcdConfig.defaults(endpoint, clusterName);
+        return new EtcdConfig(
+                endpoint,
+                System.getProperty("matcher.etcdKeyPrefix", defaults.keyPrefix()),
+                Long.getLong("matcher.etcdLeaseTtlSeconds", defaults.leaseTtlSeconds()),
+                Long.getLong("matcher.etcdTimeoutMillis", defaults.timeoutMillis()),
+                Long.getLong("matcher.etcdLocalHeldCheckCacheMillis", defaults.localHeldCheckCacheMillis())
         );
     }
 

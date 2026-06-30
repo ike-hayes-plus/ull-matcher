@@ -7,7 +7,7 @@ trap 'rm -rf "${TMP_DIR}"' EXIT
 
 CURRENT_DIR="${TMP_DIR}/current"
 ARCHIVE_ROOT="${TMP_DIR}/archive"
-mkdir -p "${CURRENT_DIR}/single-node-http"
+mkdir -p "${CURRENT_DIR}/single-node-http" "${CURRENT_DIR}/http-ha"
 
 cat > "${CURRENT_DIR}/core-only-crossing-current.json" <<'JSON'
 {
@@ -33,6 +33,24 @@ cat > "${CURRENT_DIR}/single-node-http/report-clean.json" <<'JSON'
 }
 JSON
 
+cat > "${CURRENT_DIR}/http-ha/rest-single-1024-current.json" <<'JSON'
+{
+  "success": true,
+  "scenario": "replication_commit_benchmark",
+  "httpSubmitMode": "single",
+  "batchSize": 1
+}
+JSON
+
+cat > "${CURRENT_DIR}/http-ha/rest-batch-1024-current.json" <<'JSON'
+{
+  "success": true,
+  "scenario": "replication_commit_benchmark",
+  "httpSubmitMode": "batch",
+  "batchSize": 32
+}
+JSON
+
 BENCHMARK_CURRENT_ROOT="${CURRENT_DIR}" \
 BENCHMARK_ARCHIVE_ROOT="${ARCHIVE_ROOT}" \
 STRICT_BENCHMARK_SCHEMA=true \
@@ -46,6 +64,17 @@ with open(sys.argv[1], "r", encoding="utf-8") as handle:
     payload = json.load(handle)
 assert payload["scenario"] == "single_node_server_crossing_benchmark"
 assert payload["benchmarkSchemaVersion"] == 1
+PY
+
+python3 - <<'PY' "${ARCHIVE_ROOT}/ok/http-ha/rest-single-1024-current.json" "${ARCHIVE_ROOT}/ok/http-ha/rest-batch-1024-current.json"
+import json
+import sys
+
+for path, expected_mode in [(sys.argv[1], "single"), (sys.argv[2], "batch")]:
+    with open(path, "r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    assert payload["scenario"] == "replication_commit_benchmark"
+    assert payload["httpSubmitMode"] == expected_mode
 PY
 
 python3 - <<'PY' "${CURRENT_DIR}/core-only-crossing-current.json"

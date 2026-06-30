@@ -40,6 +40,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -53,6 +55,7 @@ public final class HttpApiServer implements Closeable {
     private static final String JSON_CONTENT_TYPE = "application/json; charset=utf-8";
     private static final String METRICS_CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8";
     private static final String ROUTE_ORDERS = "/api/v1/orders";
+    private static final String ROUTE_ORDERS_BATCH = "/api/v1/orders/batch";
     private static final String ROUTE_ORDER_BY_ID = "/api/v1/orders/{orderId}";
     private static final String ROUTE_CANCEL = "/api/v1/orders/cancel";
     private static final String ROUTE_SUBMISSION = "/api/v1/submissions/{submissionId}";
@@ -63,6 +66,7 @@ public final class HttpApiServer implements Closeable {
     private static final String ROUTE_READINESS = "/api/v1/runtime/readiness";
     private static final String ROUTE_METRICS = "/metrics";
     private static final int DEFAULT_RECENT_ORDERS_LIMIT = 50;
+    private static final int MAX_HTTP_ORDER_BATCH_SIZE = 1024;
     private static final int METRICS_BUFFER_INITIAL_CAPACITY = 512;
     private static final long CLOSE_TIMEOUT_SECONDS = 5L;
     private static final long[] ENDPOINT_LATENCY_BUCKETS_MILLIS = {10L, 50L, 100L, 250L, 500L, 1_000L, 2_500L, 5_000L};
@@ -86,8 +90,11 @@ public final class HttpApiServer implements Closeable {
     private final EndpointBudget snapshotBudget;
     private final EndpointBudget readinessBudget;
     private final EndpointBudget metricsBudget;
+    private final HttpSubmitAckMode defaultSubmitAckMode;
+    private final int submitBatchMaxOrders;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final ObjectReader newOrderRequestReader = objectMapper.readerFor(NewOrderRequest.class);
+    private final ObjectReader newOrderBatchRequestReader = objectMapper.readerFor(NewOrderBatchRequest.class);
     private final ObjectReader cancelOrderRequestReader = objectMapper.readerFor(CancelOrderRequest.class);
     private final ThreadPoolExecutor requestExecutor;
     private final int requestExecutorQueueCapacity;
@@ -108,10 +115,33 @@ public final class HttpApiServer implements Closeable {
                          GrpcTransportMetrics grpcMetrics,
                          Supplier<ClusterSupervisorMetricsSnapshot> clusterMetricsSupplier,
                          Supplier<ReadinessSnapshot> readinessSupplier) {
+        this(port, bindHost, workerThreads, maxBodyBytes, maxConcurrentRequests, requestTimeoutMillis,
+                writeMaxConcurrentRequests, readMaxConcurrentRequests, adminMaxConcurrentRequests,
+                writeTimeoutMillis, readTimeoutMillis, adminTimeoutMillis,
+                submitEndpointMaxConcurrentRequests, cancelEndpointMaxConcurrentRequests,
+                snapshotEndpointMaxConcurrentRequests, readinessEndpointMaxConcurrentRequests,
+                metricsEndpointMaxConcurrentRequests, shardKey, writeAdmissionPolicyConfig,
+                HttpSubmitAckMode.LOCAL, nodeService, grpcMetrics, clusterMetricsSupplier, readinessSupplier);
+    }
+
+    public HttpApiServer(int port, String bindHost, int workerThreads, int maxBodyBytes, int maxConcurrentRequests, long requestTimeoutMillis,
+                         int writeMaxConcurrentRequests, int readMaxConcurrentRequests, int adminMaxConcurrentRequests,
+                         long writeTimeoutMillis, long readTimeoutMillis, long adminTimeoutMillis,
+                         int submitEndpointMaxConcurrentRequests, int cancelEndpointMaxConcurrentRequests,
+                         int snapshotEndpointMaxConcurrentRequests, int readinessEndpointMaxConcurrentRequests,
+                         int metricsEndpointMaxConcurrentRequests,
+                         String shardKey, WriteAdmissionPolicyConfig writeAdmissionPolicyConfig,
+                         HttpSubmitAckMode defaultSubmitAckMode,
+                         MatcherNodeService nodeService,
+                         GrpcTransportMetrics grpcMetrics,
+                         Supplier<ClusterSupervisorMetricsSnapshot> clusterMetricsSupplier,
+                         Supplier<ReadinessSnapshot> readinessSupplier) {
         this.nodeService = Objects.requireNonNull(nodeService, "nodeService");
         this.grpcMetrics = Objects.requireNonNull(grpcMetrics, "grpcMetrics");
         this.clusterMetricsSupplier = Objects.requireNonNull(clusterMetricsSupplier, "clusterMetricsSupplier");
         this.readinessSupplier = Objects.requireNonNull(readinessSupplier, "readinessSupplier");
+        this.defaultSubmitAckMode = Objects.requireNonNull(defaultSubmitAckMode, "defaultSubmitAckMode");
+        this.submitBatchMaxOrders = Math.max(1, Integer.getInteger("matcher.httpSubmitBatchMaxOrders", MAX_HTTP_ORDER_BATCH_SIZE));
         this.maxBodyBytes = maxBodyBytes;
         this.maxConcurrentRequests = maxConcurrentRequests;
         this.requestTimeoutMillis = requestTimeoutMillis;
@@ -146,6 +176,7 @@ public final class HttpApiServer implements Closeable {
                 .get(ROUTE_ORDERS, blocking("recent_orders", "recent orders", readBudget, null, this::handleRecentOrders))
                 .get(ROUTE_ORDER_BY_ID, blocking("get_order", "get order", readBudget, null, this::handleGetOrder))
                 .post(ROUTE_ORDERS, directBlocking("submit_order", "submit order", writeBudget, submitBudget, this::handleSubmitOrder))
+                .post(ROUTE_ORDERS_BATCH, directBlocking("submit_order_batch", "submit order batch", writeBudget, submitBudget, this::handleSubmitOrderBatch))
                 .post(ROUTE_CANCEL, directBlocking("cancel_order", "cancel order", writeBudget, cancelBudget, this::handleCancelOrder))
                 .get(ROUTE_SUBMISSION, blocking("get_submission", "get submission", readBudget, null, this::handleGetSubmission))
                 .get(ROUTE_SUBMISSION_BY_KEY, blocking("get_submission_by_key", "get submission by idempotency key", readBudget, null, this::handleGetSubmissionByKey))
@@ -191,27 +222,81 @@ public final class HttpApiServer implements Closeable {
     private void handleSubmitOrder(HttpServerExchange exchange) throws IOException {
         NewOrderRequest request = readNewOrderRequest(exchange);
         try {
-            WriteAdmissionController.Admission admission = writeAdmissionController.acquireForSubmit(exchange, request.userId());
-            try (admission) {
-                String idempotencyKey = resolveIdempotencyKey(exchange, request.idempotencyKey(), defaultOrderIdempotencyKey(request.userId(), request.orderId()));
-                var handle = nodeService.submitTrackedNewOrder(
-                        request.userId(),
-                        request.orderId(),
-                        parseEnum(request.side(), Side.class, "side"),
-                        parseEnum(request.orderType(), OrderType.class, "orderType"),
-                        parseEnum(request.timeInForce(), TimeInForce.class, "timeInForce"),
-                        request.price(),
-                        request.quantity(),
-                        request.ttlMillis(),
-                        idempotencyKey
-                );
-                SubmissionReceipt receipt = handle.awaitLocalReceipt(writeBudget.timeoutMillis());
-                writeSubmissionResponse(exchange, receipt);
-            }
+            writeSubmissionResponse(exchange, submitOrder(exchange, request, null));
         } catch (IOException e) {
             handleServiceFailure(exchange, "submit order", e);
         } catch (RuntimeException e) {
             handleApiFailure(exchange, "submit order", e);
+        }
+    }
+
+    private void handleSubmitOrderBatch(HttpServerExchange exchange) throws IOException {
+        NewOrderBatchRequest request = readNewOrderBatchRequest(exchange);
+        if (request.orders() == null || request.orders().isEmpty()) {
+            handleApiFailure(exchange, "submit order batch", new BadRequestException("orders must not be empty"));
+            return;
+        }
+        if (request.orders().size() > submitBatchMaxOrders) {
+            handleApiFailure(exchange, "submit order batch",
+                    new BadRequestException("orders size exceeds max batch size " + submitBatchMaxOrders));
+            return;
+        }
+        ArrayList<Map<String, Object>> submissions = new ArrayList<>(request.orders().size());
+        int accepted = 0;
+        int failed = 0;
+        boolean pending = false;
+        for (int index = 0; index < request.orders().size(); index++) {
+            NewOrderRequest order = request.orders().get(index);
+            try {
+                SubmissionReceipt receipt = submitOrder(exchange, order, request.ack());
+                int status = submissionStatusCode(receipt);
+                pending |= status == 202;
+                accepted++;
+                Map<String, Object> payload = new LinkedHashMap<>(submissionReceiptPayload(receipt));
+                payload.put("index", index);
+                payload.put("status", status);
+                submissions.add(payload);
+            } catch (IOException e) {
+                failed++;
+                ServerApiException apiError = new ServiceUnavailableException("submit order batch item failed", e);
+                logApiFailure(apiError, e);
+                submissions.add(batchErrorPayload(index, apiError.statusCode(), apiError.errorCode(), apiError.getMessage()));
+            } catch (RuntimeException e) {
+                failed++;
+                ServerApiException apiError = HttpApiExceptionMapper.map("submit order batch item", e);
+                logApiFailure(apiError, e);
+                submissions.add(batchErrorPayload(index, apiError.statusCode(), apiError.errorCode(), apiError.getMessage()));
+            }
+        }
+        int status = failed > 0 ? 207 : (pending ? 202 : 200);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("accepted", accepted);
+        payload.put("failed", failed);
+        payload.put("count", submissions.size());
+        payload.put("submissions", submissions);
+        writeJson(exchange, status, payload);
+    }
+
+    private SubmissionReceipt submitOrder(HttpServerExchange exchange, NewOrderRequest request, String batchAckMode) throws IOException {
+        WriteAdmissionController.Admission admission = writeAdmissionController.acquireForSubmit(exchange, request.userId());
+        try (admission) {
+            String idempotencyKey = HttpSubmitRequestPolicy.resolveIdempotencyKey(
+                    exchange,
+                    request.idempotencyKey(),
+                    HttpSubmitRequestPolicy.defaultOrderIdempotencyKey(request.userId(), request.orderId())
+            );
+            var handle = nodeService.submitTrackedNewOrder(
+                    request.userId(),
+                    request.orderId(),
+                    parseEnum(request.side(), Side.class, "side"),
+                    parseEnum(request.orderType(), OrderType.class, "orderType"),
+                    parseEnum(request.timeInForce(), TimeInForce.class, "timeInForce"),
+                    request.price(),
+                    request.quantity(),
+                    request.ttlMillis(),
+                    idempotencyKey
+            );
+            return awaitSubmission(exchange, handle, request.ack() == null ? batchAckMode : request.ack());
         }
     }
 
@@ -262,10 +347,13 @@ public final class HttpApiServer implements Closeable {
         try {
             WriteAdmissionController.Admission admission = writeAdmissionController.acquireForCancel(exchange);
             try (admission) {
-                String idempotencyKey = resolveIdempotencyKey(exchange, request.idempotencyKey(), defaultCancelIdempotencyKey(request.orderId()));
-                SubmissionReceipt receipt = nodeService.submitTrackedCancelOrder(request.orderId(), idempotencyKey)
-                        .awaitLocalReceipt(writeBudget.timeoutMillis());
-                writeSubmissionResponse(exchange, receipt);
+                String idempotencyKey = HttpSubmitRequestPolicy.resolveIdempotencyKey(
+                        exchange,
+                        request.idempotencyKey(),
+                        HttpSubmitRequestPolicy.defaultCancelIdempotencyKey(request.orderId())
+                );
+                var handle = nodeService.submitTrackedCancelOrder(request.orderId(), idempotencyKey);
+                writeSubmissionResponse(exchange, awaitSubmission(exchange, handle, request.ack()));
             }
         } catch (IOException e) {
             handleServiceFailure(exchange, "cancel order", e);
@@ -368,6 +456,8 @@ public final class HttpApiServer implements Closeable {
             payload.put("submissionCommittedCount", metrics.submissionMetrics().committedCount());
             payload.put("submissionFailedCount", metrics.submissionMetrics().failedCount());
             payload.put("submissionRetryingCount", metrics.submissionMetrics().retryingCount());
+            payload.put("submissionCommittedTotal", metrics.submissionMetrics().committedTotal());
+            payload.put("submissionFailedTotal", metrics.submissionMetrics().failedTotal());
             payload.put("replicationQueueDepth", metrics.replicationMetrics().queueDepth());
             payload.put("replicationQueueCapacity", metrics.replicationMetrics().queueCapacity());
             payload.put("replicationMaxObservedQueueDepth", metrics.replicationMetrics().maxObservedQueueDepth());
@@ -489,6 +579,10 @@ public final class HttpApiServer implements Closeable {
                     .append("ull_matcher_submission_failed ").append(nodeMetrics.submissionMetrics().failedCount()).append('\n')
                     .append("# TYPE ull_matcher_submission_retrying gauge\n")
                     .append("ull_matcher_submission_retrying ").append(nodeMetrics.submissionMetrics().retryingCount()).append('\n')
+                    .append("# TYPE ull_matcher_submission_committed_total counter\n")
+                    .append("ull_matcher_submission_committed_total ").append(nodeMetrics.submissionMetrics().committedTotal()).append('\n')
+                    .append("# TYPE ull_matcher_submission_failed_total counter\n")
+                    .append("ull_matcher_submission_failed_total ").append(nodeMetrics.submissionMetrics().failedTotal()).append('\n')
                     .append("# TYPE ull_matcher_replication_queue_depth gauge\n")
                     .append("ull_matcher_replication_queue_depth ").append(nodeMetrics.replicationMetrics().queueDepth()).append('\n')
                     .append("# TYPE ull_matcher_replication_queue_capacity gauge\n")
@@ -763,6 +857,15 @@ public final class HttpApiServer implements Closeable {
         writeJson(exchange, apiError.statusCode(), Map.of("error", apiError.getMessage(), "code", apiError.errorCode()));
     }
 
+    private Map<String, Object> batchErrorPayload(int index, int status, String code, String message) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("index", index);
+        payload.put("status", status);
+        payload.put("code", code);
+        payload.put("error", message);
+        return payload;
+    }
+
     private void logApiFailure(ServerApiException apiError, Throwable error) {
         if (apiError.logLevel() == Level.ERROR) {
             LOG.error(apiError.getMessage(), error);
@@ -801,82 +904,54 @@ public final class HttpApiServer implements Closeable {
         writeJson(exchange, submissionStatusCode(receipt), submissionReceiptPayload(receipt));
     }
 
+    private SubmissionReceipt awaitSubmission(HttpServerExchange exchange,
+                                              io.github.ike.ullmatcher.server.engine.SubmissionTracker.SubmissionHandle handle,
+                                              String bodyAckMode) throws IOException {
+        HttpSubmitAckMode ackMode = HttpSubmitRequestPolicy.resolveAckMode(exchange, bodyAckMode, defaultSubmitAckMode);
+        if (ackMode == HttpSubmitAckMode.LOCAL) {
+            return handle.awaitLocalReceipt(writeBudget.timeoutMillis());
+        }
+        SubmissionView committed = handle.awaitCommitted(writeBudget.timeoutMillis());
+        return receiptFromView(committed);
+    }
+
+    private static SubmissionReceipt receiptFromView(SubmissionView view) {
+        return new SubmissionReceipt(
+                view.submissionId(),
+                view.idempotencyKey(),
+                view.operationType(),
+                view.userId(),
+                view.orderId(),
+                view.sequence(),
+                view.phase(),
+                view.localResult(),
+                view.localDurable(),
+                view.replicationRequired(),
+                view.replicationCommitted(),
+                view.totalTargets(),
+                view.requiredAcks(),
+                view.ackedTargets(),
+                view.retryCount(),
+                view.lastError(),
+                view.createdAtEpochMillis(),
+                view.updatedAtEpochMillis()
+        );
+    }
+
     private Map<String, Object> submissionPayload(SubmissionView view) {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("submissionId", view.submissionId());
-        payload.put("idempotencyKey", view.idempotencyKey());
-        payload.put("operationType", view.operationType());
-        payload.put("userId", view.userId());
-        payload.put("orderId", view.orderId());
-        payload.put("sequence", view.sequence());
-        payload.put("phase", view.phase().name());
-        payload.put("localResult", view.localResult() == null ? null : view.localResult().name());
-        payload.put("result", view.localResult() == null ? null : view.localResult().name());
-        payload.put("localDurable", view.localDurable());
-        payload.put("replicationRequired", view.replicationRequired());
-        payload.put("replicationCommitted", view.replicationCommitted());
-        payload.put("totalTargets", view.totalTargets());
-        payload.put("requiredAcks", view.requiredAcks());
-        payload.put("ackedTargets", view.ackedTargets());
-        payload.put("ackedNodeIds", view.ackedNodeIds());
-        payload.put("failedNodeIds", view.failedNodeIds());
-        payload.put("retryCount", view.retryCount());
-        payload.put("lastError", view.lastError());
-        payload.put("createdAtEpochMillis", view.createdAtEpochMillis());
-        payload.put("updatedAtEpochMillis", view.updatedAtEpochMillis());
-        payload.put("queryPath", ROUTE_SUBMISSION.replace("{submissionId}", view.submissionId()));
-        payload.put("queryByIdempotencyPath", ROUTE_SUBMISSION_BY_KEY + "?idempotencyKey=" + java.net.URLEncoder.encode(view.idempotencyKey(), StandardCharsets.UTF_8));
-        payload.put("orderState", view.orderState());
-        return payload;
+        return SubmissionPayloads.fromView(view, ROUTE_SUBMISSION, ROUTE_SUBMISSION_BY_KEY);
     }
 
     private Map<String, Object> submissionReceiptPayload(SubmissionReceipt receipt) {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("submissionId", receipt.submissionId());
-        payload.put("idempotencyKey", receipt.idempotencyKey());
-        payload.put("operationType", receipt.operationType());
-        payload.put("userId", receipt.userId());
-        payload.put("orderId", receipt.orderId());
-        payload.put("sequence", receipt.sequence());
-        payload.put("phase", receipt.phase().name());
-        payload.put("localResult", receipt.localResult() == null ? null : receipt.localResult().name());
-        payload.put("result", receipt.localResult() == null ? null : receipt.localResult().name());
-        payload.put("localDurable", receipt.localDurable());
-        payload.put("replicationRequired", receipt.replicationRequired());
-        payload.put("replicationCommitted", receipt.replicationCommitted());
-        payload.put("totalTargets", receipt.totalTargets());
-        payload.put("requiredAcks", receipt.requiredAcks());
-        payload.put("ackedTargets", receipt.ackedTargets());
-        payload.put("retryCount", receipt.retryCount());
-        payload.put("lastError", receipt.lastError());
-        payload.put("createdAtEpochMillis", receipt.createdAtEpochMillis());
-        payload.put("updatedAtEpochMillis", receipt.updatedAtEpochMillis());
-        payload.put("queryPath", ROUTE_SUBMISSION.replace("{submissionId}", receipt.submissionId()));
-        payload.put("queryByIdempotencyPath", ROUTE_SUBMISSION_BY_KEY + "?idempotencyKey=" + java.net.URLEncoder.encode(receipt.idempotencyKey(), StandardCharsets.UTF_8));
-        return payload;
-    }
-
-    private String resolveIdempotencyKey(HttpServerExchange exchange, String bodyKey, String fallbackKey) {
-        String headerKey = exchange.getRequestHeaders().getFirst("Idempotency-Key");
-        if (headerKey != null && !headerKey.isBlank()) {
-            return headerKey.trim();
-        }
-        if (bodyKey != null && !bodyKey.isBlank()) {
-            return bodyKey.trim();
-        }
-        return fallbackKey;
-    }
-
-    private static String defaultOrderIdempotencyKey(long userId, long orderId) {
-        return "new-order:" + userId + ":" + orderId;
-    }
-
-    private static String defaultCancelIdempotencyKey(long orderId) {
-        return "cancel-order:" + orderId;
+        return SubmissionPayloads.fromReceipt(receipt, ROUTE_SUBMISSION, ROUTE_SUBMISSION_BY_KEY);
     }
 
     private NewOrderRequest readNewOrderRequest(HttpServerExchange exchange) throws IOException {
         return readRequest(exchange, newOrderRequestReader);
+    }
+
+    private NewOrderBatchRequest readNewOrderBatchRequest(HttpServerExchange exchange) throws IOException {
+        return readRequest(exchange, newOrderBatchRequestReader);
     }
 
     private CancelOrderRequest readCancelOrderRequest(HttpServerExchange exchange) throws IOException {
@@ -1306,9 +1381,12 @@ public final class HttpApiServer implements Closeable {
     private record EndpointBudget(String name, int maxConcurrentRequests, Semaphore slots) {}
 
     private record NewOrderRequest(long userId, long orderId, String side, String orderType, String timeInForce,
-                                   long price, long quantity, Long ttlMillis, String idempotencyKey) {
+                                   long price, long quantity, Long ttlMillis, String idempotencyKey, String ack) {
     }
 
-    private record CancelOrderRequest(long orderId, String idempotencyKey) {
+    private record NewOrderBatchRequest(List<NewOrderRequest> orders, String ack) {
+    }
+
+    private record CancelOrderRequest(long orderId, String idempotencyKey, String ack) {
     }
 }

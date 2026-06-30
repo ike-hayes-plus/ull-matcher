@@ -13,7 +13,7 @@
   - 后台与普通业务接入
   - 低频策略流量
 - **GRPC** 作为保守默认复制传输
-- **AERON** 只在你已经准备好验证目标拓扑和长稳行为时再启用
+- **AERON** 只在目标拓扑和长稳行为完成验证后启用
 - REST HA 表示外部客户端通过 REST 写入 primary，主备复制仍然只走 `GRPC` 或 `AERON`，不走 HTTP
 
 ## 2. 稳定事实源
@@ -84,7 +84,7 @@
 
 ## 7. Benchmark 报告纪律
 
-稳定事实源由基线文档维护，原始 JSON 报告写入 `target/` 下的本地临时目录。
+稳定事实源由基线文档维护，原始 JSON 报告写入 `target/` 下的运行产物目录。
 
 需要保留 benchmark 报告时，使用：
 
@@ -92,7 +92,7 @@
 ./scripts/ops/archive-current-benchmarks.sh
 ```
 
-这样可以保证 README 只引用一套稳定文档口径，避免把临时报告提交到仓库。
+这样可以保证 README 只引用一套稳定文档口径，避免把运行产物提交到仓库。
 
 ## 8. 容量规划规则
 
@@ -139,4 +139,4 @@ safe shard budget = committed throughput * utilization cap
 
 - 这组证据支撑 README 中“`GRPC` 为保守生产默认值”的口径。
 - 这组证据不是长时间生产 soak 的替代品。
-- 如果要把 `AERON` 提升为默认值，必须先补同口径的长稳与 chaos 证据。
+- `AERON` 作为默认传输前，需要具备同口径的长稳与 chaos 证据。

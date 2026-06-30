@@ -93,7 +93,7 @@ final class GrpcReplicationTargetTest {
                 .start();
         ManagedChannel channel = InProcessChannelBuilder.forName(serverName).directExecutor().build();
         try (GrpcReplicationTarget target = new GrpcReplicationTarget("standby-a", channel)) {
-            IOException error = assertThrows(IOException.class, () -> target.replicate(command(2L), TEST_TIMEOUT_NANOS));
+            IOException error = assertThrows(IOException.class, () -> target.replicate(command(1L), TEST_TIMEOUT_NANOS));
             assertTrue(error.getMessage().contains("INTERNAL"));
         } finally {
             standby.close();
@@ -125,11 +125,11 @@ final class GrpcReplicationTargetTest {
                 .start();
         ManagedChannel channel = InProcessChannelBuilder.forName(serverName).directExecutor().build();
         try (GrpcReplicationTarget target = new GrpcReplicationTarget("standby-a", channel)) {
-            target.replicateBatch(List.of(command(10L), command(11L), command(12L)), TEST_TIMEOUT_NANOS);
-            awaitApplied(standby, 12L);
+            target.replicateBatch(List.of(command(1L), command(2L), command(3L)), TEST_TIMEOUT_NANOS);
+            awaitApplied(standby, 3L);
 
             assertEquals(3, wal.appendCount);
-            assertEquals(new ReplicationCursor(12L, 12L, 12L, 0L), target.fetchCursor(TEST_TIMEOUT_NANOS));
+            assertEquals(new ReplicationCursor(3L, 3L, 3L, 0L), target.fetchCursor(TEST_TIMEOUT_NANOS));
         } finally {
             standby.close();
             loop.stop();

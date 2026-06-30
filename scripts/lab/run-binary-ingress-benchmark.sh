@@ -24,7 +24,9 @@ LOG_ROOT="${LOG_ROOT:-$ROOT_DIR/target/binary-bench-logs}"
 CLUSTER_NAME="${CLUSTER_NAME:-binary-bench-$(date +%Y%m%d%H%M%S)-$$}"
 SHARD_KEY="${SHARD_KEY:-merchant:42}"
 SYMBOL_ID="${SYMBOL_ID:-1}"
-ZK_CONNECT="${ZK_CONNECT:-127.0.0.1:2181}"
+ZK_CONNECT="${ZK_CONNECT:-127.0.0.1:2181,127.0.0.1:2182,127.0.0.1:2183}"
+ETCD_ENDPOINT="${ETCD_ENDPOINT:-http://127.0.0.1:2379,http://127.0.0.1:2381,http://127.0.0.1:2383}"
+CONTROL_PLANE="${CONTROL_PLANE:-zk}"
 CLUSTER_STABLE_ROUNDS="${CLUSTER_STABLE_ROUNDS:-8}"
 CLUSTER_STABLE_TIMEOUT_SECONDS="${CLUSTER_STABLE_TIMEOUT_SECONDS:-30}"
 BENCHMARK_RETRIES="${BENCHMARK_RETRIES:-1}"
@@ -36,6 +38,7 @@ while [[ $# -gt 0 ]]; do
     --mode) MODE="$2"; shift 2 ;;
     --report) REPORT="$2"; shift 2 ;;
     --standby-commit-mode) STANDBY_COMMIT_MODE="$2"; shift 2 ;;
+    --control-plane) CONTROL_PLANE="$2"; shift 2 ;;
     --resting-orders) RESTING_ORDERS="$2"; shift 2 ;;
     --concurrency) CONCURRENCY="$2"; shift 2 ;;
     --batch-size) BATCH_SIZE="$2"; shift 2 ;;
@@ -98,6 +101,22 @@ if [[ "$MODE" != "replication-commit" && "$STANDBY_COMMIT_MODE" != "any" ]]; the
   echo "[bench] --standby-commit-mode=${STANDBY_COMMIT_MODE} only applies to replication-commit; using any for ${MODE}" >&2
   STANDBY_COMMIT_MODE="any"
 fi
+case "$STANDBY_COMMIT_MODE" in
+  any) REPLICATION_MODE="${REPLICATION_MODE:-WAIT_FOR_ANY_STANDBY}" ;;
+  quorum) REPLICATION_MODE="${REPLICATION_MODE:-WAIT_FOR_QUORUM_STANDBYS}" ;;
+  all) REPLICATION_MODE="${REPLICATION_MODE:-WAIT_FOR_ALL_STANDBYS}" ;;
+  *)
+    echo "--standby-commit-mode must be any, quorum, or all: ${STANDBY_COMMIT_MODE}" >&2
+    exit 2
+    ;;
+esac
+case "$CONTROL_PLANE" in
+  zk|etcd) ;;
+  *)
+    echo "--control-plane must be zk or etcd: ${CONTROL_PLANE}" >&2
+    exit 2
+    ;;
+esac
 
 NODE_IDS=(node-a node-b node-c node-d)
 HTTP_PORTS=("$LAB_HTTP_PORT_NODE_A" "$LAB_HTTP_PORT_NODE_B" "$LAB_HTTP_PORT_NODE_C" "$LAB_HTTP_PORT_NODE_D")
@@ -117,27 +136,65 @@ if ! lsof -iTCP:"${LAB_ZOOKEEPER_PORT}" -sTCP:LISTEN >/dev/null 2>&1; then
   "${ROOT_DIR}/scripts/run-chaos-tests.sh" lab up >/dev/null
 fi
 
-python3 - <<'PY' "${LAB_ZOOKEEPER_PORT}"
+if [[ "$CONTROL_PLANE" == "etcd" ]]; then
+  if ! lsof -iTCP:"${LAB_ETCD_PORT}" -sTCP:LISTEN >/dev/null 2>&1; then
+    "${ROOT_DIR}/scripts/run-chaos-tests.sh" lab up >/dev/null
+  fi
+fi
+
+if [[ "$CONTROL_PLANE" == "zk" ]]; then
+  python3 - <<'PY' "${LAB_ZOOKEEPER_PORT}" "${LAB_ZOOKEEPER_PORT_NODE_2}" "${LAB_ZOOKEEPER_PORT_NODE_3}"
 import socket
 import sys
 import time
 
-port = int(sys.argv[1])
 deadline = time.time() + 30.0
 while time.time() < deadline:
-    try:
-        with socket.create_connection(("127.0.0.1", port), timeout=1.0):
-            raise SystemExit(0)
-    except OSError:
-        time.sleep(0.2)
-raise SystemExit("zookeeper did not become reachable in time")
+    reachable = 0
+    for port in [int(value) for value in sys.argv[1:]]:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=1.0):
+                reachable += 1
+        except OSError:
+            pass
+    if reachable >= 2:
+        raise SystemExit(0)
+    time.sleep(0.2)
+raise SystemExit("zookeeper quorum did not become reachable in time")
 PY
+else
+  python3 - <<'PY' "$LAB_ETCD_PORT" "$LAB_ETCD_PORT_NODE_2" "$LAB_ETCD_PORT_NODE_3"
+import socket
+import sys
+import time
+
+deadline = time.time() + 30.0
+while time.time() < deadline:
+    reachable = 0
+    for port in [int(value) for value in sys.argv[1:]]:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=1.0):
+                reachable += 1
+        except OSError:
+            pass
+    if reachable >= 2:
+        raise SystemExit(0)
+    else:
+        time.sleep(0.2)
+raise SystemExit("etcd quorum did not become reachable in time")
+PY
+fi
 
 cleanup
 rm -rf "$DATA_ROOT" "$LOG_ROOT"
 mkdir -p "$DATA_ROOT" "$LOG_ROOT"
 
-export SHARD_KEY SYMBOL_ID CLUSTER_NAME ZK_CONNECT DATA_ROOT LOG_ROOT REPLICATION_TRANSPORT="$TRANSPORT"
+export SHARD_KEY SYMBOL_ID CLUSTER_NAME ZK_CONNECT ETCD_ENDPOINT DATA_ROOT LOG_ROOT REPLICATION_MODE REPLICATION_TRANSPORT="$TRANSPORT"
+if [[ "$CONTROL_PLANE" == "etcd" ]]; then
+  export LEASE_PROVIDER="etcd" DISCOVERY_PROVIDER="etcd"
+else
+  export LEASE_PROVIDER="zk" DISCOVERY_PROVIDER="zk"
+fi
 
 NODE_COUNT=$((STANDBYS + 1))
 for ((i = 0; i < NODE_COUNT; i++)); do

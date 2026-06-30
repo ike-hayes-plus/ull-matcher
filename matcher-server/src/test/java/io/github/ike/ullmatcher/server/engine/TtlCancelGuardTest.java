@@ -10,9 +10,11 @@ import io.github.ike.ullmatcher.api.TradeEvent;
 import io.github.ike.ullmatcher.hft.SubmitResult;
 import org.junit.jupiter.api.Test;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -24,20 +26,24 @@ final class TtlCancelGuardTest {
         AtomicReference<SubmitResult> nextCancelResult = new AtomicReference<>(SubmitResult.RING_FULL_AFTER_WAL_APPEND);
         TtlCancelConfig config = new TtlCancelConfig(true, 10L, 10L, 100L, 100L, 16);
         List<TtlEventAction> actions = new ArrayList<>();
-        try (TtlCancelGuard guard = new TtlCancelGuard(config, orderId -> nextCancelResult.get(), 1)) {
+        ManualClock clock = new ManualClock();
+        try (TtlCancelGuard guard = new TtlCancelGuard(config, orderId -> nextCancelResult.get(), 1, clock)) {
             guard.bindEventSink(new EventSink(actions));
-            guard.start();
             guard.onSubmissionAccepted(42L, TimeInForce.GTC, 10L);
             guard.onOrder(newOrderEvent(42L, 1L));
 
-            assertTrue(await(() -> guard.snapshot().cancelSkippedTotal() >= 1L, 2_000L));
+            clock.setMillis(10L);
+            guard.sweep(clock.millis());
+            assertEquals(1L, guard.snapshot().cancelSkippedTotal());
             assertEquals(1L, guard.snapshot().activeTrackedOrders());
             assertTrue(guard.snapshot().recentAuditEntries().stream()
                     .anyMatch(entry -> "CANCEL_PENDING_RECOVERY".equals(entry.action())));
 
             nextCancelResult.set(SubmitResult.ACCEPTED);
 
-            assertTrue(await(() -> guard.snapshot().cancelAcceptedTotal() >= 1L, 2_000L));
+            clock.setMillis(20L);
+            guard.sweep(clock.millis());
+            assertEquals(1L, guard.snapshot().cancelAcceptedTotal());
             assertEquals(0L, guard.snapshot().activeTrackedOrders());
             assertTrue(guard.snapshot().recentAuditEntries().stream()
                     .anyMatch(entry -> "RESCHEDULED".equals(entry.action())));
@@ -73,19 +79,31 @@ final class TtlCancelGuardTest {
         return event;
     }
 
-    private static boolean await(Check check, long timeoutMillis) throws InterruptedException {
-        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
-        while (System.nanoTime() < deadline) {
-            if (check.ok()) {
-                return true;
-            }
-            Thread.sleep(10L);
-        }
-        return false;
-    }
+    private static final class ManualClock extends Clock {
+        private long millis;
 
-    @FunctionalInterface
-    private interface Check {
-        boolean ok();
+        void setMillis(long millis) {
+            this.millis = millis;
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneId.of("UTC");
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return Instant.ofEpochMilli(millis);
+        }
+
+        @Override
+        public long millis() {
+            return millis;
+        }
     }
 }

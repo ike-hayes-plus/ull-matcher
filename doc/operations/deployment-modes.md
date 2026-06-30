@@ -48,7 +48,9 @@ java \
 
 - `taskset` / `numactl` 用于提升 CPU 与内存局部性
 - gRPC 建议在生产模式下启用 TLS/mTLS
-- HTTP 是否允许远端明文暴露，必须显式通过 `matcher.allowInsecureRemoteHttp=true` 确认
+- HTTP 默认绑定 `127.0.0.1`，适合由同机 sidecar、内网网关或内网服务调用
+- 内网部署时，HTTP 明文入口应只暴露在受控 VPC / 子网 / 安全组内，不建议直接暴露到公网
+- HTTP 是否允许非 loopback 明文监听，必须显式通过 `matcher.allowInsecureRemoteHttp=true` 确认
 
 ---
 
@@ -58,7 +60,7 @@ java \
 
 - 本地联调
 - HA 控制面演练
-- ZooKeeper / Nacos / chaos 入口验证
+- ZooKeeper / etcd / chaos 入口验证
 
 仓库提供的是**基础设施 compose**，而不是把 `matcher-server` 变成“容器优先产品”。
 
@@ -70,7 +72,7 @@ java \
 用途：
 
 - 拉起 ZooKeeper
-- 拉起 Nacos
+- 拉起 etcd
 - 拉起 Toxiproxy
 - 拉起 Prometheus
 - 让 matcher 节点仍然在宿主机或独立进程中运行

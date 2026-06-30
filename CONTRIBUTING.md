@@ -72,7 +72,7 @@ mvn -Pstyle-check,release-signing,central-publish -DskipTests deploy
 
 ## 代码约束
 
-- 正确性优先于局部性能优化。订单顺序、成交规则、撤单语义、幂等语义、WAL/replay 恢复语义不能为吞吐数字让路。
+- 正确性优先于局部性能改动。订单顺序、成交规则、撤单语义、幂等语义、WAL/replay 恢复语义不能为吞吐数字让路。
 - 撮合热路径必须简单、可控，避免锁竞争、无谓分配、反射、字符串解析和日志拼接。
 - 新增服务层策略必须经过标准命令、WAL、复制和重放主链，不能绕开可恢复状态。
 - 不要把 discovery、TTL、TLS、集群协调或网络协议逻辑塞进 `matcher-core`。
@@ -90,7 +90,8 @@ mvn -Pstyle-check,release-signing,central-publish -DskipTests deploy
 - `matcher-runtime`：loop 与 gateway
 - `matcher-ha`：HA 契约与编排
 - `matcher-ha-zookeeper`：ZooKeeper lease / fencing 实现
-- `matcher-discovery-*`：可插拔服务发现实现
+- `matcher-ha-etcd`：etcd lease / discovery 实现
+- `matcher-discovery-zookeeper`：ZooKeeper discovery 实现
 - `matcher-ha-grpc`：gRPC 复制传输
 - `matcher-ha-aeron`：Aeron 复制传输
 - `matcher-server`：独立撮合节点服务
@@ -102,7 +103,7 @@ mvn -Pstyle-check,release-signing,central-publish -DskipTests deploy
 
 - 修改撮合、WAL、复制、replay、幂等或 API 契约时，必须补充或更新对应单元测试。
 - 修改热路径时，优先增加低分配、低抖动的专向 benchmark，而不是只看端到端脚本单次读数。
-- benchmark 报告应写入 `target/` 下的临时目录；仓库文档只保留稳定事实源和可复现命令。
+- benchmark 报告应写入 `target/` 下的生成目录；仓库文档只保留稳定事实源和可复现命令。
 - 不把单次最好结果写成容量承诺；README 使用保守稳定口径，完整事实源维护在 `doc/operations/benchmark-baseline-current.md`。
 - 压测失败时先判断环境、JDK、端口、ZooKeeper、standby catch-up 和 committed 口径，再判断业务代码退化。
 
@@ -112,7 +113,7 @@ mvn -Pstyle-check,release-signing,central-publish -DskipTests deploy
 - 架构设计放在 `doc/architecture/`。
 - 运维、压测、灰度和容量事实源放在 `doc/operations/`。
 - 贡献流程、代码边界、测试和发布要求统一放在本文件。
-- 临时草稿和生成报告不要提交到仓库；需要保留的生成物放入 `target/`。
+- 草稿和生成报告不要提交到仓库；需要保留的生成物放入 `target/`。
 
 ## Pull Request 要求
 

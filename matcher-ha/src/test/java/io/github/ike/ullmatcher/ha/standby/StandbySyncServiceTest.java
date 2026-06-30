@@ -116,6 +116,67 @@ final class StandbySyncServiceTest {
         }
     }
 
+    @Test
+    void replicateDuplicateCommandIsIdempotentAfterRetry() throws Exception {
+        RecordingWalWriter wal = new RecordingWalWriter();
+        SpscRingBuffer<Command> ring = new SpscRingBuffer<>(16);
+        UltraLowLatencyMatcher matcher = new UltraLowLatencyMatcher(MatcherConfig.defaults(1), new NoopHandler());
+        StandbySyncService service = new StandbySyncService("standby-a", wal, ring, matcher, StandbySyncConfig.defaults());
+
+        try {
+            service.replicate(command(1L), TimeUnit.SECONDS.toNanos(1));
+            service.replicate(command(1L), TimeUnit.SECONDS.toNanos(1));
+
+            assertEquals(1, wal.appendCount);
+            assertEquals(1, wal.forceCount);
+            assertEquals(new ReplicationCursor(1L, 1L, 0L, 0L), service.cursor());
+        } finally {
+            service.close();
+        }
+    }
+
+    @Test
+    void replicateBatchSkipsAlreadyReceivedPrefixOnRetry() throws Exception {
+        RecordingWalWriter wal = new RecordingWalWriter();
+        SpscRingBuffer<Command> ring = new SpscRingBuffer<>(16);
+        UltraLowLatencyMatcher matcher = new UltraLowLatencyMatcher(MatcherConfig.defaults(1), new NoopHandler());
+        StandbySyncService service = new StandbySyncService("standby-a", wal, ring, matcher, StandbySyncConfig.defaults());
+
+        try {
+            service.appendReplicatedBatch(List.of(command(1L), command(2L)), TimeUnit.SECONDS.toNanos(1));
+            service.appendReplicatedBatch(List.of(command(1L), command(2L), command(3L)), TimeUnit.SECONDS.toNanos(1));
+            service.force(3);
+
+            assertEquals(3, wal.appendCount);
+            assertEquals(1, wal.forceCount);
+            assertEquals(new ReplicationCursor(3L, 3L, 0L, 0L), service.cursor());
+            assertEquals(1L, service.metricsSnapshot().lastReplicatedBatchSize());
+            assertEquals(3L, service.metricsSnapshot().replicatedCommandsTotal());
+        } finally {
+            service.close();
+        }
+    }
+
+    @Test
+    void replicateBatchRejectsSequenceGapsBeforeWalAppend() throws Exception {
+        RecordingWalWriter wal = new RecordingWalWriter();
+        SpscRingBuffer<Command> ring = new SpscRingBuffer<>(16);
+        UltraLowLatencyMatcher matcher = new UltraLowLatencyMatcher(MatcherConfig.defaults(1), new NoopHandler());
+        StandbySyncService service = new StandbySyncService("standby-a", wal, ring, matcher, StandbySyncConfig.defaults());
+
+        try {
+            IOException error = assertThrows(IOException.class,
+                    () -> service.replicateBatch(List.of(command(1L), command(3L)), TimeUnit.SECONDS.toNanos(1)));
+
+            assertTrue(error.getMessage().contains("expected 2 but received 3"));
+            assertEquals(0, wal.appendCount);
+            assertEquals(0, wal.forceCount);
+            assertEquals(new ReplicationCursor(0L, 0L, 0L, 0L), service.cursor());
+        } finally {
+            service.close();
+        }
+    }
+
     private static void awaitApplied(StandbySyncService service, long sequence) throws InterruptedException {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
         while (System.nanoTime() < deadline && service.cursor().lastAppliedSequence() < sequence) {

@@ -2,6 +2,7 @@ package io.github.ike.ullmatcher.spring.boot.autoconfigure;
 
 import io.github.ike.ullmatcher.ha.coordination.LeaseStore;
 import io.github.ike.ullmatcher.ha.discovery.NodeRegistry;
+import io.github.ike.ullmatcher.ha.failover.FailoverPolicy;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerApp;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerConfig;
 import io.github.ike.ullmatcher.server.bootstrap.WriteAdmissionPolicyConfig;
@@ -139,7 +140,11 @@ public class UllMatcherServerAutoConfiguration {
                 cluster.getCoordinatorTickMillis(),
                 TimeUnit.MILLISECONDS.toNanos(cluster.getDiscoveryRpcTimeoutMillis()),
                 TimeUnit.MILLISECONDS.toNanos(cluster.getLeaseTtlMillis()),
-                MatcherClusterConfig.defaults(leaseStore, nodeRegistry, cluster.getAdvertisedHost(), properties.getShardKey()).failoverPolicy(),
+                new FailoverPolicy(
+                        TimeUnit.MILLISECONDS.toNanos(cluster.getFailoverPrimaryHeartbeatTimeoutMillis()),
+                        cluster.getFailoverMaxPromotionLag(),
+                        cluster.getFailoverMinStandbyReplicas()
+                ),
                 MatcherClusterConfig.defaults(leaseStore, nodeRegistry, cluster.getAdvertisedHost(), properties.getShardKey()).readinessPolicy(),
                 cluster.getSnapshotSyncThreshold(),
                 TimeUnit.MILLISECONDS.toNanos(cluster.getSnapshotSyncTimeoutMillis()),

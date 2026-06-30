@@ -63,6 +63,32 @@ final class HaCoordinatorTest {
     }
 
     @Test
+    void highestDurableAppliedStandbyWinsPromotionWhenMultipleStandbysAreEligible() {
+        InMemoryLeaseStore leaseStore = new InMemoryLeaseStore(
+                new ClusterLease("node-a", new FencingToken(1L), 1_000L)
+        );
+        HaMatchRuntime runtime = new HaMatchRuntime("node-c", newLoop(), HaRole.STANDBY, new FencingToken(1L));
+        HaCoordinator coordinator = new HaCoordinator(
+                "node-c", runtime, leaseStore, new QuorumFailoverController(),
+                new FailoverPolicy(500L, 5L, 1), 5_000L
+        );
+
+        HaTickResult result = coordinator.tick(
+                primary("node-a", false, false, 1_000L, 100L),
+                List.of(
+                        standby("node-b", 98L),
+                        standby("node-c", 100L),
+                        standby("node-d", 99L)
+                ),
+                2_000L
+        );
+
+        assertEquals(FailoverAction.PROMOTE_STANDBY, result.action());
+        assertEquals(HaRole.PRIMARY, result.roleAfter());
+        assertEquals("node-c", leaseStore.currentLease().ownerNodeId());
+    }
+
+    @Test
     @Tag("chaos")
     void primaryFencesItselfAfterLeaseLoss() {
         InMemoryLeaseStore leaseStore = new InMemoryLeaseStore(

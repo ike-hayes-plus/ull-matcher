@@ -5,6 +5,7 @@ import io.github.ike.ullmatcher.ha.grpc.telemetry.GrpcTransportMetrics;
 import io.github.ike.ullmatcher.ha.grpc.telemetry.OpenTelemetryGrpcMetricsBridge;
 import io.github.ike.ullmatcher.server.api.BinaryOrderIngressServer;
 import io.github.ike.ullmatcher.server.api.HttpApiServer;
+import io.github.ike.ullmatcher.server.api.HttpSubmitAckMode;
 import io.github.ike.ullmatcher.server.cluster.ClusterSupervisorMetricsSnapshot;
 import io.github.ike.ullmatcher.server.cluster.MatcherClusterSupervisor;
 import io.github.ike.ullmatcher.server.cluster.ReplicationTransportPolicyEnforcer;
@@ -69,6 +70,7 @@ public final class MatcherServerApp implements Closeable {
                 config.httpMetricsEndpointMaxConcurrentRequests(),
                 config.shardKey(),
                 config.writeAdmissionPolicyConfig(),
+                HttpSubmitAckMode.parse(System.getProperty("matcher.httpSubmitAckMode"), HttpSubmitAckMode.LOCAL),
                 nodeService,
                 grpcMetrics,
                 clusterMetricsSupplier, this::readinessSnapshot);

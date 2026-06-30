@@ -4,9 +4,9 @@
 
 ## 1. 切换前
 
-- [ ] 已确认版本间 `WAL / snapshot / replication` 协议兼容
-- [ ] 已完成基线 benchmark 验证
-- [ ] 已完成至少一轮 `soak / failover smoke / chaos` 验证
+- [ ] 已确认目标构建与生产数据格式兼容
+- [ ] 基线 benchmark 验证通过
+- [ ] `soak / failover smoke / chaos` 验证通过
 - [ ] 已明确 rollout 的 shard 范围
 - [ ] 已明确使用的复制传输：`GRPC` 或 `AERON`
 - [ ] 已确认生产一次只启用一种权威复制传输
@@ -16,14 +16,14 @@
 
 ## 2. 切流前
 
-- [ ] 新版本节点已作为 standby 加入
+- [ ] 目标节点作为 standby 加入
 - [ ] `serviceReady=true`
 - [ ] `clientTrafficReady=false`
-- [ ] `lastAppliedSequence` 已追近 primary
+- [ ] `lastAppliedSequence` 追近 primary
 - [ ] `lastDurableSequence` 持续推进
 - [ ] `standbyApplyQueueDepth` 未持续堆积
 - [ ] `standbyAckLastFlushMicros` 未出现异常尖峰
-- [ ] 已执行切主前采样：
+- [ ] 执行切主前采样：
 
 ```bash
 ./scripts/deploy/gray-release-observe.sh target/gray/before \
@@ -33,16 +33,16 @@
 
 ## 3. 切主窗口内
 
-- [ ] 已在低峰窗口执行
-- [ ] 已明确人工切主负责人
-- [ ] 已明确回滚负责人
-- [ ] 已执行切主或下线原 primary
-- [ ] 新 primary 已出现
+- [ ] 在低峰窗口执行
+- [ ] 明确人工切主负责人
+- [ ] 明确回滚负责人
+- [ ] 执行切主或下线原 primary
+- [ ] 新 primary 出现
 - [ ] 未出现双主
 
 ## 4. 切主后
 
-- [ ] 已执行切主后采样：
+- [ ] 执行切主后采样：
 
 ```bash
 ./scripts/deploy/gray-release-observe.sh target/gray/after \
@@ -61,11 +61,11 @@
 
 ## 5. 扩大灰度范围前
 
-- [ ] 目标 shard 已稳定通过观察窗口
+- [ ] 目标 shard 稳定通过观察窗口
 - [ ] 没有出现 committed tail 明显拉长
 - [ ] 没有出现 standby apply backlog 持续堆积
 - [ ] 没有出现 readiness 与真实主节点状态不一致
-- [ ] 已决定下一批 shard 范围
+- [ ] 决定后续 shard 范围
 
 ## 6. 回滚条件
 
@@ -79,7 +79,7 @@
 
 ## 7. 回滚后
 
-- [ ] 已执行回滚后采样：
+- [ ] 执行回滚后采样：
 
 ```bash
 ./scripts/deploy/gray-release-observe.sh target/gray/rollback \
@@ -90,4 +90,4 @@
 - [ ] 回滚节点重新成为唯一 `PRIMARY`
 - [ ] `clientTrafficReady` 与唯一 `PRIMARY` 一致
 - [ ] `replicationCommittedSequence` 恢复正常推进
-- [ ] 已暂停继续扩大灰度范围
+- [ ] 停止扩大灰度范围

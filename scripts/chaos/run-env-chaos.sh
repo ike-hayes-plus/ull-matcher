@@ -7,8 +7,6 @@ DRY_RUN="${DRY_RUN:-false}"
 PRIMARY_PID="${PRIMARY_PID:-}"
 ZK_HOST="${ZK_HOST:-127.0.0.1}"
 ZK_PORT="${ZK_PORT:-2181}"
-NACOS_HOST="${NACOS_HOST:-127.0.0.1}"
-NACOS_PORT="${NACOS_PORT:-8848}"
 NETWORK_IFACE="${NETWORK_IFACE:-lo0}"
 DATA_DIR="${DATA_DIR:-}"
 FILL_MB="${FILL_MB:-256}"
@@ -25,8 +23,6 @@ Scenarios:
   wal-disk-clean
   zk-disconnect
   zk-reconnect
-  nacos-disconnect
-  nacos-reconnect
   grpc-delay
   grpc-loss
   netem-reset
@@ -148,12 +144,6 @@ case "${SCENARIO}" in
     ;;
   zk-reconnect)
     disable_firewall_rule "ullmatcher_zk" "${ZK_HOST}" "${ZK_PORT}"
-    ;;
-  nacos-disconnect)
-    enable_firewall_rule "ullmatcher_nacos" "${NACOS_HOST}" "${NACOS_PORT}"
-    ;;
-  nacos-reconnect)
-    disable_firewall_rule "ullmatcher_nacos" "${NACOS_HOST}" "${NACOS_PORT}"
     ;;
   grpc-delay)
     require_command tc

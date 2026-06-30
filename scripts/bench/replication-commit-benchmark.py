@@ -19,7 +19,10 @@ def fetch_json(url: str):
         return json.loads(response.read().decode("utf-8"))
 
 
-def post_order(base_url: str, payload: dict):
+def post_order(base_url: str, payload: dict, ack_mode: str):
+    if ack_mode:
+        payload = dict(payload)
+        payload["ack"] = ack_mode
     request = urllib.request.Request(
         f"{base_url}/api/v1/orders",
         data=json.dumps(payload).encode("utf-8"),
@@ -50,6 +53,54 @@ def post_order(base_url: str, payload: dict):
             "detail": body.get("detail", ""),
             "latencyMs": latency_ms,
         }
+
+
+def post_order_batch(base_url: str, payloads: list[dict], ack_mode: str):
+    request_payload = {"orders": payloads}
+    if ack_mode:
+        request_payload["ack"] = ack_mode
+    request = urllib.request.Request(
+        f"{base_url}/api/v1/orders/batch",
+        data=json.dumps(request_payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    started = time.perf_counter_ns()
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            body = json.loads(response.read().decode("utf-8"))
+            latency_ms = (time.perf_counter_ns() - started) / 1_000_000.0
+            submissions = body.get("submissions") or []
+            per_order_latency_ms = latency_ms / max(1, len(payloads))
+            results = []
+            for item in submissions:
+                results.append({
+                    "status": item.get("status", response.status),
+                    "result": item.get("result"),
+                    "submissionId": item.get("submissionId"),
+                    "latencyMs": per_order_latency_ms,
+                    "batchLatencyMs": latency_ms,
+                })
+            return results
+    except urllib.error.HTTPError as exc:
+        body = {}
+        try:
+            body = json.loads(exc.read().decode("utf-8"))
+        except Exception:
+            body = {}
+        latency_ms = (time.perf_counter_ns() - started) / 1_000_000.0
+        per_order_latency_ms = latency_ms / max(1, len(payloads))
+        detail = body.get("detail", "") or body.get("error", "")
+        return [
+            {
+                "status": exc.code,
+                "result": f"HTTP_{exc.code}",
+                "detail": detail,
+                "latencyMs": per_order_latency_ms,
+                "batchLatencyMs": latency_ms,
+            }
+            for _ in payloads
+        ]
 
 
 def wait_for(description: str, predicate, timeout_seconds: float):
@@ -86,6 +137,10 @@ def summarize_latencies(latencies):
     }
 
 
+def committed_total(health: dict) -> int:
+    return int(health.get("submissionCommittedTotal", health.get("submissionCommittedCount", 0)))
+
+
 def summarize_results(results):
     counts = {}
     for item in results:
@@ -118,6 +173,11 @@ def build_crossing_order(order_id: int):
         "price": 101,
         "quantity": 1,
     }
+
+
+def chunks(items: list[dict], size: int):
+    for start in range(0, len(items), size):
+        yield items[start:start + size]
 
 
 class HealthPoller:
@@ -185,7 +245,13 @@ def main() -> int:
     parser.add_argument("--poll-interval-ms", type=int, default=100)
     parser.add_argument("--commit-timeout-seconds", type=float, default=90.0)
     parser.add_argument("--order-id-start", type=int, default=int(time.time() * 1_000_000))
+    parser.add_argument("--ack-mode", choices=["local", "committed"], default="local")
+    parser.add_argument("--preload-ack-mode", choices=["local", "committed"], default=None)
+    parser.add_argument("--http-submit-mode", choices=["single", "batch"], default="single")
+    parser.add_argument("--batch-size", type=int, default=32)
     args = parser.parse_args()
+    preload_ack_mode = args.preload_ack_mode or args.ack_mode
+    batch_size = max(1, args.batch_size)
 
     try:
         wait_for(
@@ -195,16 +261,27 @@ def main() -> int:
             ),
             30.0,
         )
+        health_initial = fetch_json(f"{args.base_url}/api/v1/runtime/health")
+        expected_preload_accepted = health_initial.get("gatewayAcceptedTotal", 0) + args.resting_orders
+        expected_preload_committed = committed_total(health_initial) + args.resting_orders
+
         for offset in range(args.resting_orders):
-            result = post_order(args.base_url, build_resting_order(args.order_id_start + offset))
+            result = post_order(args.base_url, build_resting_order(args.order_id_start + offset), preload_ack_mode)
             if result["status"] not in (200, 202) or result.get("result") != "ACCEPTED":
                 raise RuntimeError(
                     f"failed to preload resting order offset={offset} status={result['status']} result={result.get('result')}"
                 )
 
-        health_before = wait_for(
+        wait_for(
             "resting liquidity preload",
-            lambda: (lambda h: h if h.get("gatewayAcceptedTotal", 0) >= args.resting_orders else None)(
+            lambda: (lambda h: h if h.get("gatewayAcceptedTotal", 0) >= expected_preload_accepted else None)(
+                fetch_json(f"{args.base_url}/api/v1/runtime/health")
+            ),
+            90.0,
+        )
+        health_before = wait_for(
+            "resting liquidity commit baseline",
+            lambda: (lambda h: h if committed_total(h) >= expected_preload_committed else None)(
                 fetch_json(f"{args.base_url}/api/v1/runtime/health")
             ),
             90.0,
@@ -214,13 +291,26 @@ def main() -> int:
 
         results = []
         submit_started = time.perf_counter_ns()
-        with ThreadPoolExecutor(max_workers=args.concurrency) as executor:
-            futures = [
-                executor.submit(post_order, args.base_url, build_crossing_order(args.order_id_start + args.resting_orders + i))
+        if args.http_submit_mode == "single":
+            with ThreadPoolExecutor(max_workers=args.concurrency) as executor:
+                futures = [
+                    executor.submit(post_order, args.base_url, build_crossing_order(args.order_id_start + args.resting_orders + i), args.ack_mode)
+                    for i in range(args.resting_orders)
+                ]
+                for future in as_completed(futures):
+                    results.append(future.result())
+        else:
+            orders = [
+                build_crossing_order(args.order_id_start + args.resting_orders + i)
                 for i in range(args.resting_orders)
             ]
-            for future in as_completed(futures):
-                results.append(future.result())
+            with ThreadPoolExecutor(max_workers=args.concurrency) as executor:
+                futures = [
+                    executor.submit(post_order_batch, args.base_url, batch, args.ack_mode)
+                    for batch in chunks(orders, batch_size)
+                ]
+                for future in as_completed(futures):
+                    results.extend(future.result())
         submit_completed = time.perf_counter_ns()
 
         expected_trade_count = health_before.get("tradeCount", 0) + args.resting_orders
@@ -244,14 +334,14 @@ def main() -> int:
         Path(args.report).write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         return 2
 
-    expected_committed = health_before.get("submissionCommittedCount", 0) + args.resting_orders
+    expected_committed = committed_total(health_before) + args.resting_orders
     timed_out = False
     timeout_error = ""
     standby_health_after = None
     try:
         health_after = wait_for(
             "replication committed submissions",
-            lambda: (lambda h: h if h.get("submissionCommittedCount", 0) >= expected_committed else None)(
+            lambda: (lambda h: h if committed_total(h) >= expected_committed else None)(
                 fetch_json(f"{args.base_url}/api/v1/runtime/health")
             ),
             args.commit_timeout_seconds,
@@ -275,7 +365,7 @@ def main() -> int:
     trade_events = max(0, health_after.get("tradeCount", 0) - health_before.get("tradeCount", 0))
     committed_submissions = max(
         0,
-        health_after.get("submissionCommittedCount", 0) - health_before.get("submissionCommittedCount", 0),
+        committed_total(health_after) - committed_total(health_before),
     )
     pending_delta = health_after.get("submissionPendingCount", 0) - health_before.get("submissionPendingCount", 0)
     samples = poller.samples
@@ -291,6 +381,10 @@ def main() -> int:
         if success
         else f"replication committed chain did not catch up within the benchmark window: {timeout_error or 'committed submissions lagged behind accepted submissions'}",
         "transport": health_after.get("replicationTransport"),
+        "ackMode": args.ack_mode,
+        "preloadAckMode": preload_ack_mode,
+        "httpSubmitMode": args.http_submit_mode,
+        "batchSize": batch_size if args.http_submit_mode == "batch" else 1,
         "baseUrl": args.base_url,
         "restingOrders": args.resting_orders,
         "concurrency": args.concurrency,

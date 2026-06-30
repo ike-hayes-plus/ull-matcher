@@ -44,12 +44,15 @@ PY
 echo "[lab] checking compose services"
 docker compose -f "$COMPOSE_FILE" ps
 
-check_port 127.0.0.1 "$LAB_ZOOKEEPER_PORT" || { echo "[lab] zookeeper port check failed" >&2; exit 2; }
-check_port 127.0.0.1 "$LAB_NACOS_PORT" || { echo "[lab] nacos port check failed" >&2; exit 3; }
+check_port 127.0.0.1 "$LAB_ZOOKEEPER_PORT" || { echo "[lab] zookeeper1 port check failed" >&2; exit 2; }
+check_port 127.0.0.1 "$LAB_ZOOKEEPER_PORT_NODE_2" || { echo "[lab] zookeeper2 port check failed" >&2; exit 2; }
+check_port 127.0.0.1 "$LAB_ZOOKEEPER_PORT_NODE_3" || { echo "[lab] zookeeper3 port check failed" >&2; exit 2; }
+check_port 127.0.0.1 "$LAB_ETCD_PORT" || { echo "[lab] etcd1 port check failed" >&2; exit 6; }
+check_port 127.0.0.1 "$LAB_ETCD_PORT_NODE_2" || { echo "[lab] etcd2 port check failed" >&2; exit 6; }
+check_port 127.0.0.1 "$LAB_ETCD_PORT_NODE_3" || { echo "[lab] etcd3 port check failed" >&2; exit 6; }
 check_port 127.0.0.1 "$LAB_TOXIPROXY_PORT" || { echo "[lab] toxiproxy port check failed" >&2; exit 4; }
 check_port 127.0.0.1 "$LAB_PROMETHEUS_PORT" || { echo "[lab] prometheus port check failed" >&2; exit 5; }
 
-fetch_http "http://127.0.0.1:${LAB_NACOS_PORT}/nacos/" >/dev/null
 fetch_http "http://127.0.0.1:${LAB_PROMETHEUS_PORT}/-/ready" >/dev/null
 fetch_http "http://127.0.0.1:${LAB_TOXIPROXY_PORT}/version" >/dev/null
 
@@ -65,7 +68,7 @@ fi
 
 NODE_DIRS=()
 for url in "${NODE_URLS[@]}"; do
-  safe_name="$(echo "$url" | sed 's#https\?://##; s#[/:]#_#g')"
+  safe_name="$(echo "$url" | sed -E 's#^https?://##; s#[/:]#_#g')"
   node_dir="$OUT_DIR/$safe_name"
   "$ROOT_DIR/scripts/chaos/collect-node-state.sh" "$node_dir" "$url"
   NODE_DIRS+=("$node_dir")

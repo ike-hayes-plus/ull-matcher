@@ -94,21 +94,23 @@ standby 数量不被写死为 1。
 
 ---
 
-## 3. 代码实现对齐情况
+## 3. 实现约束
 
-### 已对齐
+### 控制面字段
 
-1. `MatcherServerConfig` 增加了 `shardKey`
-2. `MatcherClusterConfig` 增加了 `shardKey`
-3. 节点注册元数据包含 `shardKey`
-4. `MatcherClusterSupervisor` 在 discovery 列表中按 `shardKey` 过滤
-5. Spring Boot Starter 已暴露 `ull.matcher.shard-key`
+实现使用以下字段保持分片边界：
+
+1. `MatcherServerConfig.shardKey`
+2. `MatcherClusterConfig.shardKey`
+3. 节点注册元数据中的 `shardKey`
+4. discovery 列表中的 `shardKey` 过滤
+5. Spring Boot Starter 配置项 `ull.matcher.shard-key`
 
 ### 运行边界
 
 实现保持：
 
-- 一个 `matcher-server` 进程只承载一个撮合内核实例
+- 一个 `matcher-server` 进程承载一个撮合内核实例
 - 一个内核实例只负责一个 `symbolId`
 
 也就是说：

@@ -41,8 +41,8 @@
         <module>matcher-runtime</module>
         <module>matcher-ha</module>
         <module>matcher-ha-zookeeper</module>
+        <module>matcher-ha-etcd</module>
         <module>matcher-discovery-zookeeper</module>
-        <module>matcher-discovery-nacos</module>
         <module>matcher-ha-grpc</module>
         <module>matcher-ha-aeron</module>
         <module>matcher-server</module>
@@ -65,7 +65,6 @@
         <protobuf.maven.plugin.version>0.6.1</protobuf.maven.plugin.version>
         <os.maven.plugin.version>1.7.1</os.maven.plugin.version>
         <aeron.version>1.49.3</aeron.version>
-        <nacos.version>2.4.2</nacos.version>
         <opentelemetry.version>1.47.0</opentelemetry.version>
         <bouncycastle.version>1.78.1</bouncycastle.version>
         <slf4j.version>2.0.16</slf4j.version>
@@ -147,11 +146,6 @@
                 <groupId>com.fasterxml.jackson.core</groupId>
                 <artifactId>jackson-databind</artifactId>
                 <version>${jackson.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.alibaba.nacos</groupId>
-                <artifactId>nacos-client</artifactId>
-                <version>${nacos.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.opentelemetry</groupId>

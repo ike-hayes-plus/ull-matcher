@@ -10,6 +10,7 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -36,6 +37,33 @@ final class MatcherHttpClientTest {
             assertTrue(body.get().contains("\"userId\":7"));
             assertTrue(body.get().contains("\"idempotencyKey\":\"k1\""));
             assertEquals("s1", response.get("submissionId").asText());
+        }
+    }
+
+    @Test
+    void submitOrdersPostsBatchPayload() throws Exception {
+        AtomicReference<String> method = new AtomicReference<>();
+        AtomicReference<String> path = new AtomicReference<>();
+        AtomicReference<String> body = new AtomicReference<>();
+        try (TestHttpServer server = TestHttpServer.start(exchange -> {
+            method.set(exchange.getRequestMethod());
+            path.set(exchange.getRequestURI().toString());
+            body.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            respond(exchange, 202, "{\"accepted\":2,\"failed\":0,\"count\":2,\"submissions\":[]}");
+        })) {
+            MatcherHttpClient client = client(server);
+
+            JsonNode response = client.submitOrders(List.of(
+                    NewOrderRequest.limit(7L, 101L, "BUY", "GTC", 12L, 3L, "k1"),
+                    NewOrderRequest.limit(7L, 102L, "BUY", "GTC", 13L, 4L, "k2")
+            ));
+
+            assertEquals("POST", method.get());
+            assertEquals("/api/v1/orders/batch", path.get());
+            assertTrue(body.get().contains("\"orders\""));
+            assertTrue(body.get().contains("\"orderId\":101"));
+            assertTrue(body.get().contains("\"orderId\":102"));
+            assertEquals(2, response.get("accepted").asInt());
         }
     }
 

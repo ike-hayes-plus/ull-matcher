@@ -30,6 +30,10 @@ case "${1:-}" in
     shift
     exec "${ROOT_DIR}/scripts/lab/run-transport-compare.sh" "$@"
     ;;
+  control-plane-qualification)
+    shift
+    exec "${ROOT_DIR}/scripts/lab/run-control-plane-qualification.sh" "$@"
+    ;;
   *)
     cat <<'EOF' >&2
 usage:
@@ -38,6 +42,7 @@ usage:
   ./scripts/chaos/cluster.sh validate [out-dir] [node-base-url...]
   ./scripts/chaos/cluster.sh failover-smoke
   ./scripts/chaos/cluster.sh transport-compare
+  ./scripts/chaos/cluster.sh control-plane-qualification
 EOF
     exit 1
     ;;

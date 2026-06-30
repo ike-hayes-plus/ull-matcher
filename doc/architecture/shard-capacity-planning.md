@@ -20,12 +20,12 @@
 
 | 场景 | Accepted orders/s | Trade events/s | Committed orders/s |
 |---|---:|---:|---:|
-| External `1P1S` binary + `GRPC` | `118,535` | `118,535` | `107,297` |
-| External `1P1S` binary + `AERON` | `103,706` | `103,706` | `92,479` |
-| External `1P2S` binary + `GRPC` quorum | `90,381` | `90,381` | `83,693` |
-| External `1P2S` binary + `AERON` quorum | `119,574` | `119,574` | `71,271` |
-| External `1P3S` binary + `GRPC` quorum | `60,546` | `60,546` | `57,556` |
-| External `1P3S` binary + `AERON` quorum | `82,832` | `82,832` | `14,390` |
+| External `1P1S` binary + `GRPC` | `140,246` | `140,246` | `123,799` |
+| External `1P1S` binary + `AERON` | `78,915` | `78,915` | `71,822` |
+| External `1P2S` binary + `GRPC` quorum | `85,662` | `85,662` | `40,707` |
+| External `1P2S` binary + `AERON` quorum | `126,513` | `126,513` | `40,952` |
+| External `1P3S` binary + `GRPC` quorum | `90,155` | `90,155` | `54,689` |
+| External `1P3S` binary + `AERON` quorum | `120,964` | `120,964` | `19,464` |
 
 ## 规划规则
 
@@ -45,21 +45,21 @@ safe shard budget = committed throughput * utilization cap
 
 ### `GRPC`，`1P1S`
 
-- committed 基线：`107,297/s`
-- `60%` 保守预算：`64,378/s`
-- `70%` 激进预算：`75,108/s`
+- committed 基线：`123,799/s`
+- `60%` 保守预算：`74,279/s`
+- `70%` 激进预算：`86,659/s`
 
 ### `GRPC`，`1P2S quorum`
 
-- committed 基线：`83,693/s`
-- `60%` 保守预算：`50,216/s`
-- `70%` 激进预算：`58,585/s`
+- committed 基线：`40,707/s`
+- `60%` 保守预算：`24,424/s`
+- `70%` 激进预算：`28,495/s`
 
 ### `GRPC`，`1P3S quorum`
 
-- committed 基线：`57,556/s`
-- `60%` 保守预算：`34,534/s`
-- `70%` 激进预算：`40,290/s`
+- committed 基线：`54,689/s`
+- `60%` 保守预算：`32,813/s`
+- `70%` 激进预算：`38,282/s`
 
 ## 多分片总容量
 
@@ -77,13 +77,13 @@ total safe capacity ~= shard_count * safe shard budget
 
 示例：`GRPC 1P1S`，`8` 个分片
 
-- 理论 committed 总量：`8 * 107,297 = 858,376/s`
-- `60%` 保守总量：`8 * 64,378 = 515,024/s`
+- 理论 committed 总量：`8 * 123,799 = 990,392/s`
+- `60%` 保守总量：`8 * 74,279 = 594,232/s`
 
 示例：`GRPC 1P2S quorum`，`16` 个分片
 
-- 理论 committed 总量：`16 * 83,693 = 1,339,088/s`
-- `60%` 保守总量：`16 * 50,216 = 803,456/s`
+- 理论 committed 总量：`16 * 40,707 = 651,312/s`
+- `60%` 保守总量：`16 * 24,424 = 390,784/s`
 
 ## 这些数字不代表什么
 

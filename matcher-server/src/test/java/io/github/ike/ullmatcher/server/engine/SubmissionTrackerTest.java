@@ -31,6 +31,7 @@ final class SubmissionTrackerTest {
         second.trackedSubmission().markLocalOutcome(2L, SubmitResult.ACCEPTED, 1_002L, false, 0, 0);
         assertEquals(1L, tracker.metricsSnapshot().trackedCount());
         assertEquals(1L, tracker.metricsSnapshot().committedCount());
+        assertEquals(2L, tracker.metricsSnapshot().committedTotal());
         assertEquals(0L, tracker.metricsSnapshot().pendingCount());
     }
 

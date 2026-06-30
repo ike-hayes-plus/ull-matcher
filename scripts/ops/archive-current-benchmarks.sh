@@ -7,7 +7,12 @@ CURRENT_DIR="${BENCHMARK_CURRENT_ROOT:-${ROOT_DIR}/target/current}"
 ARCHIVE_ROOT="${BENCHMARK_ARCHIVE_ROOT:-${ROOT_DIR}/target/archive}"
 DEST_DIR="${ARCHIVE_ROOT}/${STAMP}"
 
-mkdir -p "${DEST_DIR}/binary-commit" "${DEST_DIR}/binary-bench-results" "${DEST_DIR}/binary-matrix" "${DEST_DIR}/http-crossing"
+mkdir -p \
+  "${DEST_DIR}/binary-commit" \
+  "${DEST_DIR}/binary-bench-results" \
+  "${DEST_DIR}/binary-matrix" \
+  "${DEST_DIR}/http-crossing" \
+  "${DEST_DIR}/http-ha"
 
 copy_report_if_exists() {
   local src="$1"
@@ -78,6 +83,8 @@ copy_report_if_exists "${CURRENT_DIR}/binary-bench-results/binary-1p1s-grpc-cros
 copy_report_if_exists "${CURRENT_DIR}/binary-bench-results/binary-1p1s-aeron-crossing-current.json" "${DEST_DIR}/binary-bench-results/binary-1p1s-aeron-crossing-current.json" true
 copy_report_if_exists "${CURRENT_DIR}/http-crossing/grpc-crossing-benchmark-report.json" "${DEST_DIR}/http-crossing/grpc-crossing-benchmark-report.json" true
 copy_report_if_exists "${CURRENT_DIR}/http-crossing/aeron-crossing-benchmark-report.json" "${DEST_DIR}/http-crossing/aeron-crossing-benchmark-report.json" true
+copy_report_if_exists "${CURRENT_DIR}/http-ha/rest-single-1024-current.json" "${DEST_DIR}/http-ha/rest-single-1024-current.json" false
+copy_report_if_exists "${CURRENT_DIR}/http-ha/rest-batch-1024-current.json" "${DEST_DIR}/http-ha/rest-batch-1024-current.json" false
 
 copy_report_if_exists "${CURRENT_DIR}/binary-commit/grpc-1p1s-current.json" "${DEST_DIR}/binary-commit/grpc-1p1s-current.json" true
 copy_report_if_exists "${CURRENT_DIR}/binary-commit/aeron-1p1s-current.json" "${DEST_DIR}/binary-commit/aeron-1p1s-current.json" true

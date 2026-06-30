@@ -78,8 +78,9 @@ public final class StandbySyncService implements ReplicationTarget, Closeable {
         if (timeoutNanos < 0L) {
             throw new IllegalArgumentException("timeoutNanos must be non-negative");
         }
+        long beforeReceived = cursor.lastReceivedSequence();
         appendReplicated(command, timeoutNanos);
-        if (config.forceOnEveryCommand()) {
+        if (config.forceOnEveryCommand() && cursor.lastReceivedSequence() > beforeReceived) {
             force(1);
         }
     }
@@ -93,8 +94,9 @@ public final class StandbySyncService implements ReplicationTarget, Closeable {
         if (timeoutNanos < 0L) {
             throw new IllegalArgumentException("timeoutNanos must be non-negative");
         }
+        long beforeReceived = cursor.lastReceivedSequence();
         appendReplicatedBatch(commands, timeoutNanos);
-        if (config.forceOnEveryCommand()) {
+        if (config.forceOnEveryCommand() && cursor.lastReceivedSequence() > beforeReceived) {
             force(commands.size());
         }
     }
@@ -110,6 +112,10 @@ public final class StandbySyncService implements ReplicationTarget, Closeable {
             throw new IllegalArgumentException("timeoutNanos must be non-negative");
         }
         ensureApplyHealthy();
+        if (command.sequence <= cursor.lastReceivedSequence()) {
+            return;
+        }
+        validateNextSequence(command.sequence);
         wal.append(command);
         recordReplicatedBatch(1);
         long received = command.sequence;
@@ -135,18 +141,29 @@ public final class StandbySyncService implements ReplicationTarget, Closeable {
             throw new IllegalArgumentException("timeoutNanos must be non-negative");
         }
         ensureApplyHealthy();
-        long received = cursor.lastReceivedSequence();
-        for (Command command : commands) {
+        long alreadyReceived = cursor.lastReceivedSequence();
+        int firstNewIndex = 0;
+        while (firstNewIndex < commands.size() && commands.get(firstNewIndex).sequence <= alreadyReceived) {
+            firstNewIndex++;
+        }
+        if (firstNewIndex == commands.size()) {
+            return;
+        }
+        long received = expectedNextSequence() - 1L;
+        for (int i = firstNewIndex; i < commands.size(); i++) {
+            Command command = commands.get(i);
             Objects.requireNonNull(command, "command");
+            validateNextSequence(command.sequence, received + 1L);
             received = command.sequence;
         }
-        wal.appendAll(commands);
-        recordReplicatedBatch(commands.size());
+        List<Command> newCommands = commands.subList(firstNewIndex, commands.size());
+        wal.appendAll(newCommands);
+        recordReplicatedBatch(newCommands.size());
         long applied = cursor.lastAppliedSequence();
         long durable = cursor.lastDurableSequence();
         cursor = new ReplicationCursor(received, durable, applied, cursor.snapshotSequence());
         if (config.applyToMatcher()) {
-            for (Command command : commands) {
+            for (Command command : newCommands) {
                 enqueueForApply(command, timeoutNanos);
             }
         }
@@ -175,10 +192,11 @@ public final class StandbySyncService implements ReplicationTarget, Closeable {
             throw new IllegalArgumentException("snapshotSequence must be non-negative");
         }
         ReplicationCursor current = cursor;
+        long appliedWatermark = matcher.lastSequence();
         cursor = new ReplicationCursor(
-                current.lastReceivedSequence(),
-                current.lastDurableSequence(),
-                current.lastAppliedSequence(),
+                Math.max(current.lastReceivedSequence(), appliedWatermark),
+                Math.max(current.lastDurableSequence(), appliedWatermark),
+                Math.max(current.lastAppliedSequence(), appliedWatermark),
                 snapshotSequence
         );
     }
@@ -349,6 +367,21 @@ public final class StandbySyncService implements ReplicationTarget, Closeable {
         IOException failure = applyFailure;
         if (failure != null) {
             throw new IOException("standby apply loop failed", failure);
+        }
+    }
+
+    private long expectedNextSequence() {
+        long current = Math.max(cursor.lastReceivedSequence(), cursor.snapshotSequence());
+        return current + 1L;
+    }
+
+    private void validateNextSequence(long sequence) throws IOException {
+        validateNextSequence(sequence, expectedNextSequence());
+    }
+
+    private static void validateNextSequence(long sequence, long expected) throws IOException {
+        if (sequence != expected) {
+            throw new IOException("replicated command sequence gap: expected " + expected + " but received " + sequence);
         }
     }
 

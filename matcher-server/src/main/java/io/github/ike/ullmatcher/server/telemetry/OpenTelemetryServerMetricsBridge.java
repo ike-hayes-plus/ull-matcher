@@ -91,6 +91,10 @@ public final class OpenTelemetryServerMetricsBridge implements Closeable {
         registrations.add(meter.gaugeBuilder(base + ".matcher.submission.retrying")
                 .ofLongs()
                 .buildWithCallback(m -> observe(m, nodeMetricsSupplier.get().submissionMetrics().retryingCount())));
+        registrations.add(meter.counterBuilder(base + ".matcher.submission.committed.total")
+                .buildWithCallback(m -> observe(m, nodeMetricsSupplier.get().submissionMetrics().committedTotal())));
+        registrations.add(meter.counterBuilder(base + ".matcher.submission.failed.total")
+                .buildWithCallback(m -> observe(m, nodeMetricsSupplier.get().submissionMetrics().failedTotal())));
         registrations.add(meter.counterBuilder(base + ".ha.tick.total")
                 .buildWithCallback(m -> observe(m, clusterMetricsSupplier.get().tickCount())));
         registrations.add(meter.counterBuilder(base + ".ha.tick.failures.total")

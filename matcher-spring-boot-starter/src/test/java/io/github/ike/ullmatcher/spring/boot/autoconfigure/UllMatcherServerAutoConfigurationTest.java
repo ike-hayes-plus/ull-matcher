@@ -151,6 +151,9 @@ class UllMatcherServerAutoConfigurationTest {
                         "ull.matcher.cluster.coordinator-tick-millis=125",
                         "ull.matcher.cluster.discovery-rpc-timeout-millis=900",
                         "ull.matcher.cluster.lease-ttl-millis=3000",
+                        "ull.matcher.cluster.failover-primary-heartbeat-timeout-millis=2500",
+                        "ull.matcher.cluster.failover-max-promotion-lag=7",
+                        "ull.matcher.cluster.failover-min-standby-replicas=2",
                         "ull.matcher.cluster.snapshot-sync-threshold=42",
                         "ull.matcher.cluster.snapshot-sync-timeout-millis=6000",
                         "ull.matcher.cluster.replication-mode=WAIT_FOR_ALL_STANDBYS",
@@ -173,6 +176,9 @@ class UllMatcherServerAutoConfigurationTest {
                     assertThat(clusterConfig.coordinatorTickMillis()).isEqualTo(125L);
                     assertThat(clusterConfig.discoveryRpcTimeoutNanos()).isEqualTo(900_000_000L);
                     assertThat(clusterConfig.leaseTtlNanos()).isEqualTo(3_000_000_000L);
+                    assertThat(clusterConfig.failoverPolicy().primaryHeartbeatTimeoutNanos()).isEqualTo(2_500_000_000L);
+                    assertThat(clusterConfig.failoverPolicy().maxPromotionLag()).isEqualTo(7L);
+                    assertThat(clusterConfig.failoverPolicy().minStandbyReplicas()).isEqualTo(2);
                     assertThat(clusterConfig.snapshotSyncThreshold()).isEqualTo(42L);
                     assertThat(clusterConfig.snapshotSyncTimeoutNanos()).isEqualTo(6_000_000_000L);
                     assertThat(clusterConfig.replicationMode()).isEqualTo(ReplicationMode.WAIT_FOR_ALL_STANDBYS);

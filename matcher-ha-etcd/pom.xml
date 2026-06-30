@@ -9,10 +9,10 @@
         <version>1.1.0.0</version>
     </parent>
 
-    <artifactId>ull-matcher-discovery-nacos</artifactId>
+    <artifactId>ull-matcher-ha-etcd</artifactId>
     <packaging>jar</packaging>
-    <name>ULL Matcher Discovery Nacos</name>
-    <description>Optional Nacos-backed node registration and discovery for Spring-oriented deployments.</description>
+    <name>ULL Matcher HA etcd</name>
+    <description>etcd-backed LeaseStore and NodeRegistry implementations for matcher HA deployments.</description>
 
     <dependencies>
         <dependency>
@@ -21,8 +21,8 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
-            <groupId>com.alibaba.nacos</groupId>
-            <artifactId>nacos-client</artifactId>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>

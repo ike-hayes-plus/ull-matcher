@@ -2,6 +2,7 @@ package io.github.ike.ullmatcher.sdk;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
@@ -12,6 +13,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
 import java.util.Objects;
 
 public final class MatcherHttpClient {
@@ -32,6 +34,24 @@ public final class MatcherHttpClient {
     }
 
     public JsonNode submitOrder(NewOrderRequest request) {
+        return jsonRequest("POST", "/api/v1/orders", newOrderPayload(request).toString());
+    }
+
+    public JsonNode submitOrders(List<NewOrderRequest> requests) {
+        Objects.requireNonNull(requests, "requests");
+        if (requests.isEmpty()) {
+            throw new IllegalArgumentException("requests must not be empty");
+        }
+        ObjectNode payload = OBJECT_MAPPER.createObjectNode();
+        ArrayNode orders = payload.putArray("orders");
+        for (NewOrderRequest request : requests) {
+            orders.add(newOrderPayload(request));
+        }
+        return jsonRequest("POST", "/api/v1/orders/batch", payload.toString());
+    }
+
+    private ObjectNode newOrderPayload(NewOrderRequest request) {
+        Objects.requireNonNull(request, "request");
         ObjectNode payload = OBJECT_MAPPER.createObjectNode()
                 .put("userId", request.userId())
                 .put("orderId", request.orderId())
@@ -46,7 +66,7 @@ public final class MatcherHttpClient {
         if (request.idempotencyKey() != null && !request.idempotencyKey().isBlank()) {
             payload.put("idempotencyKey", request.idempotencyKey());
         }
-        return jsonRequest("POST", "/api/v1/orders", payload.toString());
+        return payload;
     }
 
     public JsonNode cancelOrder(CancelOrderRequest request) {

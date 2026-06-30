@@ -164,7 +164,7 @@ final class TtlCancelGuard implements MatchEventHandler, Closeable {
         }
     }
 
-    private void sweep(long nowMillis) {
+    void sweep(long nowMillis) {
         while (true) {
             ExpiryEntry head = expiryQueue.peek();
             if (head == null || head.expireAtEpochMillis() > nowMillis) {

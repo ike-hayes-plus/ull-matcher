@@ -45,9 +45,7 @@ public final class QuorumFailoverController {
         ReplicaState candidate = standbys.stream()
                 .filter(QuorumFailoverController::isEligibleStandby)
                 .filter(replica -> lag(primary, replica) <= policy.maxPromotionLag())
-                .sorted(Comparator
-                        .comparingLong((ReplicaState replica) -> replica.cursor().promotionWatermark()).reversed()
-                        .thenComparing(ReplicaState::nodeId))
+                .sorted(candidateComparator(primary))
                 .findFirst()
                 .orElse(null);
 
@@ -76,5 +74,15 @@ public final class QuorumFailoverController {
 
     private static long lag(ReplicaState primary, ReplicaState standby) {
         return Math.max(0L, primary.cursor().promotionWatermark() - standby.cursor().promotionWatermark());
+    }
+
+    private static Comparator<ReplicaState> candidateComparator(ReplicaState primary) {
+        return Comparator
+                .comparingLong((ReplicaState replica) -> lag(primary, replica))
+                .thenComparing(Comparator.comparingLong((ReplicaState replica) -> replica.cursor().promotionWatermark()).reversed())
+                .thenComparing(Comparator.comparingLong((ReplicaState replica) -> replica.cursor().lastDurableSequence()).reversed())
+                .thenComparing(Comparator.comparingLong((ReplicaState replica) -> replica.cursor().lastAppliedSequence()).reversed())
+                .thenComparing(Comparator.comparingLong((ReplicaState replica) -> replica.cursor().lastReceivedSequence()).reversed())
+                .thenComparing(ReplicaState::nodeId);
     }
 }
