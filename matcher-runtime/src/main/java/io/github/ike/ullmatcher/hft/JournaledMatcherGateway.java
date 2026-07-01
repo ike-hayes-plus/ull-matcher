@@ -182,48 +182,43 @@ public final class JournaledMatcherGateway {
             failedBeforeWalCount += commands.size();
             return record(SubmitResult.MATCHER_NOT_RUNNING);
         }
-        long start = offerTimeoutNanos >= 0 ? System.nanoTime() : 0L;
-        int offset = 0;
-        while (offset < commands.size()) {
-            int remaining = commands.size() - offset;
-            int chunkSize;
-            try {
-                chunkSize = awaitRingChunkCapacity(remaining, offerTimeoutNanos, start);
-            } catch (GatewayCapacityException e) {
-                if (e.result == SubmitResult.MATCHER_NOT_RUNNING || e.result == SubmitResult.RING_FULL_BEFORE_WAL_APPEND) {
-                    failedBeforeWalCount += remaining;
-                }
-                return record(e.result);
-            }
-            if (!acceptingSubmissions.getAsBoolean()) {
-                failedBeforeWalCount += remaining;
-                return record(SubmitResult.MATCHER_NOT_RUNNING);
-            }
-            List<Command> chunk = commands.subList(offset, offset + chunkSize);
-            for (Command command : chunk) {
-                Objects.requireNonNull(command, "command");
-            }
-            wal.appendAll(chunk);
-            walAppendCount += chunkSize;
-            appendedSinceForce += chunkSize;
-            forceIfRequired(chunkSize);
-            if (!acceptingSubmissions.getAsBoolean()) {
-                failedAfterWalCount += remaining;
-                return record(SubmitResult.MATCHER_STOPPED_AFTER_WAL_APPEND);
-            }
-            publishBatch(chunk);
-            acceptedCount += chunkSize;
-            offset += chunkSize;
+        for (Command command : commands) {
+            Objects.requireNonNull(command, "command");
         }
+        try {
+            awaitRingCapacity(commands.size(), offerTimeoutNanos);
+        } catch (GatewayCapacityException e) {
+            if (e.result == SubmitResult.MATCHER_NOT_RUNNING || e.result == SubmitResult.RING_FULL_BEFORE_WAL_APPEND) {
+                failedBeforeWalCount += commands.size();
+            }
+            return record(e.result);
+        }
+        if (!acceptingSubmissions.getAsBoolean()) {
+            failedBeforeWalCount += commands.size();
+            return record(SubmitResult.MATCHER_NOT_RUNNING);
+        }
+        wal.appendAll(commands);
+        walAppendCount += commands.size();
+        appendedSinceForce += commands.size();
+        forceIfRequired(commands.size());
+        if (!acceptingSubmissions.getAsBoolean()) {
+            failedAfterWalCount += commands.size();
+            return record(SubmitResult.MATCHER_STOPPED_AFTER_WAL_APPEND);
+        }
+        publishBatch(commands);
+        acceptedCount += commands.size();
         return record(SubmitResult.ACCEPTED);
     }
 
-    private int awaitRingChunkCapacity(int remainingCommands, long offerTimeoutNanos, long startNanos) {
+    private void awaitRingCapacity(int requiredCommands, long offerTimeoutNanos) {
+        if (requiredCommands > ring.capacity()) {
+            throw new GatewayCapacityException(SubmitResult.RING_FULL_BEFORE_WAL_APPEND);
+        }
+        long startNanos = offerTimeoutNanos >= 0 ? System.nanoTime() : 0L;
         int spins = 0;
         while (true) {
-            int available = ring.remainingCapacity();
-            if (available > 0) {
-                return Math.min(remainingCommands, available);
+            if (ring.remainingCapacity() >= requiredCommands) {
+                return;
             }
             if (!acceptingSubmissions.getAsBoolean()) {
                 throw new GatewayCapacityException(SubmitResult.MATCHER_NOT_RUNNING);

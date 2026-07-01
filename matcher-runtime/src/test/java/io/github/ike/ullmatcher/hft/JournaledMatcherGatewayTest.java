@@ -127,6 +127,26 @@ class JournaledMatcherGatewayTest {
         assertEquals(batch.get(2), ring.poll());
     }
 
+    @Test
+    void batchSubmitDoesNotPartiallyAppendWhenOnlyPartOfRingHasCapacity() throws Exception {
+        InMemoryWal wal = new InMemoryWal();
+        SpscRingBuffer<Command> ring = new SpscRingBuffer<>(4);
+        assertTrue(ring.offer(Command.snapshotMarker(99, SYMBOL)));
+        assertTrue(ring.offer(Command.snapshotMarker(100, SYMBOL)));
+        JournaledMatcherGateway gateway = new JournaledMatcherGateway(
+                wal, ring, 1, 0, () -> true, WalDurabilityMode.SYNC_PER_COMMAND, 1, 0L
+        );
+
+        List<Command> batch = List.of(newOrder(1), newOrder(2), newOrder(3));
+        assertEquals(SubmitResult.RING_FULL_BEFORE_WAL_APPEND, gateway.trySubmitBatch(batch, 0));
+
+        assertTrue(wal.commands.isEmpty());
+        assertEquals(0, gateway.acceptedCount());
+        assertEquals(0, gateway.walAppendCount());
+        assertEquals(0, gateway.walForceCount());
+        assertEquals(2, ring.size());
+    }
+
     /**
      * 创建测试新订单。
      *

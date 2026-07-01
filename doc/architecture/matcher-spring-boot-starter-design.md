@@ -2,7 +2,7 @@
 
 ## 目标
 
-`ull-matcher-spring-boot-starter` 的目标不是把 `matcher-server` 变成 Spring Cloud Gateway，而是给 Spring Boot / Spring Cloud 生态提供一个轻量装配入口。
+`ull-matcher-spring-boot-starter` 的目标不是把 `matcher-server` 变成 Spring Cloud 服务，也不是引入 Nacos、Gateway 或配置中心依赖，而是给已有 Spring Boot 应用提供一个轻量嵌入装配入口。
 
 它负责：
 
@@ -20,13 +20,15 @@
 - 路由聚合
 - 平台级限流
 - Spring Cloud Gateway 过滤链
+- Nacos / Spring Cloud 服务发现适配
+- Spring Cloud 配置中心适配
 
-这些能力应放在外部 Spring Cloud Gateway / Ingress 层。
+这些能力应放在外部 Gateway / Ingress / 平台配置层，不进入 matcher 核心项目。
 
 ## 推荐边界
 
 ```text
-Spring Cloud Gateway / Ingress
+Gateway / Ingress / Sidecar
             |
             v
   ull-matcher-spring-boot-starter
@@ -49,21 +51,23 @@ starter 提供：
 - `ServerSecurityConfig` 属性绑定
 - `TtlCancelConfig` 属性绑定
 - WAL durability 相关属性绑定
+- ZooKeeper / etcd `LeaseStore` 与 `NodeRegistry` 条件化装配
 
 starter 故意不做：
 
 - 平台级控制器
 - Spring MVC / WebFlux API 包装
+- Nacos / Spring Cloud 服务发现适配
+- Spring Cloud 配置中心适配
 
-原因是这些能力会把主项目重新拉回“重 Spring 服务框架”路线，污染撮合节点边界。
+原因是这些能力会把主项目重新拉回“重 Spring 服务框架”形态，污染撮合节点边界。
 
-## 扩展建议
+## 运行边界
 
-如需扩展，优先顺序应为：
+starter 只负责把 matcher 节点嵌入 Spring Boot 进程。平台能力由外部组件承载：
 
-1. 健康指标桥接到 Actuator
-2. ZooKeeper / etcd 条件化装配样例
-3. 与 Spring Cloud 配置中心做外部集成
-4. 更细粒度的 Spring Boot configuration metadata
+- Gateway / Ingress 负责 TLS 终止、鉴权、租户路由和平台限流
+- ZooKeeper / etcd 负责 lease 与节点发现
+- Actuator、配置中心和业务控制器由宿主 Spring Boot 应用自行装配
 
 starter 不承载统一业务网关控制器。

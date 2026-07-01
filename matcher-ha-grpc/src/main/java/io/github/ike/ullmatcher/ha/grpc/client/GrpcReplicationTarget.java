@@ -40,6 +40,9 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public final class GrpcReplicationTarget implements ReplicationTarget, ReplicationCursorSource, NodeControlStateClient,
         SnapshotSyncSource, StreamingReplicationTarget, Closeable {
+    private static final int STREAM_MAX_BATCH_COMMANDS = 256;
+    private static final int STREAM_MAX_BATCH_BYTES = 512 << 10;
+
     private final String nodeId;
     private final ManagedChannel channel;
     private final GrpcTransportMetrics metrics;
@@ -257,8 +260,8 @@ public final class GrpcReplicationTarget implements ReplicationTarget, Replicati
         private volatile boolean closed;
 
         private GrpcStream(long timeoutNanos) {
-            this.maxBatchCommands = 256;
-            this.maxBatchBytes = 512 << 10;
+            this.maxBatchCommands = STREAM_MAX_BATCH_COMMANDS;
+            this.maxBatchBytes = STREAM_MAX_BATCH_BYTES;
             this.pendingBatch = new java.util.ArrayList<>(maxBatchCommands);
             this.requestObserver = async(timeoutNanos).openReplicationStream(
                     new StreamObserver<>() {

@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ull-baseline-test.XXXXXX")"
 trap 'rm -rf "${TMP_DIR}"' EXIT
 
-DOC_FILE="${TMP_DIR}/benchmark-baseline-current.md"
+DOC_FILE="${TMP_DIR}/benchmark-baseline.md"
 REPORT_ROOT="${TMP_DIR}/current"
 
 python3 - <<'PY' "${DOC_FILE}" "${REPORT_ROOT}"
@@ -21,12 +21,12 @@ rows = [
     ("本地持久化服务路径", "embed-journaled-core/report-clean.json", "acceptedOrdersPerSecond", "tradeEventsPerSecond", None, None, None, 1000.0, 1000.0, None, None, None),
     ("Single-node HTTP", "single-node-http/report-clean.json", "acceptedOrdersPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", None, "p99LatencyMs", 1000.0, 1000.0, 1000.0, None, 1.0),
     ("Single-node binary", "single-node-binary/report-clean.json", "acceptedOrdersPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", None, "p99LatencyMs", 1000.0, 1000.0, 1000.0, None, 1.0),
-    ("External `1P1S` REST + `GRPC`", "http-ha/grpc-1p1s-current.json", "acceptedOrdersPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", "commitCatchupSeconds", "latency.p99Ms", 1000.0, 1000.0, 1000.0, 1.0, 1.0),
-    ("External `1P1S` REST + `AERON`", "http-ha/aeron-1p1s-current.json", "acceptedOrdersPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", "commitCatchupSeconds", "latency.p99Ms", 1000.0, 1000.0, 1000.0, 1.0, 1.0),
+    ("External `1P1S` REST + `GRPC` local ack", "http-commit/grpc-1p1s-local-current.json", "acceptedOrdersPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", "commitCatchupSeconds", "latency.p99Ms", 1000.0, 1000.0, 1000.0, 1.0, 1.0),
+    ("External `1P1S` REST + `GRPC` committed ack", "http-commit/grpc-1p1s-committed-current.json", "acceptedOrdersPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", "commitCatchupSeconds", "latency.p99Ms", 1000.0, 1000.0, 1000.0, 1.0, 1.0),
     ("REST committed single", "http-ha/rest-single-1024-current.json", "acceptedOrdersPerSecond", None, "replicationCommittedSubmissionsPerSecond", "commitCatchupSeconds", "latency.p99Ms", 1000.0, None, 1000.0, 1.0, 1.0),
     ("REST committed batch", "http-ha/rest-batch-1024-current.json", "acceptedOrdersPerSecond", None, "replicationCommittedSubmissionsPerSecond", "commitCatchupSeconds", "latency.p99Ms", 1000.0, None, 1000.0, 1.0, 1.0),
-    ("External `1P1S` binary + `GRPC`", "binary-commit/grpc-1p1s-current.json", "acceptedCommandsPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", "commitCatchupSeconds", "latency.p99Ms", 1000.0, 1000.0, 1000.0, 1.0, 1.0),
-    ("External `1P1S` binary + `AERON`", "binary-commit/aeron-1p1s-current.json", "acceptedCommandsPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", "commitCatchupSeconds", "latency.p99Ms", 1000.0, 1000.0, 1000.0, 1.0, 1.0),
+    ("External `1P1S` binary + `GRPC` any", "binary-commit/grpc-1p1s-current.json", "acceptedCommandsPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", "commitCatchupSeconds", "latency.p99Ms", 1000.0, 1000.0, 1000.0, 1.0, 1.0),
+    ("External `1P1S` binary + `AERON` any", "binary-commit/aeron-1p1s-current.json", "acceptedCommandsPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", "commitCatchupSeconds", "latency.p99Ms", 1000.0, 1000.0, 1000.0, 1.0, 1.0),
     ("External `1P2S` binary + `GRPC` quorum", "binary-commit/grpc-1p2s-quorum-current.json", "acceptedCommandsPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", "commitCatchupSeconds", "latency.p99Ms", 1000.0, 1000.0, 1000.0, 1.0, 1.0),
     ("External `1P2S` binary + `AERON` quorum", "binary-commit/aeron-1p2s-quorum-current.json", "acceptedCommandsPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", "commitCatchupSeconds", "latency.p99Ms", 1000.0, 1000.0, 1000.0, 1.0, 1.0),
     ("External `1P3S` binary + `GRPC` quorum", "binary-commit/grpc-1p3s-quorum-current.json", "acceptedCommandsPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", "commitCatchupSeconds", "latency.p99Ms", 1000.0, 1000.0, 1000.0, 1.0, 1.0),

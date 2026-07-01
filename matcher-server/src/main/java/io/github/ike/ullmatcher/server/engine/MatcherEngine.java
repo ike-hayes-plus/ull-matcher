@@ -14,7 +14,6 @@ import java.io.IOException;
 
 final class MatcherEngine implements Closeable {
     private final SegmentedMmapWal wal;
-    private final SwitchableWalWriter switchableWal;
     private final SpscRingBuffer<Command> ring;
     private final UltraLowLatencyMatcher matcher;
     private final MatchLoop loop;
@@ -24,7 +23,6 @@ final class MatcherEngine implements Closeable {
     private final StandbySyncService standbySyncService;
 
     MatcherEngine(SegmentedMmapWal wal,
-                  SwitchableWalWriter switchableWal,
                   SpscRingBuffer<Command> ring,
                   UltraLowLatencyMatcher matcher,
                   MatchLoop loop,
@@ -33,7 +31,6 @@ final class MatcherEngine implements Closeable {
                   JournaledMatcherGateway gateway,
                   StandbySyncService standbySyncService) {
         this.wal = wal;
-        this.switchableWal = switchableWal;
         this.ring = ring;
         this.matcher = matcher;
         this.loop = loop;
@@ -45,10 +42,6 @@ final class MatcherEngine implements Closeable {
 
     SegmentedMmapWal wal() {
         return wal;
-    }
-
-    SwitchableWalWriter switchableWal() {
-        return switchableWal;
     }
 
     SpscRingBuffer<Command> ring() {

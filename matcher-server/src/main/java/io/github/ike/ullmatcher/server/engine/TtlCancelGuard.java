@@ -133,6 +133,15 @@ final class TtlCancelGuard implements MatchEventHandler, Closeable {
         }
     }
 
+    void resetTrackedState() {
+        pendingSubmissions.clear();
+        trackedOrders.clear();
+        expiryQueue.clear();
+        synchronized (auditLock) {
+            recentAuditEntries.clear();
+        }
+    }
+
     @Override
     public void close() throws IOException {
         running = false;
@@ -145,9 +154,7 @@ final class TtlCancelGuard implements MatchEventHandler, Closeable {
                 throw new IOException("interrupted while stopping ttl guard", e);
             }
         }
-        pendingSubmissions.clear();
-        trackedOrders.clear();
-        expiryQueue.clear();
+        resetTrackedState();
     }
 
     private void runReaper() {

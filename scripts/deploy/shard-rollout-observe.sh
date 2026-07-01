@@ -6,11 +6,11 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 if [[ "${#}" -lt 2 ]]; then
   cat <<'EOF' >&2
 usage:
-  scripts/deploy/gray-release-observe.sh <out-dir> <node-base-url> [<node-base-url> ...]
+  scripts/deploy/shard-rollout-observe.sh <out-dir> <node-base-url> [<node-base-url> ...]
 
 example:
-  scripts/deploy/gray-release-observe.sh target/gray/before \
-    http://127.0.0.1:8080 http://127.0.0.1:8081
+  scripts/deploy/shard-rollout-observe.sh target/shard-rollout/before \
+    "$NODE_A_URL" "$NODE_B_URL"
 EOF
   exit 1
 fi
@@ -33,5 +33,4 @@ done
 
 python3 "${ROOT_DIR}/scripts/chaos/validate-cluster-state.py" "$OUT_DIR"/* | tee "$OUT_DIR/validation.txt"
 
-echo "[gray-release] wrote cluster snapshot to $OUT_DIR"
-
+echo "[shard-rollout] wrote cluster snapshot to $OUT_DIR"

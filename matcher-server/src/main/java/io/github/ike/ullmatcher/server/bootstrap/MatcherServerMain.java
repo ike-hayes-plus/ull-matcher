@@ -17,7 +17,7 @@ import io.github.ike.ullmatcher.hft.WalDurabilityMode;
 import io.github.ike.ullmatcher.server.cluster.AeronPreviewTransportConfig;
 import io.github.ike.ullmatcher.server.cluster.MatcherClusterConfig;
 import io.github.ike.ullmatcher.server.cluster.ReplicationTransportPolicyConfig;
-import io.github.ike.ullmatcher.server.cluster.ReplicationTransportType;
+import io.github.ike.ullmatcher.ha.transport.ReplicationTransportType;
 import io.github.ike.ullmatcher.server.engine.TtlCancelConfig;
 import io.github.ike.ullmatcher.server.security.ServerSecurityConfig;
 import org.slf4j.Logger;
@@ -145,17 +145,15 @@ public final class MatcherServerMain {
     static MatcherClusterConfig clusterConfig(String shardKey) throws Exception {
         String zkConnect = System.getProperty("matcher.zkConnect", "");
         String etcdEndpoint = System.getProperty("matcher.etcdEndpoint", "");
-        String defaultProvider = zkConnect.isBlank() && !etcdEndpoint.isBlank() ? "etcd" : "zk";
-        String leaseProvider = System.getProperty("matcher.leaseProvider", defaultProvider);
-        if (zkConnect.isBlank() && !"etcd".equals(leaseProvider)) {
+        String provider = controlPlaneProvider(zkConnect, etcdEndpoint);
+        if (zkConnect.isBlank() && !"etcd".equals(provider)) {
             return null;
         }
         String clusterName = System.getProperty("matcher.cluster", "default");
         String host = System.getProperty("matcher.advertisedHost", "127.0.0.1");
-        String discoveryProvider = System.getProperty("matcher.discoveryProvider", leaseProvider);
-        LeaseStore leaseStore = leaseStore(leaseProvider, zkConnect, etcdEndpoint, clusterName);
-        NodeRegistry nodeRegistry = nodeRegistry(discoveryProvider, zkConnect, etcdEndpoint, clusterName);
-        LOG.info("cluster lease provider={} discovery provider={} advertisedHost={}", leaseProvider, discoveryProvider, host);
+        LeaseStore leaseStore = leaseStore(provider, zkConnect, etcdEndpoint, clusterName);
+        NodeRegistry nodeRegistry = nodeRegistry(provider, zkConnect, etcdEndpoint, clusterName);
+        LOG.info("cluster control plane provider={} advertisedHost={}", provider, host);
         MatcherClusterConfig defaults = MatcherClusterConfig.defaults(leaseStore, nodeRegistry, host, shardKey);
         return new MatcherClusterConfig(
                 defaults.leaseStore(),
@@ -180,6 +178,17 @@ public final class MatcherServerMain {
                 aeronPreviewTransportConfig(defaults.aeronPreviewTransportConfig()),
                 transportPolicyConfig(defaults.replicationTransportPolicyConfig())
         );
+    }
+
+    static String controlPlaneProvider(String zkConnect, String etcdEndpoint) {
+        String defaultProvider = zkConnect.isBlank() && !etcdEndpoint.isBlank() ? "etcd" : "zk";
+        String leaseProvider = System.getProperty("matcher.leaseProvider", defaultProvider);
+        String discoveryProvider = System.getProperty("matcher.discoveryProvider", leaseProvider);
+        if (!leaseProvider.equals(discoveryProvider)) {
+            throw new ServerBootstrapException("matcher.leaseProvider and matcher.discoveryProvider must match: "
+                    + leaseProvider + " != " + discoveryProvider);
+        }
+        return leaseProvider;
     }
 
     static LeaseStore leaseStore(String provider, String zkConnect, String etcdEndpoint, String clusterName) {

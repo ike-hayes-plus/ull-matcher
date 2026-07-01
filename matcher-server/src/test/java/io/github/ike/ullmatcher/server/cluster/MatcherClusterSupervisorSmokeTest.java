@@ -1,5 +1,6 @@
 package io.github.ike.ullmatcher.server.cluster;
 
+import io.github.ike.ullmatcher.ha.transport.ReplicationTransportType;
 import io.github.ike.ullmatcher.core.MatcherConfig;
 import io.github.ike.ullmatcher.ha.coordination.ClusterLease;
 import io.github.ike.ullmatcher.ha.coordination.FencingToken;
@@ -23,6 +24,7 @@ import io.github.ike.ullmatcher.server.security.ServerSecurityConfig;
 import org.junit.jupiter.api.Test;
 
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -36,7 +38,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class MatcherClusterSupervisorSmokeTest {
     @Test
-    void supervisorRegistersLocalNodeAndTicksWithoutErrors() throws Exception {
+    void supervisorRegistersLocalNodeAndFencesPrimaryAfterControlPlaneFailure() throws Exception {
         Path dir = Files.createTempDirectory("cluster-supervisor-smoke");
         InMemoryLeaseStore leaseStore = new InMemoryLeaseStore("node-a");
         InMemoryNodeRegistry nodeRegistry = new InMemoryNodeRegistry();
@@ -112,6 +114,10 @@ final class MatcherClusterSupervisorSmokeTest {
                 assertEquals(0L, supervisor.metricsSnapshot().tickFailureCount());
                 assertEquals(1, nodeRegistry.listNodes().size());
                 assertEquals("node-a", nodeRegistry.listNodes().getFirst().nodeId());
+
+                nodeRegistry.failRegister = true;
+                assertTrue(await(() -> nodeService.health().role() == HaRole.FENCED, 5_000L));
+                assertTrue(await(() -> supervisor.metricsSnapshot().tickFailureCount() > 0L, 5_000L));
             }
         }
     }
@@ -134,9 +140,13 @@ final class MatcherClusterSupervisorSmokeTest {
 
     private static final class InMemoryNodeRegistry implements NodeRegistry {
         private final Map<String, DiscoveredNode> nodes = new LinkedHashMap<>();
+        private volatile boolean failRegister;
 
         @Override
-        public synchronized void registerOrUpdate(DiscoveredNode node) {
+        public synchronized void registerOrUpdate(DiscoveredNode node) throws IOException {
+            if (failRegister) {
+                throw new IOException("registry unavailable");
+            }
             nodes.put(node.nodeId(), node);
         }
 

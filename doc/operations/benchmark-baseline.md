@@ -1,6 +1,6 @@
 # Benchmark 基线
 
-本文档定义 README 和容量规划使用的 benchmark 基线。数字来自参考机器上的可复现实验，不是服务等级承诺。吞吐会受到 CPU、磁盘、内核调度、JVM 版本、网络路径、WAL durability、复制拓扑和 benchmark 参数影响。
+本文档定义 README 和容量规划使用的 benchmark 基线。数字来自参考机器上的可复现验证，不是服务等级承诺。吞吐会受到 CPU、磁盘、内核调度、JVM 版本、网络路径、WAL durability、复制拓扑和 benchmark 参数影响。
 
 ## 参考机器
 
@@ -21,6 +21,8 @@
 
 `restingOrders = 2048` 不是容量上限。它用于形成固定且可完全成交的盘口：先放入 2048 笔 resting sell orders，再用 2048 笔 crossing buy orders 吃掉盘口。2048 是 2 的幂，便于固定批次、重复运行和观察队列、WAL force、复制水位。
 
+Binary HA committed 基线使用更长的 `restingOrders = 32768`、`crossingOrders = 32768` 窗口。该窗口更适合观察 replication committed 收敛、quorum ack、WAL force 和多 standby fan-out，在容量规划上比短窗口更稳定。
+
 ## 压测结果
 
 | 场景 | 入口 | 复制 | 口径 | Result | Accepted orders/s | Trade events/s | Committed submissions/s | Catch-up | p99 延迟 |
@@ -31,12 +33,12 @@
 | Single-node binary | Binary ingress | 无 | Binary ingress + 本地 WAL | PASS | `132,048.10` | `132,048.10` | `132,048.10` | `N/A` | `0.21 ms` |
 | External `1P1S` REST + `GRPC` local ack | REST | `GRPC` | 外部 REST 写入 + 单备复制，写响应按本地 WAL 返回 | PASS | `4,440.25` | `4,440.25` | `4,432.39` | `0.0008 s` | `11.76 ms` |
 | External `1P1S` REST + `GRPC` committed ack | REST | `GRPC` | 外部 REST 写入 + 单备复制，写响应等待 replication committed | PASS | `3,480.57` | `3,480.57` | `3,475.70` | `0.0008 s` | `11.64 ms` |
-| External `1P1S` binary + `GRPC` any | Binary ingress | `GRPC` | 外部 binary 写入 + 单备复制 | PASS | `140,245.95` | `140,245.95` | `123,799.21` | `0.0019 s` | `0.30 ms` |
-| External `1P1S` binary + `AERON` any | Binary ingress | `AERON` | 外部 binary 写入 + 单备复制 | PASS | `78,915.05` | `78,915.05` | `71,821.85` | `0.0026 s` | `0.65 ms` |
-| External `1P2S` binary + `GRPC` quorum | Binary ingress | `GRPC` | 外部 binary 写入 + 两备 quorum | PASS | `85,661.70` | `85,661.70` | `40,706.60` | `0.0264 s` | `0.58 ms` |
-| External `1P2S` binary + `AERON` quorum | Binary ingress | `AERON` | 外部 binary 写入 + 两备 quorum | PASS | `126,513.47` | `126,513.47` | `40,952.42` | `0.0338 s` | `0.19 ms` |
-| External `1P3S` binary + `GRPC` quorum | Binary ingress | `GRPC` | 外部 binary 写入 + 三备 quorum | PASS | `90,155.39` | `90,155.39` | `54,688.93` | `0.0147 s` | `0.47 ms` |
-| External `1P3S` binary + `AERON` quorum | Binary ingress | `AERON` | 外部 binary 写入 + 三备 quorum | PASS | `120,963.94` | `120,963.94` | `19,463.93` | `0.0883 s` | `0.25 ms` |
+| External `1P1S` binary + `GRPC` any | Binary ingress | `GRPC` | 外部 binary 写入 + 单备复制，`zk/zk` 控制面，`32768/32768` 订单窗口 | PASS | `374,104.14` | `374,104.14` | `368,308.75` | `0.0014 s` | `0.13 ms` |
+| External `1P1S` binary + `AERON` any | Binary ingress | `AERON` | 外部 binary 写入 + 单备复制，`zk/zk` 控制面，`32768/32768` 订单窗口 | PASS | `244,833.23` | `244,833.23` | `241,823.94` | `0.0017 s` | `0.23 ms` |
+| External `1P2S` binary + `GRPC` quorum | Binary ingress | `GRPC` | 外部 binary 写入 + 两备 quorum，`zk/zk` 控制面，`32768/32768` 订单窗口 | PASS | `348,068.24` | `348,068.24` | `214,529.24` | `0.0586 s` | `0.11 ms` |
+| External `1P2S` binary + `AERON` quorum | Binary ingress | `AERON` | 外部 binary 写入 + 两备 quorum，`zk/zk` 控制面，`32768/32768` 订单窗口 | PASS | `342,143.40` | `342,143.40` | `130,567.81` | `0.1552 s` | `0.25 ms` |
+| External `1P3S` binary + `GRPC` quorum | Binary ingress | `GRPC` | 外部 binary 写入 + 三备 quorum，`zk/zk` 控制面，`32768/32768` 订单窗口 | PASS | `339,801.43` | `339,801.43` | `192,614.85` | `0.0737 s` | `0.13 ms` |
+| External `1P3S` binary + `AERON` quorum | Binary ingress | `AERON` | 外部 binary 写入 + 三备 quorum，`zk/zk` 控制面，`32768/32768` 订单窗口 | PASS | `164,801.69` | `164,801.69` | `37,618.35` | `0.6722 s` | `1.38 ms` |
 
 Core-only matcher 是纯内存撮合基线，用来证明核心数据结构、价格队列和撮合逻辑的上限。它不经过服务入口、WAL、复制或提交确认，因此不参与 committed 容量规划。
 
@@ -91,12 +93,20 @@ REST benchmark 支持两种提交模式：
 
 | 场景 | 控制面 | Result | Accepted orders/s | Committed submissions/s | Catch-up | p99 延迟 |
 | --- | --- | --- | ---: | ---: | ---: | ---: |
-| `1P1S` binary + `GRPC` any | ZooKeeper lease + ZooKeeper discovery | PASS | `99,959.94` | `50,813.45` | `0.0198 s` | `0.44 ms` |
-| `1P1S` binary + `GRPC` any | etcd lease + etcd discovery | PASS | `126,186.72` | `115,236.37` | `0.0015 s` | `0.29 ms` |
-| `1P3S` binary + `GRPC` quorum | 3-node ZooKeeper lease + ZooKeeper discovery | PASS | `67,016.62` | `30,778.81` | `0.0360 s` | `0.89 ms` |
-| `1P3S` binary + `GRPC` quorum | 3-endpoint etcd lease + etcd discovery | PASS | `72,457.85` | `32,953.68` | `0.0339 s` | `0.69 ms` |
+| `1P1S` binary + `GRPC` any | ZooKeeper lease + ZooKeeper discovery | PASS | `374,104.14` | `368,308.75` | `0.0014 s` | `0.13 ms` |
+| `1P2S` binary + `GRPC` quorum | ZooKeeper lease + ZooKeeper discovery | PASS | `348,068.24` | `214,529.24` | `0.0586 s` | `0.11 ms` |
+| `1P3S` binary + `GRPC` quorum | ZooKeeper lease + ZooKeeper discovery | PASS | `339,801.43` | `192,614.85` | `0.0737 s` | `0.13 ms` |
+| `1P1S` binary + `AERON` any | ZooKeeper lease + ZooKeeper discovery | PASS | `244,833.23` | `241,823.94` | `0.0017 s` | `0.23 ms` |
+| `1P2S` binary + `AERON` quorum | ZooKeeper lease + ZooKeeper discovery | PASS | `342,143.40` | `130,567.81` | `0.1552 s` | `0.25 ms` |
+| `1P3S` binary + `AERON` quorum | ZooKeeper lease + ZooKeeper discovery | PASS | `164,801.69` | `37,618.35` | `0.6722 s` | `1.38 ms` |
+| `1P1S` binary + `GRPC` any | etcd lease + etcd discovery | PASS | `339,480.63` | `228,707.90` | `0.0468 s` | `0.19 ms` |
+| `1P2S` binary + `GRPC` quorum | etcd lease + etcd discovery | PASS | `317,347.82` | `168,998.07` | `0.0906 s` | `0.25 ms` |
+| `1P3S` binary + `GRPC` quorum | etcd lease + etcd discovery | PASS | `307,623.94` | `150,023.92` | `0.1119 s` | `0.55 ms` |
+| `1P1S` binary + `AERON` any | etcd lease + etcd discovery | PASS | `276,464.30` | `271,969.35` | `0.0020 s` | `0.26 ms` |
+| `1P2S` binary + `AERON` quorum | etcd lease + etcd discovery | PASS | `488,006.66` | `76,294.88` | `0.3623 s` | `0.12 ms` |
+| `1P3S` binary + `AERON` quorum | etcd lease + etcd discovery | PASS | `434,319.09` | `34,270.76` | `0.8807 s` | `0.14 ms` |
 
-三 endpoint etcd 在参考机器上略高于三节点 ZooKeeper ensemble，但差距不是数量级差异。生产选型应优先考虑团队运维经验、现有基础设施、故障演练成熟度和监控体系。
+该矩阵说明控制面实现没有进入订单热路径；同一控制面下的差异主要来自复制传输、standby 数量和 quorum ack 收敛成本。参考机器上，`GRPC` 在多备 quorum committed 口径下更稳定；`AERON` 单备表现良好，但多备 quorum 的 catch-up 明显更长。生产选型应优先考虑团队运维经验、现有基础设施、故障演练成熟度和监控体系；把 `AERON` 作为多备默认传输前，应在目标硬件上完成单独归因和长稳验证。
 
 ## 控制面准入验证
 
@@ -123,11 +133,18 @@ SOAK_SECONDS=60 CONTROL_PLANE=zk \
 | stop one ZooKeeper member | ZooKeeper quorum 可用，matcher 继续单主可写 |
 | restore ZooKeeper member | ZooKeeper 成员恢复后保持单 primary |
 
+参考机器上的三节点 qualification 结果：
+
+| 控制面 | Soak 窗口 | baseline | soak | kill primary | old primary restore | stop one member | restore member | Result |
+| --- | ---: | --- | --- | --- | --- | --- | --- | --- |
+| ZooKeeper lease + ZooKeeper discovery | `20 s` | PASS | PASS | PASS | PASS | PASS | PASS | PASS |
+| etcd lease + etcd discovery | `20 s` | PASS | PASS | PASS | PASS | PASS | PASS | PASS |
+
 该验证不替代生产长稳压测。生产准入应在目标硬件和真实网络上延长 soak 窗口，并覆盖控制面网络分区、磁盘延迟、进程重启和旧主恢复。
 
 ## 复现
 
-生成 benchmark 报告到 `target/current/`：
+生成 benchmark 报告：
 
 ```bash
 mvn --batch-mode --no-transfer-progress -DskipTests install
@@ -136,7 +153,7 @@ scripts/lab/run-binary-ingress-benchmark.sh \
   --transport GRPC \
   --standbys 1 \
   --standby-commit-mode any \
-  --report target/current/binary-commit/grpc-1p1s-current.json
+  --report target/benchmark/binary-commit/grpc-1p1s.json
 ```
 
 REST batch benchmark 示例：
@@ -144,7 +161,7 @@ REST batch benchmark 示例：
 ```bash
 python3 scripts/bench/replication-commit-benchmark.py \
   --base-url http://127.0.0.1:8080 \
-  --report target/current/http-ha/rest-batch-local.json \
+  --report target/benchmark/http-ha/rest-batch-local.json \
   --ack-mode local \
   --http-submit-mode batch \
   --batch-size 32
@@ -158,7 +175,7 @@ scripts/lab/run-rest-commit-benchmark.sh \
   --standby-base-url http://127.0.0.1:8081 \
   --wait-for-ready-seconds 30 \
   --http-submit-mode single \
-  --report target/current/http-ha/rest-single-1024-current.json
+  --report target/benchmark/http-ha/rest-single-1024.json
 
 scripts/lab/run-rest-commit-benchmark.sh \
   --base-url http://127.0.0.1:8080 \
@@ -166,16 +183,8 @@ scripts/lab/run-rest-commit-benchmark.sh \
   --wait-for-ready-seconds 30 \
   --http-submit-mode batch \
   --batch-size 32 \
-  --report target/current/http-ha/rest-batch-1024-current.json
+  --report target/benchmark/http-ha/rest-batch-1024.json
 ```
-
-归档通过校验的报告：
-
-```bash
-scripts/ops/archive-current-benchmarks.sh <archive-name>
-```
-
-归档脚本会拒绝非法 JSON 和 `success=false` 报告，并校验 Java 与 Python benchmark 报告的 schema metadata。
 
 校验生成报告不低于本文档基线：
 

@@ -1,7 +1,6 @@
-package io.github.ike.ullmatcher.server.cluster;
+package io.github.ike.ullmatcher.ha.transport;
 
 import io.github.ike.ullmatcher.ha.discovery.DiscoveredNode;
-import io.github.ike.ullmatcher.server.security.TlsReloadSnapshot;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -31,7 +30,7 @@ public interface ReplicationTransportProvider extends Closeable {
 
     TransportMetricsSnapshot metricsSnapshot();
 
-    default TlsReloadSnapshot securitySnapshot() {
-        return new TlsReloadSnapshot(0L, 0L, 0L, false, "");
+    default TransportSecuritySnapshot securitySnapshot() {
+        return TransportSecuritySnapshot.none();
     }
 }

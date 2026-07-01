@@ -12,7 +12,7 @@
     <artifactId>ull-matcher-spring-boot-starter</artifactId>
     <packaging>jar</packaging>
     <name>ULL Matcher Spring Boot Starter</name>
-    <description>Spring Boot integration starter for wiring matcher-server into a Spring Cloud ecosystem.</description>
+    <description>Spring Boot integration starter for embedding matcher-server without changing the standalone runtime boundary.</description>
 
     <dependencies>
         <dependency>

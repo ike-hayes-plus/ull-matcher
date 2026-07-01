@@ -157,7 +157,7 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
                                                                     long quantity,
                                                                     Long ttlMillis,
                                                                     String idempotencyKey) throws IOException {
-        SubmissionTracker.RequestFingerprint requestFingerprint = newOrderRequestFingerprint(
+        SubmissionTracker.RequestFingerprint requestFingerprint = SubmissionFingerprints.newOrder(
                 userId, orderId, side, orderType, tif, price, quantity, ttlMillis
         );
         SubmissionTracker.Registration registration = submissionTracker.register(
@@ -304,7 +304,7 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
 
     public SubmissionTracker.SubmissionHandle submitTrackedCancelOrder(long orderId, String idempotencyKey) throws IOException {
         SubmissionTracker.Registration registration = submissionTracker.register(
-                "CANCEL_ORDER", idempotencyKey, null, orderId, cancelRequestFingerprint(orderId)
+                "CANCEL_ORDER", idempotencyKey, null, orderId, SubmissionFingerprints.cancel(orderId)
         );
         if (!registration.existing()) {
             enqueueTrackedSubmit(new SubmitTask(new SubmissionRequest.CancelOrderRequest(orderId)), registration.trackedSubmission());
@@ -338,6 +338,39 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
                 restartFromSnapshot();
                 lastSnapshot = new SnapshotMaterial(config.snapshotFile(), result.lastSequence(), result.lastTradeId(), result.liveOrderCount());
                 return new SnapshotSyncResult(config.snapshotFile(), result.bytesWritten(), result.lastSequence(), result.lastTradeId(), result.liveOrderCount());
+            } finally {
+                replicationIngressPaused = false;
+            }
+        });
+    }
+
+    public SnapshotSyncResult rejoinFencedFromSnapshot(SnapshotSyncSource source, long timeoutNanos) throws IOException {
+        Objects.requireNonNull(source, "source");
+        return invokeControlWrite(() -> {
+            MatcherEngine current = requireStarted();
+            if (current.runtime().role() != HaRole.FENCED) {
+                throw new IllegalStateException("only fenced runtime can rejoin from authoritative snapshot");
+            }
+            replicationIngressPaused = true;
+            try {
+                Path tmp = config.snapshotFile().resolveSibling(config.snapshotFile().getFileName() + ".rejoin");
+                SnapshotSyncResult result = source.downloadLatestSnapshot(tmp, timeoutNanos);
+                FencingToken token = current.runtime().fencingToken();
+                current.close();
+                state = null;
+                quarantineWalDirectory();
+                Files.move(result.file(), config.snapshotFile(), java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                        java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+                orderStateTracker.reset();
+                ttlCancelGuard.resetTrackedState();
+                EngineLifecycleManager.EngineStartResult restarted = engineLifecycleManager.createEngine(HaRole.STANDBY, token);
+                state = restarted.engine();
+                lastSnapshot = new SnapshotMaterial(config.snapshotFile(), result.lastSequence(), result.lastTradeId(), result.liveOrderCount());
+                nextSequence.set(state.matcher().lastSequence() + 1L);
+                LOG.warn("fenced node rejoined as standby from authoritative snapshot nodeId={} source={} lastSequence={}",
+                        config.nodeId(), source.nodeId(), result.lastSequence());
+                return new SnapshotSyncResult(config.snapshotFile(), result.bytesWritten(), result.lastSequence(),
+                        result.lastTradeId(), result.liveOrderCount());
             } finally {
                 replicationIngressPaused = false;
             }
@@ -397,6 +430,21 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
                     standbys,
                     nowNanos
             );
+        });
+    }
+
+    public boolean fencePrimaryAfterControlPlaneFailure(String reason) throws IOException {
+        Objects.requireNonNull(reason, "reason");
+        return invokeControlWrite(() -> {
+            MatcherEngine current = requireStarted();
+            if (current.runtime().role() != HaRole.PRIMARY) {
+                return false;
+            }
+            current.runtime().fence();
+            clusterRoleCoordinator.replicationCoordinator().clear();
+            LOG.warn("primary fenced after control-plane failure nodeId={} token={} reason={}",
+                    config.nodeId(), current.runtime().fencingToken().epoch(), reason);
+            return true;
         });
     }
 
@@ -528,6 +576,18 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
         }
         nextSequence.set(state.matcher().lastSequence() + 1L);
         LOG.info("matcher engine restarted from snapshot nodeId={} role={}", config.nodeId(), restarted.role().name());
+    }
+
+    private void quarantineWalDirectory() throws IOException {
+        Path walDirectory = config.walDirectory();
+        if (!Files.exists(walDirectory)) {
+            return;
+        }
+        Path quarantine = walDirectory.resolveSibling(walDirectory.getFileName() + ".fenced."
+                + System.currentTimeMillis() + "." + System.nanoTime());
+        Files.move(walDirectory, quarantine);
+        LOG.warn("quarantined fenced local WAL before standby rejoin nodeId={} from={} to={}",
+                config.nodeId(), walDirectory, quarantine);
     }
 
     private MatcherEngine requireStarted() {
@@ -832,42 +892,6 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
         }
     }
 
-    private static SubmissionTracker.RequestFingerprint newOrderRequestFingerprint(long userId,
-                                                                                   long orderId,
-                                                                                   Side side,
-                                                                                   OrderType orderType,
-                                                                                   TimeInForce tif,
-                                                                                   long price,
-                                                                                   long quantity,
-                                                                                   Long ttlMillis) {
-        long hash = 0xD6E8FEB86659FD93L;
-        hash = SubmissionTracker.mix(hash, 1L);
-        hash = SubmissionTracker.mix(hash, userId);
-        hash = SubmissionTracker.mix(hash, orderId);
-        hash = SubmissionTracker.mix(hash, side.code);
-        hash = SubmissionTracker.mix(hash, orderType.code);
-        hash = SubmissionTracker.mix(hash, tif.code);
-        hash = SubmissionTracker.mix(hash, price);
-        hash = SubmissionTracker.mix(hash, quantity);
-        long ttlFingerprint = ttlMillis == null ? Long.MIN_VALUE : ttlMillis;
-        hash = SubmissionTracker.mix(hash, ttlFingerprint);
-        return new SubmissionTracker.RequestFingerprint(
-                hash,
-                side.code,
-                orderType.code,
-                tif.code,
-                price,
-                quantity,
-                ttlFingerprint
-        );
-    }
-
-    private static SubmissionTracker.RequestFingerprint cancelRequestFingerprint(long orderId) {
-        long hash = 0xD6E8FEB86659FD93L;
-        hash = SubmissionTracker.mix(hash, 2L);
-        return SubmissionTracker.RequestFingerprint.generic(SubmissionTracker.mix(hash, orderId));
-    }
-
     private static int submitQueueCapacity(MatcherServerConfig config) {
         int minimum = Math.max(config.ringCapacity(), config.httpSubmitEndpointMaxConcurrentRequests() * 4);
         int highest = Integer.highestOneBit(Math.max(2, minimum - 1));
@@ -884,10 +908,11 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
     }
 
     private static int submitBatchLimit(MatcherServerConfig config) {
-        return Math.max(
+        int desired = Math.max(
                 Math.max(1, config.walForceBatchSize()),
                 Math.max(1, Math.max(config.binaryIngressMaxBatchSize(), DEFAULT_SUBMIT_BATCH_LIMIT))
         );
+        return Math.min(config.ringCapacity(), desired);
     }
 
     private static long submitBatchDelayNanos(MatcherServerConfig config) {

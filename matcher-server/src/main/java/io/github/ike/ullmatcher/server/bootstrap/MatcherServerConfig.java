@@ -7,7 +7,7 @@ import io.github.ike.ullmatcher.ha.standby.StandbySyncConfig;
 import io.github.ike.ullmatcher.hft.WalDurabilityMode;
 import io.github.ike.ullmatcher.runtime.MatchLoopConfig;
 import io.github.ike.ullmatcher.server.cluster.MatcherClusterConfig;
-import io.github.ike.ullmatcher.server.cluster.ReplicationTransportType;
+import io.github.ike.ullmatcher.ha.transport.ReplicationTransportType;
 import io.github.ike.ullmatcher.server.engine.TtlCancelConfig;
 import io.github.ike.ullmatcher.server.security.ServerSecurityConfig;
 
@@ -63,6 +63,10 @@ public record MatcherServerConfig(
         StandbySyncConfig standbySyncConfig,
         MatcherClusterConfig clusterConfig
 ) {
+    public static final WalDurabilityMode DEFAULT_WAL_DURABILITY_MODE = WalDurabilityMode.SYNC_PER_COMMAND;
+    public static final int DEFAULT_WAL_FORCE_BATCH_SIZE = 1;
+    public static final long DEFAULT_WAL_FORCE_MAX_DELAY_MICROS = 0L;
+
     public MatcherServerConfig {
         Objects.requireNonNull(serverMode, "serverMode");
         Objects.requireNonNull(nodeId, "nodeId");
@@ -96,6 +100,12 @@ public record MatcherServerConfig(
                 || httpMetricsEndpointMaxConcurrentRequests <= 0) {
             throw new IllegalArgumentException("invalid server sizing or port configuration");
         }
+        if (Integer.bitCount(ringCapacity) != 1) {
+            throw new IllegalArgumentException("ringCapacity must be a power of two");
+        }
+        if (binaryIngressMaxBatchSize > ringCapacity) {
+            throw new IllegalArgumentException("binaryIngressMaxBatchSize must not exceed ringCapacity");
+        }
     }
 
     public static MatcherServerConfig defaults(String nodeId, int symbolId, Path dataDirectory) {
@@ -108,9 +118,9 @@ public record MatcherServerConfig(
                 normalized.resolve("wal"),
                 "symbol-" + symbolId,
                 64L * 1024L * 1024L,
-                WalDurabilityMode.SYNC_PER_BATCH,
-                32,
-                500L,
+                DEFAULT_WAL_DURABILITY_MODE,
+                DEFAULT_WAL_FORCE_BATCH_SIZE,
+                DEFAULT_WAL_FORCE_MAX_DELAY_MICROS,
                 normalized.resolve("snapshots").resolve("symbol-" + symbolId + ".snap"),
                 1 << 16,
                 10_000,

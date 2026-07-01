@@ -1,5 +1,7 @@
 package io.github.ike.ullmatcher.server.cluster;
 
+import io.github.ike.ullmatcher.ha.transport.ClusterPeerClient;
+import io.github.ike.ullmatcher.ha.transport.AsyncBatchReplicationTarget;
 import io.github.ike.ullmatcher.ha.grpc.client.GrpcReplicationTarget;
 import io.github.ike.ullmatcher.ha.snapshot.SnapshotSyncResult;
 import io.github.ike.ullmatcher.ha.state.NodeControlState;

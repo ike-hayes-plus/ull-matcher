@@ -1,5 +1,6 @@
 package io.github.ike.ullmatcher.server.cluster;
 
+import io.github.ike.ullmatcher.ha.transport.ReplicationTransportProvider;
 import io.github.ike.ullmatcher.server.engine.MatcherNodeService;
 import io.github.ike.ullmatcher.server.security.ServerSecurityConfig;
 

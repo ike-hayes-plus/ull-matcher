@@ -5,11 +5,13 @@ import io.github.ike.ullmatcher.ha.coordination.FencingToken;
 import io.github.ike.ullmatcher.ha.coordination.LeaseStore;
 import io.github.ike.ullmatcher.ha.discovery.DiscoveredNode;
 import io.github.ike.ullmatcher.ha.discovery.NodeRegistry;
+import io.github.ike.ullmatcher.ha.etcd.EtcdLeaseStore;
+import io.github.ike.ullmatcher.ha.etcd.EtcdNodeRegistry;
 import io.github.ike.ullmatcher.ha.replication.ReplicationMode;
 import io.github.ike.ullmatcher.hft.WalDurabilityMode;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerConfig;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerMode;
-import io.github.ike.ullmatcher.server.cluster.ReplicationTransportType;
+import io.github.ike.ullmatcher.ha.transport.ReplicationTransportType;
 import io.github.ike.ullmatcher.server.cluster.MatcherClusterConfig;
 import io.github.ike.ullmatcher.server.engine.TtlCancelConfig;
 import io.github.ike.ullmatcher.server.security.ServerSecurityConfig;
@@ -25,6 +27,21 @@ import static org.assertj.core.api.Assertions.assertThat;
 class UllMatcherServerAutoConfigurationTest {
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(UllMatcherServerAutoConfiguration.class));
+
+    @Test
+    void springAndStandaloneShareWalDefaults() {
+        contextRunner.run(context -> {
+            MatcherServerConfig springConfig = context.getBean(MatcherServerConfig.class);
+            MatcherServerConfig standaloneDefaults = MatcherServerConfig.defaults("node-a", 1, java.nio.file.Path.of("target/matcher-server"));
+
+            assertThat(springConfig.walDurabilityMode()).isEqualTo(MatcherServerConfig.DEFAULT_WAL_DURABILITY_MODE);
+            assertThat(springConfig.walForceBatchSize()).isEqualTo(MatcherServerConfig.DEFAULT_WAL_FORCE_BATCH_SIZE);
+            assertThat(springConfig.walForceMaxDelayMicros()).isEqualTo(MatcherServerConfig.DEFAULT_WAL_FORCE_MAX_DELAY_MICROS);
+            assertThat(springConfig.walDurabilityMode()).isEqualTo(standaloneDefaults.walDurabilityMode());
+            assertThat(springConfig.walForceBatchSize()).isEqualTo(standaloneDefaults.walForceBatchSize());
+            assertThat(springConfig.walForceMaxDelayMicros()).isEqualTo(standaloneDefaults.walForceMaxDelayMicros());
+        });
+    }
 
     @Test
     void bindsWalTlsAndTtlProperties() {
@@ -192,6 +209,46 @@ class UllMatcherServerAutoConfigurationTest {
                     assertThat(clusterConfig.replicationTransportPolicyConfig().allowPreviewTransportInProd()).isTrue();
                     assertThat(serverConfig.clusterConfig()).isSameAs(clusterConfig);
                 });
+    }
+
+    @Test
+    void autoConfiguresEtcdControlPlaneBeansForClusterMode() {
+        contextRunner
+                .withPropertyValues(
+                        "ull.matcher.cluster.enabled=true",
+                        "ull.matcher.cluster.name=orders",
+                        "ull.matcher.cluster.lease-provider=etcd",
+                        "ull.matcher.cluster.discovery-provider=etcd",
+                        "ull.matcher.cluster.etcd-endpoint=http://127.0.0.1:2379",
+                        "ull.matcher.cluster.etcd-key-prefix=/ull-matcher/orders",
+                        "ull.matcher.cluster.etcd-lease-ttl-seconds=15",
+                        "ull.matcher.cluster.etcd-timeout-millis=750",
+                        "ull.matcher.cluster.etcd-local-held-check-cache-millis=10"
+                )
+                .run(context -> {
+                    assertThat(context).hasSingleBean(LeaseStore.class);
+                    assertThat(context).hasSingleBean(NodeRegistry.class);
+                    assertThat(context).hasSingleBean(MatcherClusterConfig.class);
+                    assertThat(context.getBean(LeaseStore.class)).isInstanceOf(EtcdLeaseStore.class);
+                    assertThat(context.getBean(NodeRegistry.class)).isInstanceOf(EtcdNodeRegistry.class);
+
+                    MatcherClusterConfig clusterConfig = context.getBean(MatcherClusterConfig.class);
+                    assertThat(clusterConfig.leaseStore()).isSameAs(context.getBean(LeaseStore.class));
+                    assertThat(clusterConfig.nodeRegistry()).isSameAs(context.getBean(NodeRegistry.class));
+                });
+    }
+
+    @Test
+    void rejectsMixedControlPlaneProvidersForClusterMode() {
+        contextRunner
+                .withPropertyValues(
+                        "ull.matcher.cluster.enabled=true",
+                        "ull.matcher.cluster.lease-provider=zk",
+                        "ull.matcher.cluster.discovery-provider=etcd",
+                        "ull.matcher.cluster.zookeeper-connect=127.0.0.1:2181",
+                        "ull.matcher.cluster.etcd-endpoint=http://127.0.0.1:2379"
+                )
+                .run(context -> assertThat(context).hasFailed());
     }
 
     private static final class InMemoryLeaseStore implements LeaseStore {

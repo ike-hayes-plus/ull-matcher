@@ -1,5 +1,6 @@
 package io.github.ike.ullmatcher.server.security;
 
+import io.github.ike.ullmatcher.ha.transport.TransportSecuritySnapshot;
 import io.github.ike.ullmatcher.ha.grpc.server.GrpcReplicationServer;
 import io.github.ike.ullmatcher.ha.grpc.server.GrpcReplicationServerConfig;
 import io.github.ike.ullmatcher.ha.grpc.server.GrpcReplicationService;
@@ -189,8 +190,8 @@ public final class ReloadableGrpcServer implements Closeable {
         }
     }
 
-    public TlsReloadSnapshot snapshot() {
-        return new TlsReloadSnapshot(
+    public TransportSecuritySnapshot snapshot() {
+        return new TransportSecuritySnapshot(
                 generation.get(),
                 reloadCount.get(),
                 failureCount.get(),

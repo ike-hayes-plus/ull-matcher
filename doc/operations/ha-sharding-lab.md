@@ -1,8 +1,8 @@
-# HA / 分片实验环境手册
+# HA / 分片验证环境手册
 
 ## 目标
 
-本手册用于在本地或实验环境中快速验证以下能力：
+本手册用于在本地或验证环境中快速确认以下能力：
 
 - `1 primary + N standbys`
 - 任意 `shardKey` 的控制面分片隔离
@@ -10,7 +10,7 @@
 - HTTP 路由预算与过载保护
 - submission 查询面与复制确认闭环
 
-本实验环境**不是**性能基准环境。
+本验证环境**不是**性能基准环境。
 
 性能验证仍建议：
 
@@ -23,7 +23,7 @@
 
 ## 1. 组件组成
 
-容器化实验环境负责基础设施：
+容器化验证环境负责基础设施：
 
 - ZooKeeper
 - etcd
@@ -65,13 +65,13 @@ matcher 节点本身仍建议直接跑在宿主机。
 ./scripts/chaos/lab.sh validate
 ```
 
-启动三节点主备实验集群：
+启动三节点主备验证集群：
 
 ```bash
 ./scripts/chaos/cluster.sh up
 ```
 
-停止三节点实验集群：
+停止三节点验证集群：
 
 ```bash
 ./scripts/chaos/cluster.sh down
@@ -103,7 +103,7 @@ matcher 节点本身仍建议直接跑在宿主机。
 
 ---
 
-## 2. 启动三节点主备实验
+## 2. 启动三节点主备验证环境
 
 下面示例使用同一个 `shardKey`，形成 `1 primary + 2 standbys`：
 
@@ -222,7 +222,7 @@ Java 21 下该模式需要：
 
 ---
 
-## 3. 分片隔离实验
+## 3. 分片隔离验证
 
 再启动另一组节点，但用不同 `shardKey`，例如：
 
@@ -262,8 +262,8 @@ Java 21 下该模式需要：
 
 `cluster failover-smoke` 的判定标准：
 
-1. 基线阶段只有一个 `PRIMARY`
-2. kill 当前 primary
+1. 基线状态只有一个 `PRIMARY`
+2. 终止当前 primary
 3. 幸存节点中出现新的 `clientTrafficReady=true`
 4. 新 primary URL 与旧 primary URL 不同
 
@@ -337,9 +337,9 @@ Java 21 下该模式需要：
 
 ---
 
-## 6. 常见演练
+## 6. 故障验证
 
-### 演练 1：主节点 kill -9
+### 6.1 主节点终止
 
 ```bash
 PRIMARY_PID=<pid> ./scripts/run-chaos-tests.sh env kill-primary
@@ -352,7 +352,7 @@ PRIMARY_PID=<pid> ./scripts/run-chaos-tests.sh env kill-primary
 
 如果你只是想快速验证切主链路，直接执行上文已经列出的 `cluster failover-smoke` 即可。
 
-### 演练 2：ZooKeeper 断联
+### 6.2 ZooKeeper 断联
 
 ```bash
 ./scripts/run-chaos-tests.sh env zk-disconnect
@@ -364,7 +364,7 @@ PRIMARY_PID=<pid> ./scripts/run-chaos-tests.sh env kill-primary
 - 原 primary 是否自我 fencing
 - standby 是否误 promote
 
-### 演练 3：复制延迟
+### 6.3 复制延迟
 
 ```bash
 LATENCY_MS=250 ./scripts/run-chaos-tests.sh env grpc-delay
@@ -380,6 +380,6 @@ LATENCY_MS=250 ./scripts/run-chaos-tests.sh env grpc-delay
 
 ## 7. 注意事项
 
-1. 本实验环境用于功能验证，不用于真实性能压测
+1. 本验证环境用于功能验证，不用于真实性能压测
 2. 真正的低延迟压测仍建议宿主机直跑
 3. `shardKey` 决定控制面隔离，`symbolId` 决定撮合内核市场标识

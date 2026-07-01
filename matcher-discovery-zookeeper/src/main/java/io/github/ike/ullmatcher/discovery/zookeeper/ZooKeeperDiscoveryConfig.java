@@ -11,8 +11,11 @@ public record ZooKeeperDiscoveryConfig(
     public ZooKeeperDiscoveryConfig {
         Objects.requireNonNull(connectString, "connectString");
         Objects.requireNonNull(servicePath, "servicePath");
-        if (connectString.isBlank() || servicePath.isBlank()) {
-            throw new IllegalArgumentException("connectString and servicePath must not be blank");
+        if (connectString.isBlank()) {
+            throw new IllegalArgumentException("connectString must not be blank");
+        }
+        if (servicePath.isBlank() || !servicePath.startsWith("/")) {
+            throw new IllegalArgumentException("servicePath must be an absolute ZooKeeper path");
         }
         if (sessionTimeoutMillis <= 0 || connectionTimeoutMillis <= 0) {
             throw new IllegalArgumentException("ZooKeeper timeouts must be positive");

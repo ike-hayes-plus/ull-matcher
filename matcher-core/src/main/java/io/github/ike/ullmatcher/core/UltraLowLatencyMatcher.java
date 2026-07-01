@@ -131,18 +131,18 @@ public final class UltraLowLatencyMatcher {
         boolean crossesBest = opposite != null && crosses(taker, opposite);
         if (cfg.preventSelfTrade() && crossesBest &&
                 book.hasSelfTradeInFillPath(taker.side, taker.price, taker.userId, taker.quantity)) {
-            emitOrder(c.sequence, c.symbolId, c.orderId, OrderStatus.REJECTED, RejectReason.SELF_TRADE_PREVENTED, c.quantity);
+            emitOrder(c, OrderStatus.REJECTED, RejectReason.SELF_TRADE_PREVENTED, c.quantity);
             pool.release(taker);
             return;
         }
         if (c.timeInForce == TimeInForce.POST_ONLY.code && crossesBest) {
-            emitOrder(c.sequence, c.symbolId, c.orderId, OrderStatus.REJECTED, RejectReason.POST_ONLY_WOULD_TAKE, c.quantity);
+            emitOrder(c, OrderStatus.REJECTED, RejectReason.POST_ONLY_WOULD_TAKE, c.quantity);
             pool.release(taker);
             return;
         }
         if (c.timeInForce == TimeInForce.FOK.code &&
                 !book.hasFillableQuantity(taker.side, taker.price, taker.quantity, taker.userId, cfg.preventSelfTrade())) {
-            emitOrder(c.sequence, c.symbolId, c.orderId, OrderStatus.CANCELLED, RejectReason.FOK_NOT_FILLABLE, c.quantity);
+            emitOrder(c, OrderStatus.CANCELLED, RejectReason.FOK_NOT_FILLABLE, c.quantity);
             pool.release(taker);
             return;
         }
@@ -151,20 +151,19 @@ public final class UltraLowLatencyMatcher {
 
         if (taker.remaining > 0 && taker.timeInForce != TimeInForce.IOC.code && taker.timeInForce != TimeInForce.FOK.code) {
             if (book.add(taker)) {
-                emitOrder(c.sequence, c.symbolId, c.orderId,
+                emitOrder(taker,
                         taker.remaining == taker.quantity ? OrderStatus.NEW : OrderStatus.PARTIALLY_FILLED,
-                        RejectReason.NONE, taker.remaining, taker.expireAtEpochMillis);
+                        RejectReason.NONE, taker.remaining);
             } else {
-                emitOrder(c.sequence, c.symbolId, c.orderId, OrderStatus.CANCELLED,
-                        RejectReason.CAPACITY_EXCEEDED, taker.remaining);
+                emitOrder(taker, OrderStatus.CANCELLED, RejectReason.CAPACITY_EXCEEDED, taker.remaining);
                 capacityRejectedCommandCount++;
                 pool.release(taker);
             }
         } else {
             if (taker.remaining == 0) {
-                emitOrder(c.sequence, c.symbolId, c.orderId, OrderStatus.FILLED, RejectReason.NONE, 0);
+                emitOrder(taker, OrderStatus.FILLED, RejectReason.NONE, 0);
             } else {
-                emitOrder(c.sequence, c.symbolId, c.orderId,
+                emitOrder(taker,
                         taker.remaining == taker.quantity ? OrderStatus.CANCELLED : OrderStatus.PARTIALLY_FILLED,
                         RejectReason.NONE, taker.remaining);
             }
@@ -214,16 +213,16 @@ public final class UltraLowLatencyMatcher {
         trade.sellerUserId = sell.userId;
         trade.price = price;
         trade.quantity = qty;
-        trade.quoteAmount = Math.multiplyExact(price, qty) / cfg.quoteScale();
+        trade.quoteAmount = quoteAmount(price, qty);
         handler.onTrade(trade);
 
         if (buy != taker) {
             if (buy.remaining == 0) finishOrRemove(buy);
-            else emitOrder(lastSequence, cfg.symbolId(), buy.orderId, OrderStatus.PARTIALLY_FILLED, RejectReason.NONE, buy.remaining, buy.expireAtEpochMillis);
+            else emitOrder(buy, OrderStatus.PARTIALLY_FILLED, RejectReason.NONE, buy.remaining);
         }
         if (sell != taker) {
             if (sell.remaining == 0) finishOrRemove(sell);
-            else emitOrder(lastSequence, cfg.symbolId(), sell.orderId, OrderStatus.PARTIALLY_FILLED, RejectReason.NONE, sell.remaining, sell.expireAtEpochMillis);
+            else emitOrder(sell, OrderStatus.PARTIALLY_FILLED, RejectReason.NONE, sell.remaining);
         }
     }
 
@@ -235,7 +234,7 @@ public final class UltraLowLatencyMatcher {
     private void finishOrRemove(Order o) {
         boolean resting = book.get(o.orderId) != null;
         if (resting) book.remove(o);
-        emitOrder(lastSequence, cfg.symbolId(), o.orderId, OrderStatus.FILLED, RejectReason.NONE, 0);
+        emitOrder(o, OrderStatus.FILLED, RejectReason.NONE, 0);
         if (resting) pool.release(o);
     }
 
@@ -268,7 +267,7 @@ public final class UltraLowLatencyMatcher {
      */
     private void reject(Command c, RejectReason reason) {
         rejectedCommandCount++;
-        emitOrder(c.sequence, c.symbolId, c.orderId, OrderStatus.REJECTED, reason, c.quantity);
+        emitOrder(c, OrderStatus.REJECTED, reason, c.quantity);
     }
 
     /**
@@ -295,14 +294,35 @@ public final class UltraLowLatencyMatcher {
         emitOrder(seq, symbolId, orderId, status, reason, remaining, 0L);
     }
 
+    private void emitOrder(Command c, OrderStatus status, RejectReason reason, long remaining) {
+        emitOrder(c.sequence, c.symbolId, c.orderId, status, reason, remaining, c.expireAtEpochMillis,
+                c.side, OrderType.LIMIT.code, c.timeInForce, c.price, c.quantity);
+    }
+
+    private void emitOrder(Order order, OrderStatus status, RejectReason reason, long remaining) {
+        emitOrder(lastSequence, order.symbolId, order.orderId, status, reason, remaining, order.expireAtEpochMillis,
+                order.side, OrderType.LIMIT.code, order.timeInForce, order.price, order.quantity);
+    }
+
     private void emitOrder(long seq, int symbolId, long orderId, OrderStatus status, RejectReason reason, long remaining,
                            long expireAtEpochMillis) {
+        emitOrder(seq, symbolId, orderId, status, reason, remaining, expireAtEpochMillis,
+                (byte) 0, (byte) 0, (byte) 0, 0L, 0L);
+    }
+
+    private void emitOrder(long seq, int symbolId, long orderId, OrderStatus status, RejectReason reason, long remaining,
+                           long expireAtEpochMillis, byte side, byte orderType, byte timeInForce, long price, long quantity) {
         orderEvent.sequence = seq;
         orderEvent.symbolId = symbolId;
         orderEvent.orderId = orderId;
         orderEvent.status = status;
         orderEvent.rejectReason = reason;
         orderEvent.remaining = remaining;
+        orderEvent.side = side;
+        orderEvent.orderType = orderType;
+        orderEvent.timeInForce = timeInForce;
+        orderEvent.price = price;
+        orderEvent.quantity = quantity;
         orderEvent.expireAtEpochMillis = expireAtEpochMillis;
         orderEventCount++;
         handler.onOrder(orderEvent);
@@ -461,5 +481,12 @@ public final class UltraLowLatencyMatcher {
      */
     private boolean quoteAmountWouldOverflow(long price, long quantity) {
         return price != 0 && quantity > Long.MAX_VALUE / price;
+    }
+
+    private long quoteAmount(long price, long quantity) {
+        if (quoteAmountWouldOverflow(price, quantity)) {
+            throw new IllegalStateException("quote amount overflow after order validation");
+        }
+        return price * quantity / cfg.quoteScale();
     }
 }

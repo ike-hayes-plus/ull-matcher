@@ -1,5 +1,6 @@
 package io.github.ike.ullmatcher.server.cluster;
 
+import io.github.ike.ullmatcher.ha.transport.TransportMetricsSnapshot;
 import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.atomic.AtomicLong;

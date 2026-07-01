@@ -32,12 +32,16 @@ jobs:
       - name: Run benchmark tooling self-tests
         run: |
           ./scripts/ops/test-python-scripts.sh
+          ./scripts/ops/test-deploy-cluster.sh
           ./scripts/ops/test-benchmark-replication-metrics.sh
           ./scripts/ops/test-archive-current-benchmarks.sh
           ./scripts/ops/test-validate-benchmark-baseline.sh
 
       - name: Run unit and integration tests
         run: mvn --batch-mode --no-transfer-progress test
+
+      - name: Enforce core runtime coverage
+        run: mvn --batch-mode --no-transfer-progress -pl matcher-core,matcher-runtime -am verify
 
       - name: Upload unit test reports
         if: always()

@@ -295,6 +295,25 @@ class UltraLowLatencyMatcherTest {
     }
 
     /**
+     * 验证计价金额会溢出的订单在入场阶段被拒绝，不会进入成交计算。
+     */
+    @Test
+    void quoteAmountOverflowIsRejectedBeforeMatching() {
+        RecordingHandler h = new RecordingHandler();
+        UltraLowLatencyMatcher m = matcher(h);
+
+        m.onCommand(Command.newOrder(1, 101, 11, SYMBOL, Side.SELL, OrderType.LIMIT, TimeInForce.GTC,
+                Long.MAX_VALUE, 2));
+        m.onCommand(Command.newOrder(2, 201, 21, SYMBOL, Side.BUY, OrderType.LIMIT, TimeInForce.IOC,
+                Long.MAX_VALUE, 1));
+
+        assertEquals(0, h.trades.size());
+        assertEquals(0, m.liveOrderCount());
+        assertTrue(h.orders.stream().anyMatch(o -> o.orderId() == 101 && o.status().equals("REJECTED")
+                && o.rejectReason().equals("INVALID_ORDER")));
+    }
+
+    /**
      * 验证对象池耗尽时会明确拒绝，而不是在热路径隐式分配新订单对象。
      */
     @Test

@@ -15,37 +15,38 @@ start_matcher_node() {
   local root_dir="${ROOT_DIR:?ROOT_DIR is required}"
   local java_bin="${JAVA_BIN:?JAVA_BIN is required}"
   local mode_label="${MODE_LABEL:-node}"
-  local server_mode="${SERVER_MODE_VALUE:-DEV}"
-  local shard_key="${SHARD_KEY:-merchant:42}"
-  local symbol_id="${SYMBOL_ID:-1}"
-  local cluster_name="${CLUSTER_NAME:-merchant-cluster}"
-  local zk_connect="${ZK_CONNECT:-127.0.0.1:2181,127.0.0.1:2182,127.0.0.1:2183}"
-  local etcd_endpoint="${ETCD_ENDPOINT:-http://127.0.0.1:2379,http://127.0.0.1:2381,http://127.0.0.1:2383}"
-  local lease_provider="${LEASE_PROVIDER:-${MATCHER_LEASE_PROVIDER:-zk}}"
-  local discovery_provider="${DISCOVERY_PROVIDER:-${MATCHER_DISCOVERY_PROVIDER:-zk}}"
+  local server_mode="${SERVER_MODE_VALUE:?SERVER_MODE_VALUE is required}"
+  local shard_key="${SHARD_KEY:?SHARD_KEY is required}"
+  local symbol_id="${SYMBOL_ID:?SYMBOL_ID is required}"
+  local cluster_name="${CLUSTER_NAME:?CLUSTER_NAME is required}"
+  local zk_connect="${ZK_CONNECT:?ZK_CONNECT is required}"
+  local etcd_endpoint="${ETCD_ENDPOINT:?ETCD_ENDPOINT is required}"
+  local lease_provider="${LEASE_PROVIDER:-${MATCHER_LEASE_PROVIDER:?LEASE_PROVIDER is required}}"
+  local discovery_provider="${DISCOVERY_PROVIDER:-${MATCHER_DISCOVERY_PROVIDER:?DISCOVERY_PROVIDER is required}}"
   local data_root="${DATA_ROOT:?DATA_ROOT is required}"
   local log_root="${LOG_ROOT:?LOG_ROOT is required}"
   local matcher_data_dir="${MATCHER_DATA_DIR:-}"
   local cp_file="${CP_FILE:?CP_FILE is required}"
   local class_name="io.github.ike.ullmatcher.server.bootstrap.MatcherServerMain"
-  local advertised_host="${ADVERTISED_HOST:-127.0.0.1}"
-  local http_bind_host="${HTTP_BIND_HOST:-0.0.0.0}"
-  local grpc_bind_host="${GRPC_BIND_HOST:-0.0.0.0}"
-  local binary_bind_host="${BINARY_BIND_HOST:-0.0.0.0}"
-  local replication_transport="${REPLICATION_TRANSPORT:-GRPC}"
-  local transport_change_window_id="${TRANSPORT_CHANGE_WINDOW_ID:-}"
-  local allow_transport_change="${ALLOW_TRANSPORT_CHANGE:-false}"
-  local enable_transport_tls="${ENABLE_TRANSPORT_TLS:-false}"
-  local transport_tls_dir="${TRANSPORT_TLS_DIR:-$data_root/tls}"
-  local transport_tls_reload_millis="${TRANSPORT_TLS_RELOAD_MILLIS:-250}"
-  local wal_durability_mode="${WAL_DURABILITY_MODE:-}"
-  local wal_force_batch_size="${WAL_FORCE_BATCH_SIZE:-}"
-  local wal_force_max_delay_micros="${WAL_FORCE_MAX_DELAY_MICROS:-}"
+  local advertised_host="${ADVERTISED_HOST:?ADVERTISED_HOST is required}"
+  local http_bind_host="${HTTP_BIND_HOST:?HTTP_BIND_HOST is required}"
+  local grpc_bind_host="${GRPC_BIND_HOST:?GRPC_BIND_HOST is required}"
+  local binary_bind_host="${BINARY_BIND_HOST:?BINARY_BIND_HOST is required}"
+  local allow_insecure_remote_http="${ALLOW_INSECURE_REMOTE_HTTP:?ALLOW_INSECURE_REMOTE_HTTP is required}"
+  local replication_transport="${REPLICATION_TRANSPORT:?REPLICATION_TRANSPORT is required}"
+  local transport_change_window_id="$TRANSPORT_CHANGE_WINDOW_ID"
+  local allow_transport_change="$ALLOW_TRANSPORT_CHANGE"
+  local enable_transport_tls="${ENABLE_TRANSPORT_TLS:?ENABLE_TRANSPORT_TLS is required}"
+  local transport_tls_dir="${TRANSPORT_TLS_DIR:?TRANSPORT_TLS_DIR is required}"
+  local transport_tls_reload_millis="${TRANSPORT_TLS_RELOAD_MILLIS:?TRANSPORT_TLS_RELOAD_MILLIS is required}"
+  local wal_durability_mode="$WAL_DURABILITY_MODE"
+  local wal_force_batch_size="$WAL_FORCE_BATCH_SIZE"
+  local wal_force_max_delay_micros="$WAL_FORCE_MAX_DELAY_MICROS"
   local replication_mode="${REPLICATION_MODE:-${MATCHER_REPLICATION_MODE:-}}"
   local failover_min_standby_replicas="${FAILOVER_MIN_STANDBY_REPLICAS:-${MATCHER_FAILOVER_MIN_STANDBY_REPLICAS:-}}"
-  local failover_primary_heartbeat_timeout_millis="${FAILOVER_PRIMARY_HEARTBEAT_TIMEOUT_MILLIS:-}"
-  local failover_max_promotion_lag="${FAILOVER_MAX_PROMOTION_LAG:-}"
-  local cp_build_maven_args="${CP_BUILD_MAVEN_ARGS:- -q -pl matcher-server -am -DskipTests package dependency:build-classpath}"
+  local failover_primary_heartbeat_timeout_millis="$FAILOVER_PRIMARY_HEARTBEAT_TIMEOUT_MILLIS"
+  local failover_max_promotion_lag="$FAILOVER_MAX_PROMOTION_LAG"
+  local cp_build_maven_args="${CP_BUILD_MAVEN_ARGS:?CP_BUILD_MAVEN_ARGS is required}"
   local java_opts=()
 
   assert_port_free() {
@@ -79,7 +80,7 @@ start_matcher_node() {
     )
   fi
 
-  local module_cp="$root_dir/matcher-server/target/classes:$root_dir/matcher-core/target/classes:$root_dir/matcher-storage/target/classes:$root_dir/matcher-runtime/target/classes:$root_dir/matcher-ha/target/classes:$root_dir/matcher-ha-grpc/target/classes:$root_dir/matcher-ha-aeron/target/classes:$root_dir/matcher-ha-zookeeper/target/classes:$root_dir/matcher-ha-etcd/target/classes:$root_dir/matcher-discovery-zookeeper/target/classes:$root_dir/matcher-spring-boot-starter/target/classes:$root_dir/matcher-examples/target/classes"
+  local module_cp="$root_dir/matcher-server/target/classes:$root_dir/matcher-core/target/classes:$root_dir/matcher-storage/target/classes:$root_dir/matcher-runtime/target/classes:$root_dir/matcher-ha/target/classes:$root_dir/matcher-ha-grpc/target/classes:$root_dir/matcher-ha-aeron/target/classes:$root_dir/matcher-ha-zookeeper/target/classes:$root_dir/matcher-ha-etcd/target/classes:$root_dir/matcher-discovery-zookeeper/target/classes:$root_dir/matcher-examples/target/classes"
   local dependency_cp
   dependency_cp="$(cat "$cp_file")"
   local full_cp="$module_cp:$dependency_cp"
@@ -122,6 +123,10 @@ start_matcher_node() {
       -Dmatcher.binaryIngressPort="$binary_port"
       -Dmatcher.binaryIngressBindHost="$binary_bind_host"
     )
+  fi
+
+  if [[ "$allow_insecure_remote_http" == "true" ]]; then
+    cmd+=(-Dmatcher.allowInsecureRemoteHttp=true)
   fi
 
   if [[ "$allow_transport_change" == "true" ]]; then
@@ -217,13 +222,15 @@ stop_matcher_node() {
     done < <($port_resolver "$node_id" | tr ' ' '\n')
   fi
 
-  for port in "${ports[@]}"; do
-    while read -r pid; do
-      [[ -n "$pid" ]] || continue
-      kill "$pid" >/dev/null 2>&1 || true
-      wait "$pid" 2>/dev/null || true
-    done < <(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)
-  done
+  if [[ "${#ports[@]}" -gt 0 ]]; then
+    for port in "${ports[@]}"; do
+      while read -r pid; do
+        [[ -n "$pid" ]] || continue
+        kill "$pid" >/dev/null 2>&1 || true
+        wait "$pid" 2>/dev/null || true
+      done < <(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)
+    done
+  fi
 
   rm -f "$pid_file"
   rm -f "$ports_file"

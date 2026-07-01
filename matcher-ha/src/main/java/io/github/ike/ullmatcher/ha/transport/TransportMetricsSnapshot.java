@@ -1,4 +1,4 @@
-package io.github.ike.ullmatcher.server.cluster;
+package io.github.ike.ullmatcher.ha.transport;
 
 /**
  * 汇总单节点复制传输的运行指标、对账状态与安全重载状态。

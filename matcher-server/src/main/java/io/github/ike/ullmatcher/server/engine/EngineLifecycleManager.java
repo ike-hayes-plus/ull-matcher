@@ -48,7 +48,6 @@ final class EngineLifecycleManager {
         var matcher = restored.matcher();
         wal.resetReader();
         ReplayService.replay(wal, matcher, snapshotSequence);
-        SwitchableWalWriter switchableWal = new SwitchableWalWriter(wal);
         SpscRingBuffer<Command> ring = new SpscRingBuffer<>(config.ringCapacity());
         MatchLoop loop = new MatchLoop(ring, matcher, config.loopConfig(),
                 (command, error) -> LOG.error("matcher loop failed nodeId={} sequence={} type={}",
@@ -56,7 +55,7 @@ final class EngineLifecycleManager {
         HaMatchRuntime runtime = new HaMatchRuntime(config.nodeId(), loop, role, token);
         Thread thread = Thread.ofPlatform().name("matcher-" + config.nodeId()).start(loop);
         JournaledMatcherGateway gateway = new JournaledMatcherGateway(
-                switchableWal,
+                wal,
                 ring,
                 config.gatewaySpinLimit(),
                 config.gatewayOfferTimeoutNanos(),
@@ -69,7 +68,7 @@ final class EngineLifecycleManager {
         if (restored.snapshotMaterial() != null) {
             standbySyncService.markSnapshot(snapshotSequence);
         }
-        MatcherEngine engine = new MatcherEngine(wal, switchableWal, ring, matcher, loop, runtime, thread, gateway, standbySyncService);
+        MatcherEngine engine = new MatcherEngine(wal, ring, matcher, loop, runtime, thread, gateway, standbySyncService);
         clusterRoleCoordinator.onEngineStarted(engine);
         return new EngineStartResult(engine, restored.snapshotMaterial());
     }

@@ -1,5 +1,9 @@
 package io.github.ike.ullmatcher.server.cluster;
 
+import io.github.ike.ullmatcher.ha.transport.ReplicationTransportProvider;
+import io.github.ike.ullmatcher.ha.transport.ReplicationTransportType;
+import io.github.ike.ullmatcher.ha.transport.TransportMetricsSnapshot;
+import io.github.ike.ullmatcher.ha.transport.ClusterPeerClient;
 import io.aeron.Aeron;
 import io.github.ike.ullmatcher.ha.aeron.AeronTransportMetrics;
 import io.github.ike.ullmatcher.ha.discovery.DiscoveredNode;
@@ -8,7 +12,7 @@ import io.github.ike.ullmatcher.ha.state.NodeControlStateSource;
 import io.github.ike.ullmatcher.ha.standby.StandbySyncService;
 import io.github.ike.ullmatcher.server.security.ReloadableTransportSecurityContext;
 import io.github.ike.ullmatcher.server.security.ServerSecurityConfig;
-import io.github.ike.ullmatcher.server.security.TlsReloadSnapshot;
+import io.github.ike.ullmatcher.ha.transport.TransportSecuritySnapshot;
 
 import java.io.IOException;
 import java.security.GeneralSecurityException;
@@ -188,7 +192,7 @@ final class AeronReplicationTransportProvider implements ReplicationTransportPro
     }
 
     @Override
-    public TlsReloadSnapshot securitySnapshot() {
+    public TransportSecuritySnapshot securitySnapshot() {
         return securityContext == null ? ReplicationTransportProvider.super.securitySnapshot() : securityContext.snapshot();
     }
 

@@ -116,6 +116,29 @@ final class ReplicationCoordinatorTest {
         }
     }
 
+    @Test
+    void splitsQueuedWorkAtBatchBoundaryWithoutDroppingTail() throws Exception {
+        ControlledReplicator replicator = new ControlledReplicator();
+        try (ReplicationCoordinator coordinator = new ReplicationCoordinator("node-a")) {
+            coordinator.configure(replicator, ReplicationMode.WAIT_FOR_ANY_STANDBY, TimeUnit.SECONDS.toNanos(1));
+
+            List<TrackedItem> firstWork = trackedRange(100L, 2_032);
+            List<TrackedItem> secondWork = trackedRange(10_000L, 64);
+            coordinator.onLocalAcceptedBatch(prepared(firstWork), tracked(firstWork));
+            coordinator.onLocalAcceptedBatch(prepared(secondWork), tracked(secondWork));
+
+            replicator.awaitInvocations(2);
+            assertEquals(2_032, replicator.commandCountAt(0));
+            assertEquals(64, replicator.commandCountAt(1));
+
+            replicator.futureAt(0).complete(ackedResult());
+            replicator.futureAt(1).complete(ackedResult());
+
+            assertEquals(SubmissionPhase.COMMITTED, firstWork.getFirst().handle.awaitCommitted(1_000).phase());
+            assertEquals(SubmissionPhase.COMMITTED, secondWork.getLast().handle.awaitCommitted(1_000).phase());
+        }
+    }
+
     private static List<SubmissionRequest.PreparedSubmission> prepared(List<TrackedItem> items) {
         ArrayList<SubmissionRequest.PreparedSubmission> prepared = new ArrayList<>(items.size());
         for (TrackedItem item : items) {
@@ -176,6 +199,7 @@ final class ReplicationCoordinatorTest {
 
     private static final class ControlledReplicator implements CommandReplicator {
         private final ArrayDeque<CompletableFuture<ReplicationResult>> futures = new ArrayDeque<>();
+        private final ArrayList<Integer> commandCounts = new ArrayList<>();
         private final AtomicInteger invocations = new AtomicInteger();
 
         @Override
@@ -186,6 +210,7 @@ final class ReplicationCoordinatorTest {
         @Override
         public synchronized CompletableFuture<ReplicationResult> replicateBatchAsync(List<Command> commands, long timeoutNanos) {
             CompletableFuture<ReplicationResult> future = new CompletableFuture<>();
+            commandCounts.add(commands.size());
             futures.addLast(future);
             invocations.incrementAndGet();
             return future;
@@ -193,6 +218,10 @@ final class ReplicationCoordinatorTest {
 
         CompletableFuture<ReplicationResult> futureAt(int index) {
             return futures.stream().skip(index).findFirst().orElseThrow();
+        }
+
+        synchronized int commandCountAt(int index) {
+            return commandCounts.get(index);
         }
 
         void awaitInvocations(int expected) throws InterruptedException {

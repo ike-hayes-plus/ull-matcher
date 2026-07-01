@@ -20,6 +20,21 @@ public final class OrderEvent {
     /** 该事件后的剩余未成交数量。 */
     public long remaining;
 
+    /** 订单方向编码；未知事件为 {@code 0}。 */
+    public byte side;
+
+    /** 订单类型编码；未知事件为 {@code 0}。 */
+    public byte orderType;
+
+    /** 有效期策略编码；未知事件为 {@code 0}。 */
+    public byte timeInForce;
+
+    /** 订单限价；未知事件为 {@code 0}。 */
+    public long price;
+
+    /** 原始订单数量；未知事件为 {@code 0}。 */
+    public long quantity;
+
     /** 订单绝对过期时间，单位为 epoch millis；非 TTL 订单或终态事件可为 {@code 0}。 */
     public long expireAtEpochMillis;
 
@@ -36,6 +51,7 @@ public final class OrderEvent {
     @Override
     public String toString() {
         return "OrderEvent{" + "seq=" + sequence + ", orderId=" + orderId + ", status=" + status +
-                ", remaining=" + remaining + ", expireAt=" + expireAtEpochMillis + ", reject=" + rejectReason + '}';
+                ", remaining=" + remaining + ", price=" + price + ", quantity=" + quantity +
+                ", expireAt=" + expireAtEpochMillis + ", reject=" + rejectReason + '}';
     }
 }

@@ -129,7 +129,48 @@ final class GrpcReplicationTargetTest {
             awaitApplied(standby, 3L);
 
             assertEquals(3, wal.appendCount);
+            assertEquals(1, wal.forceCount);
             assertEquals(new ReplicationCursor(3L, 3L, 3L, 0L), target.fetchCursor(TEST_TIMEOUT_NANOS));
+        } finally {
+            standby.close();
+            loop.stop();
+            loopThread.join(5_000L);
+            channel.shutdownNow();
+            server.shutdownNow();
+        }
+    }
+
+    @Test
+    void largeReplicationBatchUsesConfiguredStreamBatching() throws Exception {
+        RecordingWalWriter wal = new RecordingWalWriter();
+        SpscRingBuffer<Command> ring = new SpscRingBuffer<>(2_048);
+        UltraLowLatencyMatcher matcher = new UltraLowLatencyMatcher(MatcherConfig.defaults(1), new NoopHandler());
+        MatchLoop loop = new MatchLoop(ring, matcher);
+        Thread loopThread = Thread.ofPlatform().start(loop);
+        StandbySyncService standby = new StandbySyncService("standby-a", wal, ring, matcher, StandbySyncConfig.defaults());
+
+        String serverName = InProcessServerBuilder.generateName();
+        Server server = InProcessServerBuilder.forName(serverName)
+                .directExecutor()
+                .addService(new GrpcReplicationService(
+                        standby,
+                        () -> standbyState(standby),
+                        GrpcReplicationTargetTest::emptySnapshot
+                ))
+                .build()
+                .start();
+        ManagedChannel channel = InProcessChannelBuilder.forName(serverName).directExecutor().build();
+        try (GrpcReplicationTarget target = new GrpcReplicationTarget("standby-a", channel)) {
+            java.util.ArrayList<Command> commands = new java.util.ArrayList<>(600);
+            for (long sequence = 1L; sequence <= 600L; sequence++) {
+                commands.add(command(sequence));
+            }
+            target.replicateBatch(commands, TEST_TIMEOUT_NANOS);
+            awaitApplied(standby, 600L);
+
+            assertEquals(600, wal.appendCount);
+            assertEquals(3, wal.forceCount);
+            assertEquals(new ReplicationCursor(600L, 600L, 600L, 0L), target.fetchCursor(TEST_TIMEOUT_NANOS));
         } finally {
             standby.close();
             loop.stop();
@@ -202,6 +243,7 @@ final class GrpcReplicationTargetTest {
 
     private static final class RecordingWalWriter implements WalWriter {
         private int appendCount;
+        private int forceCount;
 
         @Override
         public void append(Command command) {
@@ -209,7 +251,9 @@ final class GrpcReplicationTargetTest {
         }
 
         @Override
-        public void force() {}
+        public void force() {
+            forceCount++;
+        }
 
         @Override
         public void close() {}

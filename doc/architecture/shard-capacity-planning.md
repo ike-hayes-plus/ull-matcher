@@ -1,6 +1,6 @@
 # 分片容量规划
 
-本文档把单分片 benchmark 基线转换成可落地的容量规划建议。
+本文档把单分片 benchmark 基线转换成可落地的容量规划规则。
 
 这里采用的是保守口径，目标是规划，不是宣传。
 
@@ -14,18 +14,18 @@
 ## 单分片事实源
 
 基线见：
-- [benchmark-baseline-current.md](../operations/benchmark-baseline-current.md)
+- [benchmark-baseline.md](../operations/benchmark-baseline.md)
 
 最重要的规划基线如下：
 
 | 场景 | Accepted orders/s | Trade events/s | Committed orders/s |
 |---|---:|---:|---:|
-| External `1P1S` binary + `GRPC` | `140,246` | `140,246` | `123,799` |
-| External `1P1S` binary + `AERON` | `78,915` | `78,915` | `71,822` |
-| External `1P2S` binary + `GRPC` quorum | `85,662` | `85,662` | `40,707` |
-| External `1P2S` binary + `AERON` quorum | `126,513` | `126,513` | `40,952` |
-| External `1P3S` binary + `GRPC` quorum | `90,155` | `90,155` | `54,689` |
-| External `1P3S` binary + `AERON` quorum | `120,964` | `120,964` | `19,464` |
+| External `1P1S` binary + `GRPC` | `374,104` | `374,104` | `368,309` |
+| External `1P1S` binary + `AERON` | `244,833` | `244,833` | `241,824` |
+| External `1P2S` binary + `GRPC` quorum | `348,068` | `348,068` | `214,529` |
+| External `1P2S` binary + `AERON` quorum | `342,143` | `342,143` | `130,568` |
+| External `1P3S` binary + `GRPC` quorum | `339,801` | `339,801` | `192,615` |
+| External `1P3S` binary + `AERON` quorum | `164,802` | `164,802` | `37,618` |
 
 ## 规划规则
 
@@ -45,21 +45,21 @@ safe shard budget = committed throughput * utilization cap
 
 ### `GRPC`，`1P1S`
 
-- committed 基线：`123,799/s`
-- `60%` 保守预算：`74,279/s`
-- `70%` 激进预算：`86,659/s`
+- committed 基线：`368,309/s`
+- `60%` 保守预算：`220,985/s`
+- `70%` 激进预算：`257,816/s`
 
 ### `GRPC`，`1P2S quorum`
 
-- committed 基线：`40,707/s`
-- `60%` 保守预算：`24,424/s`
-- `70%` 激进预算：`28,495/s`
+- committed 基线：`214,529/s`
+- `60%` 保守预算：`128,717/s`
+- `70%` 激进预算：`150,170/s`
 
 ### `GRPC`，`1P3S quorum`
 
-- committed 基线：`54,689/s`
-- `60%` 保守预算：`32,813/s`
-- `70%` 激进预算：`38,282/s`
+- committed 基线：`192,615/s`
+- `60%` 保守预算：`115,569/s`
+- `70%` 激进预算：`134,831/s`
 
 ## 多分片总容量
 
@@ -77,13 +77,13 @@ total safe capacity ~= shard_count * safe shard budget
 
 示例：`GRPC 1P1S`，`8` 个分片
 
-- 理论 committed 总量：`8 * 123,799 = 990,392/s`
-- `60%` 保守总量：`8 * 74,279 = 594,232/s`
+- 理论 committed 总量：`8 * 368,309 = 2,946,472/s`
+- `60%` 保守总量：`8 * 220,985 = 1,767,880/s`
 
 示例：`GRPC 1P2S quorum`，`16` 个分片
 
-- 理论 committed 总量：`16 * 40,707 = 651,312/s`
-- `60%` 保守总量：`16 * 24,424 = 390,784/s`
+- 理论 committed 总量：`16 * 214,529 = 3,432,464/s`
+- `60%` 保守总量：`16 * 128,717 = 2,059,472/s`
 
 ## 这些数字不代表什么
 
@@ -94,7 +94,7 @@ total safe capacity ~= shard_count * safe shard budget
 - 入口 fan-out 不产生热点
 - 上游账户与风控服务也能同步扩展
 
-## 建议
+## 规划原则
 
 - 在多备长稳和 chaos 证据不足前，默认传输仍使用 `GRPC`
 - 生产分片预算用 **committed throughput** 规划

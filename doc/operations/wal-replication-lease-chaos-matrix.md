@@ -1,4 +1,4 @@
-# WAL / 复制 / 租约混沌测试方案与执行矩阵
+# WAL / 复制 / 租约故障验证矩阵
 
 ## 目标
 
@@ -21,9 +21,9 @@
   - ZooKeeper lease 路径
 - gRPC 复制日志
 
-## 自动化执行入口
+## 执行入口
 
-项目把一部分可在单机进程内稳定复现的混沌场景收成 `@Tag("chaos")` 测试，可直接执行：
+可在单机进程内稳定复现的故障场景使用 `@Tag("chaos")` 测试执行：
 
 ```bash
 mvn -Pchaos-tests test
@@ -35,7 +35,7 @@ mvn -Pchaos-tests test
 ./scripts/run-chaos-tests.sh
 ```
 
-环境级场景使用统一脚本入口：
+环境级场景使用脚本入口：
 
 ```bash
 ./scripts/run-chaos-tests.sh env help
@@ -48,7 +48,7 @@ mvn -Pchaos-tests test
 ./scripts/run-chaos-tests.sh summarize target/failover-smoke
 ```
 
-容器化实验环境入口：
+容器化验证环境入口：
 
 ```bash
 ./scripts/chaos/lab.sh up
@@ -75,7 +75,7 @@ PRIMARY_PID=12345 ./scripts/run-chaos-tests.sh env kill-primary
 
 其中 matcher 节点仍建议直接运行在宿主机，用于保留绑核、NUMA、本地 NVMe 等高性能部署特性。
 
-完整 HA / 分片实验手册见：
+完整 HA / 分片验证环境手册见：
 
 - [`ha-sharding-lab.md`](ha-sharding-lab.md)
 
@@ -92,7 +92,7 @@ PRIMARY_PID=12345 ./scripts/run-chaos-tests.sh env kill-primary
 - `tickFailureCount`
 - `fencing epoch`
 
-## 执行矩阵
+## 验证矩阵
 
 | 编号 | 场景 | 注入方式 | 预期结果 | 失败信号 |
 | --- | --- | --- | --- | --- |
@@ -107,15 +107,15 @@ PRIMARY_PID=12345 ./scripts/run-chaos-tests.sh env kill-primary
 | C9 | primary 进程 kill -9 | 直接杀进程 | standby 接管，重启后 snapshot + replay | 接管失败或恢复回退 |
 | C10 | discovery 地址漂移 | 改实例地址 / 端口 | client 重建连接 | 仍访问旧 endpoint |
 
-## 自动化覆盖
+## 单元与集成覆盖
 
-| 编号 | 自动化状态 | 对应用例 |
+| 编号 | 覆盖方式 | 对应用例 |
 | --- | --- | --- |
-| C3 | 已自动化 | `SegmentedMmapWalTest#ignoresAndOverwritesPartialTailRecord` |
-| C4 | 已自动化 | `SegmentedMmapWalTest#manifestValidationFailsWhenReferencedSegmentIsMissing` |
-| C5 | 已自动化 | `StandbySyncServiceTest#replicateTimesOutWhenApplyCannotMakeProgress` |
-| C7 | 已自动化 | `HaCoordinatorTest#primaryFencesItselfAfterLeaseLoss` |
-| C10 | 已自动化 | `DiscoveryDrivenReplicatorTest#refreshRebuildsTargetWhenEndpointChanges` |
+| C3 | 单元测试 | `SegmentedMmapWalTest#ignoresAndOverwritesPartialTailRecord` |
+| C4 | 单元测试 | `SegmentedMmapWalTest#manifestValidationFailsWhenReferencedSegmentIsMissing` |
+| C5 | 单元测试 | `StandbySyncServiceTest#replicateTimesOutWhenApplyCannotMakeProgress` |
+| C7 | 单元测试 | `HaCoordinatorTest#primaryFencesItselfAfterLeaseLoss` |
+| C10 | 集成测试 | `DiscoveryDrivenReplicatorTest#refreshRebuildsTargetWhenEndpointChanges` |
 
 其余场景需要在真实环境执行与观测，因为它们依赖：
 
@@ -163,7 +163,7 @@ PRIMARY_PID=12345 ./scripts/run-chaos-tests.sh env kill-primary
 - standby 未追平却被 promote
 - endpoint 漂移后复制仍打旧地址
 
-## WAL durability mode 专项建议
+## WAL durability mode 验证口径
 
 ### `SYNC_PER_COMMAND`
 
@@ -172,7 +172,7 @@ PRIMARY_PID=12345 ./scripts/run-chaos-tests.sh env kill-primary
 ### `SYNC_PER_BATCH`
 
 - 重点观察单批丢失窗口是否符合预期
-- 建议记录：
+- 验证时采集：
   - batch size
   - force 前累计命令数
 

@@ -1,4 +1,4 @@
-package io.github.ike.ullmatcher.server.cluster;
+package io.github.ike.ullmatcher.ha.transport;
 
 public enum ReplicationTransportType {
     GRPC,

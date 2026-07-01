@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate current benchmark reports against the published baseline table."""
+"""Validate benchmark reports against the published baseline table."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from typing import Callable
 
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DOC = ROOT / "doc/operations/benchmark-baseline-current.md"
+DEFAULT_DOC = ROOT / "doc/operations/benchmark-baseline.md"
 DEFAULT_REPORT_ROOT = ROOT / "target/current"
 
 
@@ -40,10 +40,10 @@ SCENARIOS = [
     Scenario("Single-node binary", "single-node-binary/report-clean.json",
              "acceptedOrdersPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond",
              None, "p99LatencyMs", "ms"),
-    Scenario("External `1P1S` REST + `GRPC`", "http-ha/grpc-1p1s-current.json",
+    Scenario("External `1P1S` REST + `GRPC` local ack", "http-commit/grpc-1p1s-local-current.json",
              "acceptedOrdersPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond",
              "commitCatchupSeconds", "latency.p99Ms", "ms"),
-    Scenario("External `1P1S` REST + `AERON`", "http-ha/aeron-1p1s-current.json",
+    Scenario("External `1P1S` REST + `GRPC` committed ack", "http-commit/grpc-1p1s-committed-current.json",
              "acceptedOrdersPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond",
              "commitCatchupSeconds", "latency.p99Ms", "ms"),
     Scenario("REST committed single", "http-ha/rest-single-1024-current.json",
@@ -52,10 +52,10 @@ SCENARIOS = [
     Scenario("REST committed batch", "http-ha/rest-batch-1024-current.json",
              "acceptedOrdersPerSecond", None, "replicationCommittedSubmissionsPerSecond",
              "commitCatchupSeconds", "latency.p99Ms", "ms"),
-    Scenario("External `1P1S` binary + `GRPC`", "binary-commit/grpc-1p1s-current.json",
+    Scenario("External `1P1S` binary + `GRPC` any", "binary-commit/grpc-1p1s-current.json",
              "acceptedCommandsPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond",
              "commitCatchupSeconds", "latency.p99Ms", "ms"),
-    Scenario("External `1P1S` binary + `AERON`", "binary-commit/aeron-1p1s-current.json",
+    Scenario("External `1P1S` binary + `AERON` any", "binary-commit/aeron-1p1s-current.json",
              "acceptedCommandsPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond",
              "commitCatchupSeconds", "latency.p99Ms", "ms"),
     Scenario("External `1P2S` binary + `GRPC` quorum", "binary-commit/grpc-1p2s-quorum-current.json",

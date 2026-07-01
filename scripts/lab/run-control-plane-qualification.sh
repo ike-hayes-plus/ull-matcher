@@ -37,6 +37,7 @@ esac
 mkdir -p "$OUT_DIR"
 REPORT_FILE="$OUT_DIR/qualification-report.json"
 PHASE_DIR="$OUT_DIR/phases"
+rm -f "$REPORT_FILE"
 rm -rf "$PHASE_DIR"
 mkdir -p "$PHASE_DIR"
 

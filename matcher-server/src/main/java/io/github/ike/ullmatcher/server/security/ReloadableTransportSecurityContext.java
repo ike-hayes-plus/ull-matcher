@@ -1,5 +1,6 @@
 package io.github.ike.ullmatcher.server.security;
 
+import io.github.ike.ullmatcher.ha.transport.TransportSecuritySnapshot;
 import java.io.Closeable;
 import java.io.IOException;
 import java.nio.file.FileSystems;
@@ -65,8 +66,8 @@ public final class ReloadableTransportSecurityContext implements Closeable {
         return current.get();
     }
 
-    public TlsReloadSnapshot snapshot() {
-        return new TlsReloadSnapshot(
+    public TransportSecuritySnapshot snapshot() {
+        return new TransportSecuritySnapshot(
                 generation.get(),
                 reloadCount.get(),
                 failureCount.get(),

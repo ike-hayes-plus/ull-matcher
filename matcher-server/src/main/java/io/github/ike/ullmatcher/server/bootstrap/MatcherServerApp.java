@@ -9,12 +9,12 @@ import io.github.ike.ullmatcher.server.api.HttpSubmitAckMode;
 import io.github.ike.ullmatcher.server.cluster.ClusterSupervisorMetricsSnapshot;
 import io.github.ike.ullmatcher.server.cluster.MatcherClusterSupervisor;
 import io.github.ike.ullmatcher.server.cluster.ReplicationTransportPolicyEnforcer;
-import io.github.ike.ullmatcher.server.cluster.ReplicationTransportProvider;
+import io.github.ike.ullmatcher.ha.transport.ReplicationTransportProvider;
 import io.github.ike.ullmatcher.server.cluster.ReplicationTransportProviders;
-import io.github.ike.ullmatcher.server.cluster.TransportMetricsSnapshot;
+import io.github.ike.ullmatcher.ha.transport.TransportMetricsSnapshot;
 import io.github.ike.ullmatcher.server.engine.MatcherNodeService;
 import io.github.ike.ullmatcher.server.security.ReloadableGrpcServer;
-import io.github.ike.ullmatcher.server.security.TlsReloadSnapshot;
+import io.github.ike.ullmatcher.ha.transport.TransportSecuritySnapshot;
 import io.github.ike.ullmatcher.server.telemetry.OpenTelemetryServerMetricsBridge;
 import io.github.ike.ullmatcher.server.telemetry.ReadinessSnapshot;
 
@@ -71,6 +71,7 @@ public final class MatcherServerApp implements Closeable {
                 config.shardKey(),
                 config.writeAdmissionPolicyConfig(),
                 HttpSubmitAckMode.parse(System.getProperty("matcher.httpSubmitAckMode"), HttpSubmitAckMode.LOCAL),
+                config.serverMode(),
                 nodeService,
                 grpcMetrics,
                 clusterMetricsSupplier, this::readinessSnapshot);
@@ -144,10 +145,10 @@ public final class MatcherServerApp implements Closeable {
                 0L, 0L, null, null, java.util.Map.of(), java.util.List.of(), "IDLE", "",
                 TransportMetricsSnapshot.none("NONE"))
                 : clusterSupervisor.metricsSnapshot();
-        TlsReloadSnapshot tls = grpcServer != null
+        TransportSecuritySnapshot tls = grpcServer != null
                 ? grpcServer.snapshot()
                 : (replicationTransportProvider == null
-                ? new TlsReloadSnapshot(0L, 0L, 0L, false, "")
+                ? new TransportSecuritySnapshot(0L, 0L, 0L, false, "")
                 : replicationTransportProvider.securitySnapshot());
         boolean clientTrafficReady = nodeService.health().acceptingClientCommands();
         boolean promotionReady = cluster.lastGateDecision() == null || cluster.lastGateDecision().promotionReady();

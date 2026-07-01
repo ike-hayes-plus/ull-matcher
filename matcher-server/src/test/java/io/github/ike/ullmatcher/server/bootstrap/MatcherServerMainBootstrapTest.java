@@ -13,7 +13,7 @@ import io.github.ike.ullmatcher.server.cluster.AeronPreviewTransportConfig;
 import io.github.ike.ullmatcher.server.cluster.MatcherClusterConfig;
 import io.github.ike.ullmatcher.server.cluster.ReplicationTransportPolicyConfig;
 import io.github.ike.ullmatcher.server.cluster.ReplicationTransportPolicyEnforcer;
-import io.github.ike.ullmatcher.server.cluster.ReplicationTransportType;
+import io.github.ike.ullmatcher.ha.transport.ReplicationTransportType;
 import io.github.ike.ullmatcher.server.engine.TtlCancelConfig;
 import io.github.ike.ullmatcher.server.security.ServerSecurityConfig;
 import org.junit.jupiter.api.Test;
@@ -99,6 +99,31 @@ final class MatcherServerMainBootstrapTest {
     }
 
     @Test
+    void standaloneClusterConfigRejectsMixedControlPlaneProviders() {
+        String previousZk = System.getProperty("matcher.zkConnect");
+        String previousEtcd = System.getProperty("matcher.etcdEndpoint");
+        String previousLease = System.getProperty("matcher.leaseProvider");
+        String previousDiscovery = System.getProperty("matcher.discoveryProvider");
+        try {
+            System.setProperty("matcher.zkConnect", "127.0.0.1:2181");
+            System.setProperty("matcher.etcdEndpoint", "http://127.0.0.1:2379");
+            System.setProperty("matcher.leaseProvider", "zk");
+            System.setProperty("matcher.discoveryProvider", "etcd");
+
+            ServerBootstrapException error = assertThrows(ServerBootstrapException.class,
+                    () -> MatcherServerMain.clusterConfig("merchant:42"));
+
+            assertEquals("matcher.leaseProvider and matcher.discoveryProvider must match: zk != etcd",
+                    error.getMessage());
+        } finally {
+            restoreProperty("matcher.zkConnect", previousZk);
+            restoreProperty("matcher.etcdEndpoint", previousEtcd);
+            restoreProperty("matcher.leaseProvider", previousLease);
+            restoreProperty("matcher.discoveryProvider", previousDiscovery);
+        }
+    }
+
+    @Test
     void zkDiscoveryProviderRequiresConnectString() {
         ServerBootstrapException error = assertThrows(ServerBootstrapException.class,
                 () -> MatcherServerMain.nodeRegistry("zk", "", "http://127.0.0.1:2379", "cluster-a"));
@@ -133,6 +158,20 @@ final class MatcherServerMainBootstrapTest {
             restoreProperty("matcher.failoverMinStandbyReplicas", previousMinStandbys);
             restoreProperty("matcher.replicationMode", previousReplicationMode);
         }
+    }
+
+    @Test
+    void configRejectsNonPowerOfTwoRingCapacity() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> baseConfigWithSizing(Path.of("target/invalid-ring"), 1_000, 256));
+        assertEquals("ringCapacity must be a power of two", error.getMessage());
+    }
+
+    @Test
+    void configRejectsBinaryBatchLargerThanRingCapacity() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> baseConfigWithSizing(Path.of("target/invalid-binary-batch"), 128, 256));
+        assertEquals("binaryIngressMaxBatchSize must not exceed ringCapacity", error.getMessage());
     }
 
     @Test
@@ -469,6 +508,56 @@ final class MatcherServerMainBootstrapTest {
                 io.github.ike.ullmatcher.runtime.MatchLoopConfig.defaults(),
                 io.github.ike.ullmatcher.ha.standby.StandbySyncConfig.defaults(),
                 clusterConfig
+        );
+    }
+
+    private static MatcherServerConfig baseConfigWithSizing(Path dir, int ringCapacity, int binaryIngressMaxBatchSize) {
+        return new MatcherServerConfig(
+                MatcherServerMode.DEV,
+                "node-a",
+                "merchant:42",
+                MatcherConfig.defaults(1),
+                dir.resolve("wal"),
+                "symbol-1",
+                4L * 1024L * 1024L,
+                WalDurabilityMode.SYNC_PER_COMMAND,
+                1,
+                0L,
+                dir.resolve("snapshots").resolve("symbol-1.snap"),
+                ringCapacity,
+                128,
+                TimeUnit.MILLISECONDS.toNanos(200),
+                8080,
+                "127.0.0.1",
+                4,
+                1 << 20,
+                256,
+                2_000L,
+                false,
+                10080,
+                "127.0.0.1",
+                binaryIngressMaxBatchSize,
+                128,
+                96,
+                16,
+                2_000L,
+                1_000L,
+                5_000L,
+                96,
+                64,
+                2,
+                16,
+                8,
+                WriteAdmissionPolicyConfig.defaults(),
+                false,
+                9090,
+                GrpcReplicationServerConfig.defaults(9090),
+                ServerSecurityConfig.insecureDefaults(),
+                TtlCancelConfig.disabled(),
+                HaRole.PRIMARY,
+                io.github.ike.ullmatcher.runtime.MatchLoopConfig.defaults(),
+                io.github.ike.ullmatcher.ha.standby.StandbySyncConfig.defaults(),
+                null
         );
     }
 

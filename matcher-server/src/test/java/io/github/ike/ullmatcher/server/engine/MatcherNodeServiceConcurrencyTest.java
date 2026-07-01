@@ -3,7 +3,9 @@ package io.github.ike.ullmatcher.server.engine;
 import io.github.ike.ullmatcher.api.OrderType;
 import io.github.ike.ullmatcher.api.Side;
 import io.github.ike.ullmatcher.api.TimeInForce;
+import io.github.ike.ullmatcher.api.MatchEventHandler;
 import io.github.ike.ullmatcher.core.MatcherConfig;
+import io.github.ike.ullmatcher.core.UltraLowLatencyMatcher;
 import io.github.ike.ullmatcher.ha.coordination.ClusterLease;
 import io.github.ike.ullmatcher.ha.coordination.FencingToken;
 import io.github.ike.ullmatcher.ha.coordination.HaRole;
@@ -16,6 +18,8 @@ import io.github.ike.ullmatcher.ha.replication.CommandReplicator;
 import io.github.ike.ullmatcher.ha.replication.ReplicationMode;
 import io.github.ike.ullmatcher.ha.replication.ReplicationResult;
 import io.github.ike.ullmatcher.ha.grpc.server.GrpcReplicationServerConfig;
+import io.github.ike.ullmatcher.ha.snapshot.SnapshotSyncResult;
+import io.github.ike.ullmatcher.ha.snapshot.SnapshotSyncSource;
 import io.github.ike.ullmatcher.hft.WalDurabilityMode;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerConfig;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerMode;
@@ -23,14 +27,16 @@ import io.github.ike.ullmatcher.server.bootstrap.WriteAdmissionPolicyConfig;
 import io.github.ike.ullmatcher.server.cluster.AeronPreviewTransportConfig;
 import io.github.ike.ullmatcher.server.cluster.MatcherClusterConfig;
 import io.github.ike.ullmatcher.server.cluster.ReplicationTransportPolicyConfig;
-import io.github.ike.ullmatcher.server.cluster.ReplicationTransportType;
+import io.github.ike.ullmatcher.ha.transport.ReplicationTransportType;
 import io.github.ike.ullmatcher.server.security.ServerSecurityConfig;
+import io.github.ike.ullmatcher.storage.snapshot.SnapshotStore;
 import org.junit.jupiter.api.Test;
 
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -42,6 +48,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -177,6 +184,38 @@ final class MatcherNodeServiceConcurrencyTest {
         }
     }
 
+    @Test
+    void fencedPrimaryRejoinsFromAuthoritativeSnapshotWithoutReplayingLocalWalTail() throws Exception {
+        Path dir = Files.createTempDirectory("matcher-node-fenced-rejoin");
+        MatcherServerConfig config = testConfig(dir);
+        try (MatcherNodeService service = new MatcherNodeService(config)) {
+            service.start();
+            assertEquals(io.github.ike.ullmatcher.hft.SubmitResult.ACCEPTED,
+                    service.submitNewOrder(1L, 60_000L, Side.BUY, OrderType.LIMIT, TimeInForce.GTC, 100L, 1L).result());
+            assertTrue(await(() -> service.liveOrderCount() == 1, 5_000L));
+
+            assertTrue(service.fencePrimaryAfterControlPlaneFailure("test"));
+            assertEquals(HaRole.FENCED, service.currentState().role());
+
+            SnapshotStore.SnapshotMetadata authoritativeSnapshot = authoritativeSnapshot(
+                    dir.resolve("authoritative.snap"), 70_000L
+            );
+            SnapshotSyncResult result = service.rejoinFencedFromSnapshot(
+                    new FileSnapshotSource("node-b", authoritativeSnapshot.file(), authoritativeSnapshot),
+                    TimeUnit.SECONDS.toNanos(5)
+            );
+
+            assertEquals(authoritativeSnapshot.lastSequence(), result.lastSequence());
+            assertEquals(HaRole.STANDBY, service.currentState().role());
+            assertFalse(service.currentState().acceptingClientCommands());
+            assertEquals(1, service.liveOrderCount());
+            assertNull(service.orderState(60_000L));
+            try (var files = Files.list(dir)) {
+                assertTrue(files.anyMatch(path -> path.getFileName().toString().startsWith("wal.fenced.")));
+            }
+        }
+    }
+
     private static List<MatcherNodeService.BatchNewOrderRequest> newOrderBatch(long orderIdStart, int count) {
         ArrayList<MatcherNodeService.BatchNewOrderRequest> requests = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {
@@ -238,6 +277,43 @@ final class MatcherNodeServiceConcurrencyTest {
                 io.github.ike.ullmatcher.ha.standby.StandbySyncConfig.defaults(),
                 null
         );
+    }
+
+    private static SnapshotStore.SnapshotMetadata authoritativeSnapshot(Path snapshotFile, long orderId) throws IOException {
+        UltraLowLatencyMatcher matcher = new UltraLowLatencyMatcher(MatcherConfig.defaults(1), noopHandler());
+        matcher.onCommand(io.github.ike.ullmatcher.api.Command.newOrder(
+                10L, orderId, 2L, 1, Side.SELL, OrderType.LIMIT, TimeInForce.GTC, 101L, 1L
+        ));
+        return SnapshotStore.write(snapshotFile, matcher);
+    }
+
+    private static MatchEventHandler noopHandler() {
+        return new MatchEventHandler() {
+            @Override
+            public void onTrade(io.github.ike.ullmatcher.api.TradeEvent event) {
+            }
+
+            @Override
+            public void onOrder(io.github.ike.ullmatcher.api.OrderEvent event) {
+            }
+        };
+    }
+
+    private record FileSnapshotSource(String nodeId,
+                                      Path sourceFile,
+                                      SnapshotStore.SnapshotMetadata metadata) implements SnapshotSyncSource {
+        @Override
+        public SnapshotSyncResult downloadLatestSnapshot(Path targetFile, long timeoutNanos) throws IOException {
+            Files.createDirectories(targetFile.toAbsolutePath().getParent());
+            Files.copy(sourceFile, targetFile, StandardCopyOption.REPLACE_EXISTING);
+            return new SnapshotSyncResult(
+                    targetFile,
+                    Files.size(targetFile),
+                    metadata.lastSequence(),
+                    metadata.lastTradeId(),
+                    metadata.liveOrderCount()
+            );
+        }
     }
 
     private static MatcherServerConfig testConfigWithCluster(Path dir, LeaseStore leaseStore) {

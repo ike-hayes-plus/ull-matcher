@@ -13,7 +13,7 @@ import io.github.ike.ullmatcher.server.bootstrap.MatcherServerConfig;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerMode;
 import io.github.ike.ullmatcher.server.bootstrap.WriteAdmissionPolicyConfig;
 import io.github.ike.ullmatcher.server.cluster.ClusterSupervisorMetricsSnapshot;
-import io.github.ike.ullmatcher.server.cluster.TransportMetricsSnapshot;
+import io.github.ike.ullmatcher.ha.transport.TransportMetricsSnapshot;
 import io.github.ike.ullmatcher.server.engine.MatcherNodeService;
 import io.github.ike.ullmatcher.server.engine.TtlCancelConfig;
 import io.github.ike.ullmatcher.server.security.ServerSecurityConfig;
@@ -39,6 +39,30 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class HttpApiServerTest {
+    @Test
+    void serviceFailurePayloadHidesDetailInProdMode() {
+        ServiceUnavailableException apiError = new ServiceUnavailableException(
+                "submit order failed",
+                new java.io.IOException("disk path /internal/wal failed")
+        );
+
+        Map<String, Object> prodPayload = HttpApiServer.serviceFailurePayload(
+                MatcherServerMode.PROD,
+                apiError,
+                apiError.getCause()
+        );
+        Map<String, Object> devPayload = HttpApiServer.serviceFailurePayload(
+                MatcherServerMode.DEV,
+                apiError,
+                apiError.getCause()
+        );
+
+        assertEquals("submit order failed", prodPayload.get("error"));
+        assertEquals("service_unavailable", prodPayload.get("code"));
+        assertFalse(prodPayload.containsKey("detail"));
+        assertEquals("disk path /internal/wal failed", devPayload.get("detail"));
+    }
+
     @Test
     void submissionEndpointProvidesIdempotentReceiptAndQuery() throws Exception {
         Path dir = Files.createTempDirectory("http-api-submission");

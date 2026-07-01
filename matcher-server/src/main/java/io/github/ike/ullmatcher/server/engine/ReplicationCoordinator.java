@@ -51,6 +51,7 @@ final class ReplicationCoordinator implements Closeable {
     private volatile CommandReplicator replicator;
     private volatile ReplicationMode mode = ReplicationMode.LOCAL_ONLY;
     private volatile long timeoutNanos;
+    private ReplicationWork deferredWork;
 
     ReplicationCoordinator(String nodeId) {
         this(nodeId, Clock.systemUTC());
@@ -252,18 +253,21 @@ final class ReplicationCoordinator implements Closeable {
      * 在限定窗口内聚合一批具有相同复制模式的工作项。
      */
     private BatchPollResult pollBatch(BatchBuffer batchBuffer) {
-        ReplicationWork first = queue.poll();
+        ReplicationWork first = pollNextWork();
         if (first == null) {
             return null;
         }
         int maxBatchSize = preferredMaxBatchSize();
         long accumulationNanos = preferredAccumulationNanos();
         batchBuffer.clear();
-        addWorkToBatch(batchBuffer, first);
+        int addedFromFirst = addWorkToBatch(batchBuffer, first, maxBatchSize);
+        if (addedFromFirst < first.size()) {
+            deferredWork = first.sliceFrom(addedFromFirst);
+        }
         long accumulationStarted = System.nanoTime();
         long accumulationDeadline = System.nanoTime() + accumulationNanos;
         while (batchBuffer.size() < maxBatchSize) {
-            ReplicationWork next = queue.poll();
+            ReplicationWork next = pollNextWork();
             if (next == null) {
                 if (System.nanoTime() >= accumulationDeadline) {
                     break;
@@ -272,18 +276,29 @@ final class ReplicationCoordinator implements Closeable {
                 continue;
             }
             if (next.requiredMode() != first.requiredMode()) {
-                while (!queue.offer(next)) {
-                    Thread.onSpinWait();
-                }
+                deferredWork = next;
                 break;
             }
-            addWorkToBatch(batchBuffer, next);
+            if (next.size() > maxBatchSize - batchBuffer.size()) {
+                deferredWork = next;
+                break;
+            }
+            addWorkToBatch(batchBuffer, next, maxBatchSize);
         }
         long batchSize = batchBuffer.size();
         lastBatchSize.set(batchSize);
         updateMax(maxObservedBatchSize, batchSize);
         lastAccumulationMicros.set(TimeUnit.NANOSECONDS.toMicros(System.nanoTime() - accumulationStarted));
         return new BatchPollResult(first.requiredMode(), first.taskAt(0).timeoutNanos());
+    }
+
+    private ReplicationWork pollNextWork() {
+        ReplicationWork deferred = deferredWork;
+        if (deferred != null) {
+            deferredWork = null;
+            return deferred;
+        }
+        return queue.poll();
     }
 
     private int preferredMaxBatchSize() {
@@ -449,6 +464,11 @@ final class ReplicationCoordinator implements Closeable {
     }
 
     private void drainQueuedWork() {
+        ReplicationWork deferred = deferredWork;
+        deferredWork = null;
+        if (deferred != null) {
+            markWorkClosed(deferred);
+        }
         ReplicationWork remaining;
         while ((remaining = queue.poll()) != null) {
             markWorkClosed(remaining);
@@ -466,12 +486,13 @@ final class ReplicationCoordinator implements Closeable {
         }
     }
 
-    private static void addWorkToBatch(BatchBuffer batch, ReplicationWork work) {
-        int remainingCapacity = MAX_BATCH_SIZE - batch.size();
+    private static int addWorkToBatch(BatchBuffer batch, ReplicationWork work, int maxBatchSize) {
+        int remainingCapacity = maxBatchSize - batch.size();
         int taskCount = Math.min(remainingCapacity, work.size());
         for (int i = 0; i < taskCount; i++) {
             batch.add(work.taskAt(i));
         }
+        return taskCount;
     }
 
     private static final class BatchBuffer {
@@ -537,6 +558,8 @@ final class ReplicationCoordinator implements Closeable {
 
         ReplicationTask taskAt(int index);
 
+        ReplicationWork sliceFrom(int index);
+
         static ReplicationWork single(ReplicationTask task) {
             return new SingleReplicationWork(task);
         }
@@ -564,29 +587,52 @@ final class ReplicationCoordinator implements Closeable {
             }
             return task;
         }
+
+        @Override
+        public ReplicationWork sliceFrom(int index) {
+            if (index == 0) {
+                return this;
+            }
+            throw new IndexOutOfBoundsException(index);
+        }
     }
 
-    private record BatchReplicationWork(ReplicationTask[] tasks) implements ReplicationWork {
+    private record BatchReplicationWork(ReplicationTask[] tasks, int offset, int length) implements ReplicationWork {
+        private BatchReplicationWork(ReplicationTask[] tasks) {
+            this(tasks, 0, tasks.length);
+        }
+
         private BatchReplicationWork {
             Objects.requireNonNull(tasks, "tasks");
-            if (tasks.length == 0) {
-                throw new IllegalArgumentException("tasks must not be empty");
+            if (offset < 0 || length <= 0 || offset + length > tasks.length) {
+                throw new IllegalArgumentException("invalid batch work slice");
             }
         }
 
         @Override
         public int size() {
-            return tasks.length;
+            return length;
         }
 
         @Override
         public ReplicationMode requiredMode() {
-            return tasks[0].requiredMode();
+            return tasks[offset].requiredMode();
         }
 
         @Override
         public ReplicationTask taskAt(int index) {
-            return tasks[index];
+            if (index < 0 || index >= length) {
+                throw new IndexOutOfBoundsException(index);
+            }
+            return tasks[offset + index];
+        }
+
+        @Override
+        public ReplicationWork sliceFrom(int index) {
+            if (index < 0 || index >= length) {
+                throw new IndexOutOfBoundsException(index);
+            }
+            return new BatchReplicationWork(tasks, offset + index, length - index);
         }
     }
 

@@ -65,6 +65,24 @@ def summarize_latencies(latencies):
     }
 
 
+def metric_delta(before: dict, after: dict, key: str):
+    return max(0, after.get(key, 0) - before.get(key, 0))
+
+
+def standby_metric_deltas(before_payloads, after_payloads, key: str):
+    before_by_node = {payload.get("nodeId"): payload for payload in before_payloads}
+    deltas = []
+    for payload in after_payloads:
+        node_id = payload.get("nodeId")
+        before = before_by_node.get(node_id, {})
+        deltas.append({
+            "nodeId": node_id,
+            "delta": metric_delta(before, payload, key),
+            "after": payload.get(key, 0),
+        })
+    return deltas
+
+
 class BinarySession:
     def __init__(self, host: str, port: int, timeout_seconds: float):
         self.sock = socket.create_connection((host, port), timeout=timeout_seconds)
@@ -411,6 +429,24 @@ def main():
     mode_durable_submissions = watermark_delta(before_mode_durable, after_mode_durable)
     fully_durable_on_all_standbys = watermark_delta(before_all, after_all)
     success = (not timed_out) and rejected == 0 and committed_submissions >= accepted_commands
+    replication_diagnostics = {
+        "primaryBatchesTotalDelta": metric_delta(health_before, health_after, "replicationBatchesTotal"),
+        "primaryCommandsTotalDelta": metric_delta(health_before, health_after, "replicationCommandsTotal"),
+        "primaryRetryCountDelta": metric_delta(health_before, health_after, "replicationRetryCount"),
+        "primaryMaxObservedBatchSizeAfter": health_after.get("replicationMaxObservedBatchSize", 0),
+        "primaryLastBatchSizeAfter": health_after.get("replicationLastBatchSize", 0),
+        "primaryLastCommitMicrosAfter": health_after.get("replicationLastCommitMicros", 0),
+        "primaryLastAccumulationMicrosAfter": health_after.get("replicationLastAccumulationMicros", 0),
+        "standbyAckFlushDeltas": standby_metric_deltas(standby_before, standby_after, "standbyAckFlushCount"),
+        "standbyReplicatedBatchDeltas": standby_metric_deltas(standby_before, standby_after, "standbyReplicatedBatchesTotal"),
+        "standbyMaxObservedReplicatedBatchSizeAfter": [
+            {
+                "nodeId": payload.get("nodeId"),
+                "after": payload.get("standbyMaxObservedReplicatedBatchSize", 0),
+            }
+            for payload in standby_after
+        ],
+    }
     report = {
         "success": success,
         "scenario": "binary_replication_commit_benchmark",
@@ -446,6 +482,7 @@ def main():
         "replicationCommittedSubmissionsPerSecond": 0.0 if total_elapsed_seconds == 0.0 else committed_submissions / total_elapsed_seconds,
         "standbyCommitModeDurableCommandsPerSecond": 0.0 if total_elapsed_seconds == 0.0 else mode_durable_submissions / total_elapsed_seconds,
         "allStandbysDurableCommandsPerSecond": 0.0 if total_elapsed_seconds == 0.0 else fully_durable_on_all_standbys / total_elapsed_seconds,
+        "replicationDiagnostics": replication_diagnostics,
         "healthBefore": health_before,
         "healthAfter": health_after,
         "standbyBefore": standby_before,

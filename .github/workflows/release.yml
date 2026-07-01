@@ -136,7 +136,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: >
-          mvn --batch-mode --no-transfer-progress -DskipTests deploy
+          mvn --batch-mode --no-transfer-progress deploy
           -DaltDeploymentRepository=github::default::https://maven.pkg.github.com/ike-hayes-plus/ull-matcher
 
   publish-maven-central:
@@ -169,5 +169,5 @@ jobs:
           MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
         run: >
-          mvn --batch-mode --no-transfer-progress -DskipTests
+          mvn --batch-mode --no-transfer-progress
           -Pstyle-check,release-signing,central-publish deploy

@@ -46,6 +46,7 @@
         <module>matcher-ha-grpc</module>
         <module>matcher-ha-aeron</module>
         <module>matcher-server</module>
+        <module>matcher-server-dist</module>
         <module>matcher-sdk-java</module>
         <module>matcher-spring-boot-starter</module>
         <module>matcher-examples</module>
@@ -72,6 +73,7 @@
         <spring.boot.version>3.3.6</spring.boot.version>
         <undertow.version>2.3.17.Final</undertow.version>
         <checkstyle.version>3.6.0</checkstyle.version>
+        <jacoco.version>0.8.12</jacoco.version>
         <enforcer.plugin.version>3.5.0</enforcer.plugin.version>
         <gpg.plugin.version>3.2.7</gpg.plugin.version>
         <central.publishing.plugin.version>0.7.0</central.publishing.plugin.version>
@@ -262,6 +264,11 @@
                         <failsOnError>true</failsOnError>
                         <includeTestSourceDirectory>true</includeTestSourceDirectory>
                     </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.jacoco</groupId>
+                    <artifactId>jacoco-maven-plugin</artifactId>
+                    <version>${jacoco.version}</version>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>

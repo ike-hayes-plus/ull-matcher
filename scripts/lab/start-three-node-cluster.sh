@@ -2,22 +2,26 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+: "${SHARD_KEY:=merchant:42}"
+: "${SYMBOL_ID:=1}"
+: "${CLUSTER_NAME:=merchant-lab}"
+: "${ZK_CONNECT:=127.0.0.1:2181,127.0.0.1:2182,127.0.0.1:2183}"
+: "${ETCD_ENDPOINT:=http://127.0.0.1:2379,http://127.0.0.1:2381,http://127.0.0.1:2383}"
+: "${DATA_ROOT:=$ROOT_DIR/target/lab}"
+: "${LOG_ROOT:=$ROOT_DIR/target/lab-logs}"
+: "${CP_FILE:=$ROOT_DIR/target/lab/classpath.txt}"
+: "${REPLICATION_TRANSPORT:=GRPC}"
+: "${ENABLE_TRANSPORT_TLS:=false}"
+: "${TRANSPORT_TLS_DIR:=$DATA_ROOT/tls}"
+
+# shellcheck source=/dev/null
+source "${ROOT_DIR}/scripts/deploy/default.conf"
 # shellcheck disable=SC1091
 source "${ROOT_DIR}/scripts/lib/use-project-java.sh"
 # shellcheck disable=SC1091
 source "${ROOT_DIR}/scripts/lab/port-layout.sh"
 
-SHARD_KEY="${SHARD_KEY:-merchant:42}"
-SYMBOL_ID="${SYMBOL_ID:-1}"
-CLUSTER_NAME="${CLUSTER_NAME:-merchant-lab}"
-ZK_CONNECT="${ZK_CONNECT:-127.0.0.1:2181,127.0.0.1:2182,127.0.0.1:2183}"
-ETCD_ENDPOINT="${ETCD_ENDPOINT:-http://127.0.0.1:2379,http://127.0.0.1:2381,http://127.0.0.1:2383}"
-DATA_ROOT="${DATA_ROOT:-$ROOT_DIR/target/lab}"
-LOG_ROOT="${LOG_ROOT:-$ROOT_DIR/target/lab-logs}"
-CP_FILE="$ROOT_DIR/target/lab/classpath.txt"
-REPLICATION_TRANSPORT="${REPLICATION_TRANSPORT:-GRPC}"
-ENABLE_TRANSPORT_TLS="${ENABLE_TRANSPORT_TLS:-false}"
-TRANSPORT_TLS_DIR="${TRANSPORT_TLS_DIR:-$DATA_ROOT/tls}"
 RESET_CLUSTER_STATE="${RESET_CLUSTER_STATE:-true}"
 
 mkdir -p "$DATA_ROOT" "$LOG_ROOT"

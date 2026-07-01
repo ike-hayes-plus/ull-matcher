@@ -1,5 +1,7 @@
 package io.github.ike.ullmatcher.server.cluster;
 
+import io.github.ike.ullmatcher.ha.transport.ReplicationTransportProvider;
+import io.github.ike.ullmatcher.ha.transport.ClusterPeerClient;
 import io.github.ike.ullmatcher.ha.coordination.ClusterLease;
 import io.github.ike.ullmatcher.ha.coordination.FencingToken;
 import io.github.ike.ullmatcher.ha.coordination.HaRole;
@@ -86,6 +88,7 @@ public final class MatcherClusterSupervisor implements Closeable {
                 if (!running && isExpectedShutdownFailure(ignored)) {
                     return;
                 }
+                fenceLocalPrimaryAfterControlPlaneFailure(ignored);
                 tickFailureCount.incrementAndGet();
                 recordError("tick_loop", ignored);
             }
@@ -189,6 +192,21 @@ public final class MatcherClusterSupervisor implements Closeable {
         }
     }
 
+    private void fenceLocalPrimaryAfterControlPlaneFailure(Throwable error) {
+        try {
+            NodeControlState localState = nodeService.currentState();
+            if (localState.role() != HaRole.PRIMARY) {
+                return;
+            }
+            boolean fenced = nodeService.fencePrimaryAfterControlPlaneFailure(String.valueOf(error.getMessage()));
+            if (fenced) {
+                recordError("primary_fenced_after_control_plane_failure", error);
+            }
+        } catch (IOException | RuntimeException fenceError) {
+            recordError("primary_fence_failure", fenceError);
+        }
+    }
+
     private ReplicaState toReplicaState(DiscoveredNode discoveredNode, long nowNanos, boolean localPrimaryFastPath) throws IOException {
         if (discoveredNode.nodeId().equals(config.nodeId())) {
             return localReplicaState(nodeService.currentState(), nowNanos);
@@ -247,6 +265,25 @@ public final class MatcherClusterSupervisor implements Closeable {
 
     private boolean ensureLocalCatchUp(ReplicaState observedPrimary) throws IOException {
         NodeControlState localState = nodeService.currentState();
+        if (localState.role() == HaRole.FENCED) {
+            DiscoveredNode primaryNode = discoveredPrimaryNode(observedPrimary.nodeId());
+            if (primaryNode == null) {
+                syncState = "FENCED_WAITING_FOR_PRIMARY";
+                lastSyncError = "fenced node cannot rejoin until current primary is discoverable";
+                return false;
+            }
+            syncState = "FENCED_SNAPSHOT_REJOIN";
+            ClusterPeerClient target = controlClientFor(primaryNode);
+            try {
+                nodeService.rejoinFencedFromSnapshot(target, clusterConfig.snapshotSyncTimeoutNanos());
+                lastSyncError = "";
+            } catch (IOException e) {
+                lastSyncError = e.getMessage();
+                recordError("fenced_snapshot_rejoin", e);
+                throw e;
+            }
+            localState = nodeService.currentState();
+        }
         StandbyReadinessGate.GateDecision decision = readinessGate.evaluate(
                 observedPrimary.cursor(),
                 localState.cursor(),
@@ -262,11 +299,7 @@ public final class MatcherClusterSupervisor implements Closeable {
         syncState = "CATCHING_UP";
         if (decision.snapshotSyncRequired()) {
             syncState = "SNAPSHOT_SYNC";
-            DiscoveredNode primaryNode = clusterConfig.nodeRegistry().listNodes().stream()
-                    .filter(this::isSameShard)
-                    .filter(node -> node.nodeId().equals(observedPrimary.nodeId()))
-                    .findFirst()
-                    .orElse(null);
+            DiscoveredNode primaryNode = discoveredPrimaryNode(observedPrimary.nodeId());
             if (primaryNode != null) {
                 ClusterPeerClient target = controlClientFor(primaryNode);
                 try {
@@ -287,6 +320,17 @@ public final class MatcherClusterSupervisor implements Closeable {
         ).promotionReady();
         syncState = ready ? "READY" : "CATCHING_UP";
         return ready;
+    }
+
+    private DiscoveredNode discoveredPrimaryNode(String primaryNodeId) throws IOException {
+        if (primaryNodeId == null || primaryNodeId.isBlank() || "unknown-primary".equals(primaryNodeId)) {
+            return null;
+        }
+        return clusterConfig.nodeRegistry().listNodes().stream()
+                .filter(this::isSameShard)
+                .filter(node -> node.nodeId().equals(primaryNodeId))
+                .findFirst()
+                .orElse(null);
     }
 
     public ClusterSupervisorMetricsSnapshot metricsSnapshot() {

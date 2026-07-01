@@ -1,6 +1,6 @@
-# 生产部署与容量总览
+# 生产部署与容量规划
 
-本文档把部署形态、压测事实源和分片容量规划收成一份生产总览。
+本文档说明部署形态、压测基线和分片容量规划方法。
 
 在阅读项目 README 之后，建议先看这份文档。
 
@@ -16,12 +16,12 @@
 - **AERON** 只在目标拓扑和长稳行为完成验证后启用
 - REST HA 表示外部客户端通过 REST 写入 primary，主备复制仍然只走 `GRPC` 或 `AERON`，不走 HTTP
 
-## 2. 稳定事实源
+## 2. 文档索引
 
 对外口径统一看下面几份文档：
 
-- [benchmark-baseline-current.md](benchmark-baseline-current.md)
-- [gray-release-runbook.md](gray-release-runbook.md)
+- [benchmark-baseline.md](benchmark-baseline.md)
+- [shard-rollout-runbook.md](shard-rollout-runbook.md)
 - [shard-capacity-planning.md](../architecture/shard-capacity-planning.md)
 - [deployment-modes.md](deployment-modes.md)
 
@@ -72,29 +72,21 @@
 ## 6. 脚本边界
 
 - `scripts/deploy/`
-  - 正式部署入口
+  - 正式部署入口；`default.conf` 提供默认值，真实生产配置从 `cluster.conf.example` 复制后独立维护
 - `scripts/bench/`
   - 压测驱动
 - `scripts/lab/`
-  - 本地实验拓扑
+  - 本地验证拓扑
 - `scripts/ops/`
   - 运维采样与 benchmark 报告保存
 - `scripts/chaos/`
   - 故障演练与混沌验证
 
-## 7. Benchmark 报告纪律
+`cluster.sh` 必须使用 `-c conf/<cluster>.env` 指向真实集群配置，并拒绝直接读取 `*.example` 模板文件。生产配置中必须显式提供 `NODES`，端口可引用 `default.conf` 中的 `HTTP_PORT`、`GRPC_PORT`、`AERON_PORT`、`BINARY_PORT` 默认值，也可以在真实配置文件中覆盖。
 
-稳定事实源由基线文档维护，原始 JSON 报告写入 `target/` 下的运行产物目录。
+发布前必须先执行 `scripts/deploy/cluster.sh -c conf/<cluster>.env validate`。校验失败时不得执行 `start`、`restart` 或任何会改变节点运行状态的动作。
 
-需要保留 benchmark 报告时，使用：
-
-```bash
-./scripts/ops/archive-current-benchmarks.sh
-```
-
-这样可以保证 README 只引用一套稳定文档口径，避免把运行产物提交到仓库。
-
-## 8. 容量规划规则
+## 7. 容量规划规则
 
 容量规划看 committed throughput，不看 accepted throughput。
 
@@ -109,7 +101,7 @@ safe shard budget = committed throughput * utilization cap
 - `60%`：保守生产规划
 - `70%`：环境高度可控且反复验证后才使用
 
-## 9. 容量不足时的处理顺序
+## 8. 容量不足时的处理顺序
 
 如果单分片 committed 吞吐仍不够，优先顺序应是：
 
@@ -118,7 +110,7 @@ safe shard budget = committed throughput * utilization cap
 3. 先按分片扩容，再考虑继续压单状态机
 4. 调整部署建议前，先重跑 committed benchmark
 
-## 10. 稳定性验证
+## 9. 稳定性验证
 
 `GRPC` 三节点拓扑建议至少验证：
 
@@ -137,6 +129,6 @@ safe shard budget = committed throughput * utilization cap
 
 解释方式：
 
-- 这组证据支撑 README 中“`GRPC` 为保守生产默认值”的口径。
-- 这组证据不是长时间生产 soak 的替代品。
+- 该验证口径支撑 README 中“`GRPC` 为保守生产默认值”的说明。
+- 该验证口径不是长时间生产 soak 的替代品。
 - `AERON` 作为默认传输前，需要具备同口径的长稳与 chaos 证据。

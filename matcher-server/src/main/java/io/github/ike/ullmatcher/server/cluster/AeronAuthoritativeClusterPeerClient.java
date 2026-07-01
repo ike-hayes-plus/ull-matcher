@@ -1,5 +1,7 @@
 package io.github.ike.ullmatcher.server.cluster;
 
+import io.github.ike.ullmatcher.ha.transport.ClusterPeerClient;
+import io.github.ike.ullmatcher.ha.transport.AsyncBatchReplicationTarget;
 import io.aeron.Aeron;
 import io.aeron.FragmentAssembler;
 import io.aeron.Publication;

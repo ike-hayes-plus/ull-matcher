@@ -1,5 +1,6 @@
 package io.github.ike.ullmatcher.server.cluster;
 
+import io.github.ike.ullmatcher.ha.transport.TransportMetricsSnapshot;
 import io.github.ike.ullmatcher.ha.coordination.HaTickResult;
 import io.github.ike.ullmatcher.ha.readiness.StandbyReadinessGate;
 

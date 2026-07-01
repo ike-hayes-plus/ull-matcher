@@ -3,9 +3,10 @@ package io.github.ike.ullmatcher.spring.boot.autoconfigure;
 import io.github.ike.ullmatcher.ha.replication.ReplicationMode;
 import io.github.ike.ullmatcher.ha.failover.FailoverPolicy;
 import io.github.ike.ullmatcher.hft.WalDurabilityMode;
+import io.github.ike.ullmatcher.server.bootstrap.MatcherServerConfig;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerMode;
 import io.github.ike.ullmatcher.server.cluster.ReplicationTransportPolicyConfig;
-import io.github.ike.ullmatcher.server.cluster.ReplicationTransportType;
+import io.github.ike.ullmatcher.ha.transport.ReplicationTransportType;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.util.concurrent.TimeUnit;
@@ -49,9 +50,9 @@ public class UllMatcherServerProperties {
     private String httpTenantWriteWeightOverrides = "";
     private String httpTenantPriorityHeader = "X-Ull-Tenant-Priority";
     private boolean allowInsecureRemoteHttp;
-    private WalDurabilityMode walDurabilityMode = WalDurabilityMode.SYNC_PER_COMMAND;
-    private int walForceBatchSize = 1;
-    private long walForceMaxDelayMicros;
+    private WalDurabilityMode walDurabilityMode = MatcherServerConfig.DEFAULT_WAL_DURABILITY_MODE;
+    private int walForceBatchSize = MatcherServerConfig.DEFAULT_WAL_FORCE_BATCH_SIZE;
+    private long walForceMaxDelayMicros = MatcherServerConfig.DEFAULT_WAL_FORCE_MAX_DELAY_MICROS;
     private final Ttl ttl = new Ttl();
     private final Tls tls = new Tls();
     private final Cluster cluster = new Cluster();
@@ -504,6 +505,17 @@ public class UllMatcherServerProperties {
 
     public static final class Cluster {
         private boolean enabled;
+        private String name = "default";
+        private String leaseProvider = "";
+        private String discoveryProvider = "";
+        private String zookeeperConnect = "";
+        private int zookeeperSessionTimeoutMillis = 15_000;
+        private int zookeeperConnectionTimeoutMillis = 5_000;
+        private String etcdEndpoint = "";
+        private String etcdKeyPrefix = "";
+        private long etcdLeaseTtlSeconds = 10L;
+        private long etcdTimeoutMillis = 2_000L;
+        private long etcdLocalHeldCheckCacheMillis = 25L;
         private String advertisedHost = "127.0.0.1";
         private long coordinatorTickMillis = 250L;
         private long discoveryRpcTimeoutMillis = 1_000L;
@@ -526,6 +538,94 @@ public class UllMatcherServerProperties {
 
         public void setEnabled(boolean enabled) {
             this.enabled = enabled;
+        }
+
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        public String getLeaseProvider() {
+            return leaseProvider;
+        }
+
+        public void setLeaseProvider(String leaseProvider) {
+            this.leaseProvider = leaseProvider;
+        }
+
+        public String getDiscoveryProvider() {
+            return discoveryProvider;
+        }
+
+        public void setDiscoveryProvider(String discoveryProvider) {
+            this.discoveryProvider = discoveryProvider;
+        }
+
+        public String getZookeeperConnect() {
+            return zookeeperConnect;
+        }
+
+        public void setZookeeperConnect(String zookeeperConnect) {
+            this.zookeeperConnect = zookeeperConnect;
+        }
+
+        public int getZookeeperSessionTimeoutMillis() {
+            return zookeeperSessionTimeoutMillis;
+        }
+
+        public void setZookeeperSessionTimeoutMillis(int zookeeperSessionTimeoutMillis) {
+            this.zookeeperSessionTimeoutMillis = zookeeperSessionTimeoutMillis;
+        }
+
+        public int getZookeeperConnectionTimeoutMillis() {
+            return zookeeperConnectionTimeoutMillis;
+        }
+
+        public void setZookeeperConnectionTimeoutMillis(int zookeeperConnectionTimeoutMillis) {
+            this.zookeeperConnectionTimeoutMillis = zookeeperConnectionTimeoutMillis;
+        }
+
+        public String getEtcdEndpoint() {
+            return etcdEndpoint;
+        }
+
+        public void setEtcdEndpoint(String etcdEndpoint) {
+            this.etcdEndpoint = etcdEndpoint;
+        }
+
+        public String getEtcdKeyPrefix() {
+            return etcdKeyPrefix;
+        }
+
+        public void setEtcdKeyPrefix(String etcdKeyPrefix) {
+            this.etcdKeyPrefix = etcdKeyPrefix;
+        }
+
+        public long getEtcdLeaseTtlSeconds() {
+            return etcdLeaseTtlSeconds;
+        }
+
+        public void setEtcdLeaseTtlSeconds(long etcdLeaseTtlSeconds) {
+            this.etcdLeaseTtlSeconds = etcdLeaseTtlSeconds;
+        }
+
+        public long getEtcdTimeoutMillis() {
+            return etcdTimeoutMillis;
+        }
+
+        public void setEtcdTimeoutMillis(long etcdTimeoutMillis) {
+            this.etcdTimeoutMillis = etcdTimeoutMillis;
+        }
+
+        public long getEtcdLocalHeldCheckCacheMillis() {
+            return etcdLocalHeldCheckCacheMillis;
+        }
+
+        public void setEtcdLocalHeldCheckCacheMillis(long etcdLocalHeldCheckCacheMillis) {
+            this.etcdLocalHeldCheckCacheMillis = etcdLocalHeldCheckCacheMillis;
         }
 
         public String getAdvertisedHost() {

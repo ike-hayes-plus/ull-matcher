@@ -66,6 +66,14 @@ final class OrderStateTracker implements MatchEventHandler {
         return state == null ? null : state.snapshot();
     }
 
+    void reset() {
+        submittedOrders.clear();
+        states.clear();
+        synchronized (recentLock) {
+            recentOrderIds.clear();
+        }
+    }
+
     List<OrderStateView> recent(int limit) {
         int effectiveLimit = Math.max(1, limit);
         List<OrderStateView> views = new ArrayList<>(effectiveLimit);
@@ -102,6 +110,9 @@ final class OrderStateTracker implements MatchEventHandler {
             submittedOrders.remove(event.orderId);
             return;
         }
+        if (terminal && submitted == null && state == null) {
+            return;
+        }
         if (state == null) {
             TrackedOrderState created = new TrackedOrderState(event.orderId);
             TrackedOrderState raced = states.putIfAbsent(event.orderId, created);
@@ -113,6 +124,8 @@ final class OrderStateTracker implements MatchEventHandler {
             state.timeInForce = submitted.timeInForce();
             state.price = submitted.price();
             state.quantity = submitted.quantity();
+        } else {
+            applyEventMetadata(event, state);
         }
         state.sequence = event.sequence;
         state.symbolId = event.symbolId;
@@ -131,6 +144,24 @@ final class OrderStateTracker implements MatchEventHandler {
 
     private static boolean isActive(String status) {
         return OrderStatus.NEW.name().equals(status) || OrderStatus.PARTIALLY_FILLED.name().equals(status);
+    }
+
+    private static void applyEventMetadata(OrderEvent event, TrackedOrderState state) {
+        if (event.side != 0 && state.side == null) {
+            state.side = Side.from(event.side).name();
+        }
+        if (event.orderType != 0 && state.orderType == null) {
+            state.orderType = OrderType.from(event.orderType).name();
+        }
+        if (event.timeInForce != 0 && state.timeInForce == null) {
+            state.timeInForce = TimeInForce.from(event.timeInForce).name();
+        }
+        if (event.price > 0L && state.price == null) {
+            state.price = event.price;
+        }
+        if (event.quantity > 0L && state.quantity == null) {
+            state.quantity = event.quantity;
+        }
     }
 
     private void remember(long orderId) {

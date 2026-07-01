@@ -52,6 +52,12 @@ sdk env
 mvn test
 ```
 
+核心撮合与 runtime 模块有覆盖率门禁：
+
+```bash
+mvn -pl matcher-core,matcher-runtime -am verify
+```
+
 混沌测试按需开启：
 
 ```bash
@@ -97,23 +103,23 @@ mvn -Pstyle-check,release-signing,central-publish -DskipTests deploy
 - `matcher-server`：独立撮合节点服务
 - `matcher-sdk-java`：Java SDK，封装 HTTP API 与 binary ingress 客户端
 - `matcher-spring-boot-starter`：Spring Boot 集成入口
-- `matcher-examples`：benchmark、实验和示例入口
+- `matcher-examples`：benchmark、验证和示例入口
 
 ## 测试与性能基线
 
 - 修改撮合、WAL、复制、replay、幂等或 API 契约时，必须补充或更新对应单元测试。
 - 修改热路径时，优先增加低分配、低抖动的专向 benchmark，而不是只看端到端脚本单次读数。
 - benchmark 报告应写入 `target/` 下的生成目录；仓库文档只保留稳定事实源和可复现命令。
-- 不把单次最好结果写成容量承诺；README 使用保守稳定口径，完整事实源维护在 `doc/operations/benchmark-baseline-current.md`。
+- 不把单次最好结果写成容量承诺；README 使用保守稳定口径，完整事实源维护在 `doc/operations/benchmark-baseline.md`。
 - 压测失败时先判断环境、JDK、端口、ZooKeeper、standby catch-up 和 committed 口径，再判断业务代码退化。
 
 ## 文档约束
 
-- `README.md` 只作为入口和推荐口径，不沉淀长篇实验过程。
+- `README.md` 只作为入口和推荐口径，不沉淀长篇验证过程。
 - 架构设计放在 `doc/architecture/`。
-- 运维、压测、灰度和容量事实源放在 `doc/operations/`。
+- 运维、压测、发布和容量文档放在 `doc/operations/`。
 - 贡献流程、代码边界、测试和发布要求统一放在本文件。
-- 草稿和生成报告不要提交到仓库；需要保留的生成物放入 `target/`。
+- 生成报告不要提交到仓库；运行产物统一写入 `target/`。
 
 ## Pull Request 要求
 

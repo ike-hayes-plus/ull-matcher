@@ -1,10 +1,10 @@
-# Shard Rollout Runbook
+# Shard 发布 Runbook
 
-本文档描述 `ull-matcher` 按 shard 切换流量、观察状态和回滚的操作方式，以及 `GRPC` / `AERON` 两种复制传输的建议边界。
+本文档描述 `ull-matcher` 按 shard 发布流量、观察状态和回滚的操作方式，以及 `GRPC` / `AERON` 两种复制传输的使用边界。
 
 配套的逐项勾选清单见：
 
-- [gray-release-checklist.md](gray-release-checklist.md)
+- [shard-rollout-checklist.md](shard-rollout-checklist.md)
 
 ## 1. 适用范围
 
@@ -21,25 +21,23 @@
 - 同一个 shard 按流量百分比分写到两个不同节点组
 - WAL / snapshot / replication 协议不兼容的迁移场景
 
-## 2. Rollout 原则
+## 2. 发布原则
 
-撮合系统的灰度方式，和普通 Web 服务不同。
+撮合系统的发布方式，和普通 Web 服务不同。
 
 普通服务可以按请求百分比分流。  
 撮合系统必须优先遵守 **单 shard 单权威主节点** 约束。
 
-因此 rollout 原则是：
+发布必须遵守：
 
 1. **按 shard 切换，不按订单比例切换**
 2. **先加入 standby，再切 primary**
 3. **先切查询与控制面，再切高频写流量**
 4. **生产上一次只启用一种复制传输**
 
-## 3. 推荐 Rollout 模型
+## 3. 发布模型
 
 ### 3.1 按 shard 切换
-
-最推荐。
 
 做法：
 
@@ -53,9 +51,9 @@
 - 不破坏订单顺序
 - 回滚边界清晰
 
-### 3.2 单 shard，standby-first 切换
+### 3.2 单 shard，standby-first 发布
 
-适合单个 shard 的无双写切换。
+适合单个 shard 的无双写发布。
 
 做法：
 
@@ -71,7 +69,7 @@
 - 不拆分写流量
 - 复制语义最容易保持一致
 
-### 3.3 入口分层切换
+### 3.3 入口分层发布
 
 建议顺序：
 
@@ -102,9 +100,9 @@
 
 除非你做的是严格只读的影子链路，并且新链路不对外返回业务结果，否则不建议做双写。
 
-## 5. 切换前检查
+## 5. 发布前检查
 
-切换前至少确认：
+发布前至少确认：
 
 1. 目标构建与 WAL、snapshot、replication 协议兼容
 2. 目标构建已经通过基线 benchmark
@@ -115,7 +113,7 @@
 建议先执行：
 
 ```bash
-./scripts/deploy/gray-release-observe.sh target/gray/before \
+./scripts/deploy/shard-rollout-observe.sh target/shard-rollout/before \
   http://127.0.0.1:8080 \
   http://127.0.0.1:8081
 ```
@@ -129,9 +127,9 @@
 - `lastDurableSequence`
 - `lastAppliedSequence`
 
-## 6. Rollout 步骤
+## 6. 发布步骤
 
-### 阶段 1：先切非交易写流量
+### 6.1 切换非交易写流量
 
 先切：
 
@@ -141,11 +139,11 @@
 - 查询类 REST
 - 管理类接口
 
-目标：
+验收标准：
 
-- 先验证配置、控制面、可观测性没有问题
+- 配置、控制面和可观测性均可正常工作
 
-### 阶段 2：先加入 standby
+### 6.2 加入 standby
 
 以一个目标 shard 为例：
 
@@ -162,7 +160,7 @@
 - `standbyApplyQueueDepth` 不持续堆积
 - `standbyAckLastFlushMicros` 不出现异常尖峰
 
-### 阶段 3：切主
+### 6.3 切主
 
 在低峰窗口：
 
@@ -173,13 +171,13 @@
 建议在切主前后各采一次集群快照：
 
 ```bash
-./scripts/deploy/gray-release-observe.sh target/gray/before \
+./scripts/deploy/shard-rollout-observe.sh target/shard-rollout/before \
   http://127.0.0.1:8080 \
   http://127.0.0.1:8081
 
-# 这里执行人工切主或运维窗口内下线原 primary
+# 在运维窗口内执行切主或下线原 primary
 
-./scripts/deploy/gray-release-observe.sh target/gray/after \
+./scripts/deploy/shard-rollout-observe.sh target/shard-rollout/after \
   http://127.0.0.1:8080 \
   http://127.0.0.1:8081
 ```
@@ -192,9 +190,9 @@
 - `replicationCommittedSequence` 持续推进
 - `replicationQueueDepth` 不异常堆积
 
-### 阶段 4：扩大 shard 范围
+### 6.4 扩大 shard 范围
 
-推荐顺序：
+发布批次：
 
 1. 1 个 shard
 2. 5 个 shard
@@ -280,7 +278,7 @@ REST 只作为：
 建议回滚后再次执行：
 
 ```bash
-./scripts/deploy/gray-release-observe.sh target/gray/rollback \
+./scripts/deploy/shard-rollout-observe.sh target/shard-rollout/rollback \
   http://127.0.0.1:8080 \
   http://127.0.0.1:8081
 ```
@@ -295,7 +293,7 @@ REST 只作为：
 - `p99` 或 committed throughput 明显恶化
 - 出现 failover 后恢复不完整
 
-## 10. 传输选择建议
+## 10. 传输选择
 
 ### `GRPC`
 
@@ -303,7 +301,7 @@ REST 只作为：
 
 - 保守生产默认值
 - 单备 committed 曲线最稳
-- 首次上线和首次灰度
+- 首次上线和首批 shard 发布
 
 ### `AERON`
 
@@ -313,12 +311,10 @@ REST 只作为：
 - 有能力做额外 soak / chaos 验证
 - 能接受它不是默认主链
 
-建议：
-
 - 默认传输保持 `GRPC`
 - `AERON` 作为可选高性能传输，在明确验证目标拓扑后启用
 
-## 11. 灰度发布简版清单
+## 11. Shard 发布清单
 
 ```text
 1. 先验证基线 benchmark 和兼容性
