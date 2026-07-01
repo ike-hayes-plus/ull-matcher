@@ -60,7 +60,7 @@
         <junit.version>5.11.4</junit.version>
         <jmh.version>1.37</jmh.version>
         <curator.version>5.7.1</curator.version>
-        <grpc.version>1.72.0</grpc.version>
+        <grpc.version>1.82.1</grpc.version>
         <jackson.version>2.18.3</jackson.version>
         <protobuf.version>3.25.5</protobuf.version>
         <protobuf.maven.plugin.version>0.6.1</protobuf.maven.plugin.version>
