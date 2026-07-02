@@ -1,0 +1,46 @@
+# shellcheck shell=bash
+#
+# Copy this file and edit it for one shard, for example:
+#   cp scripts/deploy/cluster.conf.example conf/merchant-42.env
+#
+# Then run:
+#   scripts/deploy/cluster.sh -c conf/merchant-42.env start
+#
+# scripts/deploy/default.conf is loaded before this file. Keep this file focused
+# on shard-specific overrides and node inventory.
+
+CLUSTER_NAME="merchant-prod"
+SHARD_KEY="merchant:42"
+SYMBOL_ID="1"
+
+# Override these only after sizing active orders and price levels for this shard.
+# Defaults are inherited from scripts/deploy/default.conf:
+# EXPECTED_PRICE_LEVELS=65536
+# EXPECTED_LIVE_ORDERS=1048576
+# ORDER_POOL_SIZE=1048576
+# QUOTE_SCALE=100000000
+# PREVENT_SELF_TRADE=true
+
+ZK_CONNECT="10.0.0.10:2181,10.0.0.11:2181,10.0.0.12:2181"
+ETCD_ENDPOINT="http://10.0.0.10:2379,http://10.0.0.11:2379,http://10.0.0.12:2379"
+
+# Use one control plane per cluster: both providers must be zk, or both etcd.
+LEASE_PROVIDER="zk"
+DISCOVERY_PROVIDER="zk"
+
+# The same checkout or release directory must exist on every remote host.
+REMOTE_ROOT="/opt/ull-matcher"
+REMOTE_USER=""
+SSH_OPTS="-o BatchMode=yes -o StrictHostKeyChecking=accept-new"
+TRANSPORT_TLS_DIR="/etc/ull-matcher/tls"
+
+# Format:
+#   nodeId|host|httpPort|grpcPort|aeronPort|binaryPort|dataDir|logDir
+#
+# Set binaryPort to "-" to disable binary ingress for that node.
+# dataDir is the exact WAL/snapshot directory for this node.
+NODES=(
+  "node-a|10.0.1.11|$HTTP_PORT|$GRPC_PORT|$AERON_PORT|$BINARY_PORT|/data/ull-matcher/node-a|/var/log/ull-matcher/node-a"
+  "node-b|10.0.1.12|$HTTP_PORT|$GRPC_PORT|$AERON_PORT|$BINARY_PORT|/data/ull-matcher/node-b|/var/log/ull-matcher/node-b"
+  "node-c|10.0.1.13|$HTTP_PORT|$GRPC_PORT|$AERON_PORT|$BINARY_PORT|/data/ull-matcher/node-c|/var/log/ull-matcher/node-c"
+)

@@ -1,0 +1,111 @@
+services:
+  zookeeper1:
+    image: zookeeper:3.9
+    container_name: ull-chaos-zookeeper1
+    restart: unless-stopped
+    ports:
+      - "2181:2181"
+    environment:
+      ZOO_MY_ID: 1
+      ZOO_4LW_COMMANDS_WHITELIST: ruok,stat,mntr,conf
+      ZOO_SERVERS: server.1=zookeeper1:2888:3888;2181 server.2=zookeeper2:2888:3888;2181 server.3=zookeeper3:2888:3888;2181
+
+  zookeeper2:
+    image: zookeeper:3.9
+    container_name: ull-chaos-zookeeper2
+    restart: unless-stopped
+    ports:
+      - "2182:2181"
+    environment:
+      ZOO_MY_ID: 2
+      ZOO_4LW_COMMANDS_WHITELIST: ruok,stat,mntr,conf
+      ZOO_SERVERS: server.1=zookeeper1:2888:3888;2181 server.2=zookeeper2:2888:3888;2181 server.3=zookeeper3:2888:3888;2181
+
+  zookeeper3:
+    image: zookeeper:3.9
+    container_name: ull-chaos-zookeeper3
+    restart: unless-stopped
+    ports:
+      - "2183:2181"
+    environment:
+      ZOO_MY_ID: 3
+      ZOO_4LW_COMMANDS_WHITELIST: ruok,stat,mntr,conf
+      ZOO_SERVERS: server.1=zookeeper1:2888:3888;2181 server.2=zookeeper2:2888:3888;2181 server.3=zookeeper3:2888:3888;2181
+
+  etcd1:
+    image: quay.io/coreos/etcd:v3.5.15
+    container_name: ull-chaos-etcd1
+    restart: unless-stopped
+    ports:
+      - "2379:2379"
+      - "2380:2380"
+    command:
+      - /usr/local/bin/etcd
+      - --name=etcd1
+      - --data-dir=/etcd-data
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd1:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://etcd1:2380
+      - --initial-cluster=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
+      - --initial-cluster-state=new
+
+  etcd2:
+    image: quay.io/coreos/etcd:v3.5.15
+    container_name: ull-chaos-etcd2
+    restart: unless-stopped
+    ports:
+      - "2381:2379"
+      - "2382:2380"
+    command:
+      - /usr/local/bin/etcd
+      - --name=etcd2
+      - --data-dir=/etcd-data
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd2:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://etcd2:2380
+      - --initial-cluster=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
+      - --initial-cluster-state=new
+
+  etcd3:
+    image: quay.io/coreos/etcd:v3.5.15
+    container_name: ull-chaos-etcd3
+    restart: unless-stopped
+    ports:
+      - "2383:2379"
+      - "2384:2380"
+    command:
+      - /usr/local/bin/etcd
+      - --name=etcd3
+      - --data-dir=/etcd-data
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd3:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://etcd3:2380
+      - --initial-cluster=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
+      - --initial-cluster-state=new
+
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.12.0
+    container_name: ull-chaos-toxiproxy
+    restart: unless-stopped
+    ports:
+      - "8474:8474"
+      - "8666:8666"
+      - "8667:8667"
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: ull-chaos-prometheus
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts/ull-matcher-http-routes.yml:/etc/prometheus/alerts/ull-matcher-http-routes.yml:ro
+    ports:
+      - "${LAB_PROMETHEUS_PORT:-19091}:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
