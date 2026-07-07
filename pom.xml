@@ -73,7 +73,7 @@
         <spring.boot.version>3.3.6</spring.boot.version>
         <undertow.version>2.3.17.Final</undertow.version>
         <checkstyle.version>3.6.0</checkstyle.version>
-        <jacoco.version>0.8.12</jacoco.version>
+        <jacoco.version>0.8.15</jacoco.version>
         <enforcer.plugin.version>3.5.0</enforcer.plugin.version>
         <gpg.plugin.version>3.2.7</gpg.plugin.version>
         <central.publishing.plugin.version>0.7.0</central.publishing.plugin.version>
