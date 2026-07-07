@@ -75,7 +75,7 @@
         <checkstyle.version>3.6.0</checkstyle.version>
         <jacoco.version>0.8.12</jacoco.version>
         <enforcer.plugin.version>3.5.0</enforcer.plugin.version>
-        <gpg.plugin.version>3.2.7</gpg.plugin.version>
+        <gpg.plugin.version>3.2.8</gpg.plugin.version>
         <central.publishing.plugin.version>0.7.0</central.publishing.plugin.version>
     </properties>
 
