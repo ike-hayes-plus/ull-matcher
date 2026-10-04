@@ -71,7 +71,7 @@
         <slf4j.version>2.0.16</slf4j.version>
         <logback.version>1.5.16</logback.version>
         <spring.boot.version>3.3.6</spring.boot.version>
-        <undertow.version>2.3.17.Final</undertow.version>
+        <undertow.version>2.4.2.Final</undertow.version>
         <checkstyle.version>3.6.0</checkstyle.version>
         <jacoco.version>0.8.15</jacoco.version>
         <enforcer.plugin.version>3.5.0</enforcer.plugin.version>
