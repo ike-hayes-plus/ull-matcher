@@ -6,6 +6,7 @@ import io.github.ike.ullmatcher.ha.grpc.telemetry.OpenTelemetryGrpcMetricsBridge
 import io.github.ike.ullmatcher.server.api.BinaryOrderIngressServer;
 import io.github.ike.ullmatcher.server.api.HttpApiServer;
 import io.github.ike.ullmatcher.server.api.HttpSubmitAckMode;
+import io.github.ike.ullmatcher.server.api.OrchestratorRouteLookup;
 import io.github.ike.ullmatcher.server.cluster.ClusterSupervisorMetricsSnapshot;
 import io.github.ike.ullmatcher.server.cluster.MatcherClusterSupervisor;
 import io.github.ike.ullmatcher.server.cluster.ReplicationTransportPolicyEnforcer;
@@ -65,6 +66,10 @@ public final class MatcherServerApp implements Closeable {
                 config.binaryIngressLimits(),
                 nodeService)
                 : null;
+        OrchestratorShardLifecycle orchestratorLifecycle = createOrchestratorLifecycle(config);
+        OrchestratorRouteLookup orchestratorRouteLookup = orchestratorLifecycle == null
+                ? null
+                : orchestratorLifecycle::lookupRoute;
         this.httpApiServer = new HttpApiServer(
                 config.httpPort(),
                 config.httpBindHost(),
@@ -94,7 +99,9 @@ public final class MatcherServerApp implements Closeable {
                 this::readinessSnapshot,
                 this.binaryIngressServer == null
                         ? BinaryOrderIngressServer.BinaryIngressConnectionMetrics::none
-                        : this.binaryIngressServer::connectionMetrics);
+                        : this.binaryIngressServer::connectionMetrics,
+                orchestratorRouteLookup);
+        this.orchestratorShardLifecycle = orchestratorLifecycle;
         this.grpcServer = grpcReplicationServerEnabled
                 ? new ReloadableGrpcServer(
                 config::grpcServerConfig,
@@ -124,7 +131,6 @@ public final class MatcherServerApp implements Closeable {
         this.openTelemetryServerMetricsBridge = config.securityConfig().openTelemetryMetricsEnabled()
                 ? new OpenTelemetryServerMetricsBridge("ull-matcher-server", nodeService::metricsSnapshot, clusterMetricsSupplier)
                 : null;
-        this.orchestratorShardLifecycle = createOrchestratorLifecycle(config);
     }
 
     public void start() throws IOException {

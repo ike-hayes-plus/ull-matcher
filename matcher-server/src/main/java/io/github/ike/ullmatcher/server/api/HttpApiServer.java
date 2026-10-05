@@ -18,6 +18,7 @@ import io.github.ike.ullmatcher.server.engine.SubmissionReceipt;
 import io.github.ike.ullmatcher.server.engine.SubmissionView;
 import io.github.ike.ullmatcher.server.telemetry.MatcherNodeMetricsSnapshot;
 import io.github.ike.ullmatcher.server.telemetry.ReadinessSnapshot;
+import io.github.ike.ullmatcher.orchestrator.SymbolRoute;
 import io.undertow.Handlers;
 import io.undertow.Undertow;
 import io.undertow.server.HttpServerExchange;
@@ -37,6 +38,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -56,6 +58,10 @@ public final class HttpApiServer implements Closeable {
     private static final String ROUTE_STATE = "/api/v1/runtime/state";
     private static final String ROUTE_READINESS = "/api/v1/runtime/readiness";
     private static final String ROUTE_METRICS = "/metrics";
+    private static final String ROUTE_ORCHESTRATOR_SYMBOL =
+            "/api/v1/orchestrator/routes/symbols/{symbolId}";
+    private static final String ROUTE_ORCHESTRATOR_SYMBOL_PREFIX =
+            "/api/v1/orchestrator/routes/symbols/";
     private static final int DEFAULT_RECENT_ORDERS_LIMIT = 50;
     private static final int MAX_HTTP_ORDER_BATCH_SIZE = 1024;
     static final int METRICS_BUFFER_INITIAL_CAPACITY = 512;
@@ -88,6 +94,7 @@ public final class HttpApiServer implements Closeable {
     private final Supplier<BinaryOrderIngressServer.BinaryIngressConnectionMetrics> binaryIngressMetrics;
     private final HttpSubmitAckMode defaultSubmitAckMode;
     private final int submitBatchMaxOrders;
+    private final OrchestratorRouteLookup orchestratorRouteLookup;
     private final JsonMapper objectMapper = JsonMapper.builderWithJackson2Defaults().build();
     private final ObjectReader newOrderRequestReader = objectMapper.readerFor(NewOrderRequest.class);
     private final ObjectReader newOrderBatchRequestReader = objectMapper.readerFor(NewOrderBatchRequest.class);
@@ -181,6 +188,32 @@ public final class HttpApiServer implements Closeable {
                          Supplier<ClusterSupervisorMetricsSnapshot> clusterMetricsSupplier,
                          Supplier<ReadinessSnapshot> readinessSupplier,
                          Supplier<BinaryOrderIngressServer.BinaryIngressConnectionMetrics> binaryIngressMetrics) {
+        this(port, bindHost, workerThreads, maxBodyBytes, maxConcurrentRequests, requestTimeoutMillis,
+                writeMaxConcurrentRequests, readMaxConcurrentRequests, adminMaxConcurrentRequests,
+                writeTimeoutMillis, readTimeoutMillis, adminTimeoutMillis,
+                submitEndpointMaxConcurrentRequests, cancelEndpointMaxConcurrentRequests,
+                snapshotEndpointMaxConcurrentRequests, readinessEndpointMaxConcurrentRequests,
+                metricsEndpointMaxConcurrentRequests, shardKey, writeAdmissionPolicyConfig,
+                defaultSubmitAckMode, serverMode, ingressAuthConfig, nodeService, grpcMetrics,
+                clusterMetricsSupplier, readinessSupplier, binaryIngressMetrics, null);
+    }
+
+    public HttpApiServer(int port, String bindHost, int workerThreads, int maxBodyBytes, int maxConcurrentRequests, long requestTimeoutMillis,
+                         int writeMaxConcurrentRequests, int readMaxConcurrentRequests, int adminMaxConcurrentRequests,
+                         long writeTimeoutMillis, long readTimeoutMillis, long adminTimeoutMillis,
+                         int submitEndpointMaxConcurrentRequests, int cancelEndpointMaxConcurrentRequests,
+                         int snapshotEndpointMaxConcurrentRequests, int readinessEndpointMaxConcurrentRequests,
+                         int metricsEndpointMaxConcurrentRequests,
+                         String shardKey, WriteAdmissionPolicyConfig writeAdmissionPolicyConfig,
+                         HttpSubmitAckMode defaultSubmitAckMode,
+                         MatcherServerMode serverMode,
+                         IngressAuthConfig ingressAuthConfig,
+                         MatcherNodeService nodeService,
+                         GrpcTransportMetrics grpcMetrics,
+                         Supplier<ClusterSupervisorMetricsSnapshot> clusterMetricsSupplier,
+                         Supplier<ReadinessSnapshot> readinessSupplier,
+                         Supplier<BinaryOrderIngressServer.BinaryIngressConnectionMetrics> binaryIngressMetrics,
+                         OrchestratorRouteLookup orchestratorRouteLookup) {
         this.nodeService = Objects.requireNonNull(nodeService, "nodeService");
         this.grpcMetrics = Objects.requireNonNull(grpcMetrics, "grpcMetrics");
         this.clusterMetricsSupplier = Objects.requireNonNull(clusterMetricsSupplier, "clusterMetricsSupplier");
@@ -189,6 +222,7 @@ public final class HttpApiServer implements Closeable {
         this.serverMode = Objects.requireNonNull(serverMode, "serverMode");
         this.ingressAuthConfig = Objects.requireNonNull(ingressAuthConfig, "ingressAuthConfig");
         this.binaryIngressMetrics = Objects.requireNonNull(binaryIngressMetrics, "binaryIngressMetrics");
+        this.orchestratorRouteLookup = orchestratorRouteLookup;
         this.jsonCodec = new HttpJsonCodec(objectMapper, this.serverMode);
         this.submitBatchMaxOrders = Math.max(1, Integer.getInteger("matcher.httpSubmitBatchMaxOrders", MAX_HTTP_ORDER_BATCH_SIZE));
         this.maxBodyBytes = maxBodyBytes;
@@ -237,8 +271,18 @@ public final class HttpApiServer implements Closeable {
                 .get(ROUTE_LIVE, requestPipeline.blocking("runtime_live", "runtime liveness", readBudget, null, false, this::handleLiveness))
                 .get(ROUTE_HEALTH, requestPipeline.blocking("runtime_health", "runtime health", readBudget, null, true, this::handleHealth))
                 .get(ROUTE_STATE, requestPipeline.blocking("runtime_state", "runtime state", readBudget, null, true, this::handleHealth))
-                .get(ROUTE_READINESS, requestPipeline.blocking("runtime_readiness", "runtime readiness", readBudget, readinessBudget, true, this::handleReadiness))
-                .get(ROUTE_METRICS, requestPipeline.blocking("metrics", "metrics", readBudget, metricsBudget, true, this::handleMetrics))
+                .get(ROUTE_READINESS, requestPipeline.blocking("runtime_readiness", "runtime readiness", readBudget, readinessBudget, true, this::handleReadiness));
+        if (orchestratorRouteLookup != null) {
+            routes = routes.get(ROUTE_ORCHESTRATOR_SYMBOL,
+                    requestPipeline.blocking(
+                            "orchestrator_symbol_route",
+                            "orchestrator symbol route",
+                            readBudget,
+                            null,
+                            true,
+                            this::handleOrchestratorSymbolRoute));
+        }
+        routes = routes.get(ROUTE_METRICS, requestPipeline.blocking("metrics", "metrics", readBudget, metricsBudget, true, this::handleMetrics))
                 .setFallbackHandler(this::handleNotFound);
         int ioThreads = Math.max(2, Math.min(workerThreads, Runtime.getRuntime().availableProcessors()));
         this.server = Undertow.builder()
@@ -415,6 +459,44 @@ public final class HttpApiServer implements Closeable {
             );
             return new BatchSubmitWork(index, request, handle);
         }
+    }
+
+    private void handleOrchestratorSymbolRoute(HttpServerExchange exchange) throws IOException {
+        String symbolIdText = exchange.getPathParameters().containsKey("symbolId")
+                ? exchange.getPathParameters().get("symbolId").getFirst()
+                : orchestratorSymbolIdFromPath(exchange.getRequestPath());
+        if (symbolIdText == null || symbolIdText.isBlank()) {
+            writeJson(exchange, 400, Map.of("error", "missing symbolId"));
+            return;
+        }
+        try {
+            int symbolId = Integer.parseInt(symbolIdText);
+            if (symbolId <= 0) {
+                writeJson(exchange, 400, Map.of("error", "invalid symbolId", "symbolId", symbolIdText));
+                return;
+            }
+            Optional<SymbolRoute> route = orchestratorRouteLookup.lookup(symbolId);
+            if (route.isEmpty()) {
+                writeJson(exchange, 404, Map.of("error", "symbol route not found", "symbolId", symbolId));
+                return;
+            }
+            writeJson(exchange, 200, HttpOrchestratorRouteDocument.toResponseBody(route.get()));
+        } catch (NumberFormatException e) {
+            handleApiFailure(exchange, "orchestrator symbol route", new BadRequestException("invalid symbolId", e));
+        } catch (IOException e) {
+            writeJson(exchange, 503, Map.of("error", "orchestrator route lookup failed"));
+        } catch (RuntimeException e) {
+            handleApiFailure(exchange, "orchestrator symbol route", e);
+        }
+    }
+
+    private static String orchestratorSymbolIdFromPath(String requestPath) {
+        if (requestPath == null || !requestPath.startsWith(ROUTE_ORCHESTRATOR_SYMBOL_PREFIX)) {
+            return null;
+        }
+        String suffix = requestPath.substring(ROUTE_ORCHESTRATOR_SYMBOL_PREFIX.length());
+        int slash = suffix.indexOf('/');
+        return slash < 0 ? suffix : suffix.substring(0, slash);
     }
 
     private void handleGetOrder(HttpServerExchange exchange) throws IOException {

@@ -4,12 +4,14 @@ import io.github.ike.ullmatcher.orchestrator.OrchestratorStore;
 import io.github.ike.ullmatcher.orchestrator.RegisteredShard;
 import io.github.ike.ullmatcher.orchestrator.ShardEndpoints;
 import io.github.ike.ullmatcher.orchestrator.ShardLifecycleState;
+import io.github.ike.ullmatcher.orchestrator.SymbolRoute;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -41,6 +43,10 @@ public final class OrchestratorShardLifecycle implements AutoCloseable {
             throw new IllegalArgumentException("heartbeatIntervalMillis must be positive");
         }
         this.heartbeatIntervalMillis = heartbeatIntervalMillis;
+    }
+
+    public Optional<SymbolRoute> lookupRoute(int symbolId) throws IOException {
+        return store.lookupRoute(symbolId);
     }
 
     public void registerAdvertisedEndpoints(String httpHost, int httpPort, int grpcPort, int binaryIngressPort)

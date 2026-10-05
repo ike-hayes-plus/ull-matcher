@@ -14,7 +14,7 @@
 | 组件 | 作用 |
 | --- | --- |
 | `matcher-orchestrator` | 路由表、shard 注册、drain/scale 运维 API |
-| SDK 可选模式 | 通过 orchestrator 解析 `symbolId` → 节点端点 |
+| SDK `MatcherOrchestratorClient` | 经任意节点的 `GET /api/v1/orchestrator/routes/symbols/{symbolId}` 解析端点，再 `SymbolRouteView.toMatcherClientConfig()` 连分片 |
 
 详细架构见 [architecture/shard-orchestration-3.0.md](architecture/shard-orchestration-3.0.md)。
 
