@@ -30,9 +30,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -65,7 +62,6 @@ public final class HttpApiServer implements Closeable {
     private static final int DEFAULT_RECENT_ORDERS_LIMIT = 50;
     private static final int MAX_HTTP_ORDER_BATCH_SIZE = 1024;
     static final int METRICS_BUFFER_INITIAL_CAPACITY = 512;
-    private static final long CLOSE_TIMEOUT_SECONDS = 5L;
     static final long[] ENDPOINT_LATENCY_BUCKETS_MILLIS = HttpRouteMetrics.ENDPOINT_LATENCY_BUCKETS_MILLIS;
 
     private final MatcherNodeService nodeService;
@@ -99,8 +95,7 @@ public final class HttpApiServer implements Closeable {
     private final ObjectReader newOrderRequestReader = objectMapper.readerFor(NewOrderRequest.class);
     private final ObjectReader newOrderBatchRequestReader = objectMapper.readerFor(NewOrderBatchRequest.class);
     private final ObjectReader cancelOrderRequestReader = objectMapper.readerFor(CancelOrderRequest.class);
-    private final ThreadPoolExecutor requestExecutor;
-    private final int requestExecutorQueueCapacity;
+    private final HttpReadRequestExecutor readRequestExecutor;
     private final Semaphore requestSlots;
     private final AtomicLong globalOverloadCount = new AtomicLong();
     private final Map<String, EndpointStats> endpointStats = new ConcurrentHashMap<>();
@@ -240,25 +235,12 @@ public final class HttpApiServer implements Closeable {
         this.snapshotBudget = HttpEndpointBudget.create("create_snapshot", snapshotEndpointMaxConcurrentRequests);
         this.readinessBudget = HttpEndpointBudget.create("runtime_readiness", readinessEndpointMaxConcurrentRequests);
         this.metricsBudget = HttpEndpointBudget.create("metrics", metricsEndpointMaxConcurrentRequests);
-        this.requestExecutorQueueCapacity = Math.max(
-                requestThreads,
-                Math.min(maxConcurrentRequests, requestThreads * 2)
-        );
-        this.requestExecutor = new ThreadPoolExecutor(
-                requestThreads,
-                requestThreads,
-                0L,
-                TimeUnit.MILLISECONDS,
-                new ArrayBlockingQueue<>(requestExecutorQueueCapacity),
-                Thread.ofPlatform().name("matcher-http-" + port + "-", 0).factory(),
-                new ThreadPoolExecutor.AbortPolicy()
-        );
-        this.requestExecutor.prestartAllCoreThreads();
+        this.readRequestExecutor = HttpReadRequestExecutor.create(workerThreads, maxConcurrentRequests);
         this.requestSlots = new Semaphore(maxConcurrentRequests);
         this.budgetGuard = new HttpBudgetGuard(
-                requestExecutor, requestExecutorQueueCapacity, requestSlots, maxConcurrentRequests, globalOverloadCount, jsonCodec);
+                readRequestExecutor, requestSlots, maxConcurrentRequests, globalOverloadCount, jsonCodec);
         HttpAuthFilter authFilter = new HttpAuthFilter(this.ingressAuthConfig, jsonCodec);
-        this.requestPipeline = new HttpRequestPipeline(budgetGuard, authFilter, jsonCodec, requestExecutor, endpointStats);
+        this.requestPipeline = new HttpRequestPipeline(budgetGuard, authFilter, jsonCodec, readRequestExecutor, endpointStats);
         RoutingHandler routes = Handlers.routing()
                 .get(ROUTE_ORDERS, requestPipeline.blocking("recent_orders", "recent orders", readBudget, null, true, this::handleRecentOrders))
                 .get(ROUTE_ORDER_BY_ID, requestPipeline.blocking("get_order", "get order", readBudget, null, true, this::handleGetOrder))
@@ -309,12 +291,7 @@ public final class HttpApiServer implements Closeable {
     @Override
     public void close() {
         server.stop();
-        requestExecutor.shutdownNow();
-        try {
-            requestExecutor.awaitTermination(CLOSE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        readRequestExecutor.close();
     }
 
     private void handleSubmitOrder(HttpServerExchange exchange) throws IOException {

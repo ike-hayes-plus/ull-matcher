@@ -37,6 +37,12 @@ TRANSPORT_TLS_DIR="/etc/ull-matcher/tls"
 # Format:
 #   nodeId|host|httpPort|grpcPort|aeronPort|binaryPort|dataDir|logDir
 #
+# Production write traffic: keep binaryPort enabled on primaries (not "-").
+# Optional JVM sizing (export in cluster env, passed via JAVA_OPTS / node-process):
+#   BINARY_INGRESS_MAX_CONNECTIONS=8192
+#   HTTP_MAX_CONCURRENT_REQUESTS=2048
+# See doc/operations/http-and-binary-concurrency.md
+#
 # Set binaryPort to "-" to disable binary ingress for that node.
 # dataDir is the exact WAL/snapshot directory for this node.
 NODES=(

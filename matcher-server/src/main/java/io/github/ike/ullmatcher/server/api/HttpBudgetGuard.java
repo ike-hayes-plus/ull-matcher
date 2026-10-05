@@ -8,7 +8,6 @@ import io.undertow.server.HttpServerExchange;
 
 import java.util.Objects;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -16,21 +15,18 @@ import java.util.concurrent.atomic.AtomicLong;
  * request never leaks a permit.
  */
 final class HttpBudgetGuard {
-    private final ThreadPoolExecutor requestExecutor;
-    private final int requestExecutorQueueCapacity;
+    private final HttpReadRequestExecutor readRequestExecutor;
     private final Semaphore requestSlots;
     private final int maxConcurrentRequests;
     private final AtomicLong globalOverloadCount;
     private final HttpJsonCodec json;
 
-    HttpBudgetGuard(ThreadPoolExecutor requestExecutor,
-                    int requestExecutorQueueCapacity,
+    HttpBudgetGuard(HttpReadRequestExecutor readRequestExecutor,
                     Semaphore requestSlots,
                     int maxConcurrentRequests,
                     AtomicLong globalOverloadCount,
                     HttpJsonCodec json) {
-        this.requestExecutor = Objects.requireNonNull(requestExecutor, "requestExecutor");
-        this.requestExecutorQueueCapacity = requestExecutorQueueCapacity;
+        this.readRequestExecutor = Objects.requireNonNull(readRequestExecutor, "readRequestExecutor");
         this.requestSlots = Objects.requireNonNull(requestSlots, "requestSlots");
         this.maxConcurrentRequests = maxConcurrentRequests;
         this.globalOverloadCount = Objects.requireNonNull(globalOverloadCount, "globalOverloadCount");
@@ -44,14 +40,14 @@ final class HttpBudgetGuard {
                        EndpointStats endpoint,
                        boolean requireExecutorCapacity) {
         if (requireExecutorCapacity
-                && requestExecutor.getActiveCount() >= requestExecutor.getMaximumPoolSize()
-                && requestExecutor.getQueue().remainingCapacity() == 0) {
+                && readRequestExecutor.platformExecutorSaturationChecksEnabled()
+                && readRequestExecutor.isPlatformExecutorSaturated()) {
             globalOverloadCount.incrementAndGet();
             routeBudget.overloadCount().incrementAndGet();
             endpoint.overloadCount().incrementAndGet();
             json.writeBestEffort(exchange, new OverloadedException(
-                    "http request executor is saturated; workers=" + requestExecutor.getMaximumPoolSize()
-                            + " queueCapacity=" + requestExecutorQueueCapacity
+                    "http request executor is saturated; workers=" + readRequestExecutor.platformWorkerCount()
+                            + " queueCapacity=" + readRequestExecutor.executorQueueCapacity()
             ));
             return false;
         }
@@ -101,11 +97,11 @@ final class HttpBudgetGuard {
     }
 
     int executorQueueDepth() {
-        return requestExecutor.getQueue().size();
+        return readRequestExecutor.executorQueueDepth();
     }
 
     int executorQueueCapacity() {
-        return requestExecutorQueueCapacity;
+        return readRequestExecutor.executorQueueCapacity();
     }
 
     int maxConcurrentRequests() {

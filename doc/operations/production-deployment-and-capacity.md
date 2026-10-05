@@ -8,6 +8,7 @@
 
 - **分片：** 一 matcher 进程一 symbol；总容量 = 单 shard **replication committed** 吞吐 × shard 数（见 [shard-capacity-planning.md](../architecture/shard-capacity-planning.md)）
 - 高频订单流量优先使用 **binary ingress**（默认帧类型 `1`，本地 WAL 受理；复制水位用 health/metrics 观测）
+- HTTP 读路径默认 **虚拟线程** + **budget 背压**；REST 写仍受撮合/WAL 限制，详见 [http-and-binary-concurrency.md](http-and-binary-concurrency.md)
 - **REST** 保留给：
   - 管理面
   - 订单 / 状态查询
@@ -28,6 +29,7 @@
 - [shard-rollout-runbook.md](shard-rollout-runbook.md)
 - [shard-capacity-planning.md](../architecture/shard-capacity-planning.md)
 - [deployment-modes.md](deployment-modes.md)
+- [http-and-binary-concurrency.md](http-and-binary-concurrency.md)
 
 ## 3. 如何理解吞吐
 

@@ -13,7 +13,6 @@ import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -29,18 +28,18 @@ final class HttpRequestPipeline {
     private final HttpBudgetGuard budgets;
     private final HttpAuthFilter auth;
     private final HttpJsonCodec json;
-    private final ThreadPoolExecutor requestExecutor;
+    private final HttpReadRequestExecutor readRequestExecutor;
     private final Map<String, EndpointStats> endpointStats;
 
     HttpRequestPipeline(HttpBudgetGuard budgets,
                         HttpAuthFilter auth,
                         HttpJsonCodec json,
-                        ThreadPoolExecutor requestExecutor,
+                        HttpReadRequestExecutor readRequestExecutor,
                         Map<String, EndpointStats> endpointStats) {
         this.budgets = Objects.requireNonNull(budgets, "budgets");
         this.auth = Objects.requireNonNull(auth, "auth");
         this.json = Objects.requireNonNull(json, "json");
-        this.requestExecutor = Objects.requireNonNull(requestExecutor, "requestExecutor");
+        this.readRequestExecutor = Objects.requireNonNull(readRequestExecutor, "readRequestExecutor");
         this.endpointStats = Objects.requireNonNull(endpointStats, "endpointStats");
     }
 
@@ -107,7 +106,7 @@ final class HttpRequestPipeline {
                 try {
                     routeBudget.requestCount().incrementAndGet();
                     endpoint.requestCount().incrementAndGet();
-                    future = requestExecutor.submit(() -> {
+                    future = readRequestExecutor.submit(() -> {
                         try {
                             handler.handle(exchange);
                         } catch (IOException e) {

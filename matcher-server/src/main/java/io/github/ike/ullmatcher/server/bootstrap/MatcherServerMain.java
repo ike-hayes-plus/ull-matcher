@@ -56,6 +56,7 @@ public final class MatcherServerMain {
                 .httpPort(Integer.getInteger("matcher.httpPort", defaults.httpPort()))
                 .httpBindHost(System.getProperty("matcher.httpBindHost", defaults.httpBindHost()))
                 .httpMaxBodyBytes(Integer.getInteger("matcher.httpMaxBodyBytes", defaults.httpMaxBodyBytes()))
+                .httpWorkerThreads(Integer.getInteger("matcher.httpWorkerThreads", defaults.httpWorkerThreads()))
                 .httpMaxConcurrentRequests(Integer.getInteger("matcher.httpMaxConcurrentRequests", defaults.httpMaxConcurrentRequests()))
                 .httpRequestTimeoutMillis(Long.getLong("matcher.httpRequestTimeoutMillis", defaults.httpRequestTimeoutMillis()))
                 .binaryIngressEnabled(Boolean.getBoolean("matcher.binaryIngressEnabled"))

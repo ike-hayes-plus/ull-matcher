@@ -51,6 +51,12 @@ start_matcher_node() {
   local failover_min_standby_replicas="${FAILOVER_MIN_STANDBY_REPLICAS:-${MATCHER_FAILOVER_MIN_STANDBY_REPLICAS:-}}"
   local failover_primary_heartbeat_timeout_millis="$FAILOVER_PRIMARY_HEARTBEAT_TIMEOUT_MILLIS"
   local failover_max_promotion_lag="$FAILOVER_MAX_PROMOTION_LAG"
+  local binary_ingress_max_connections="${BINARY_INGRESS_MAX_CONNECTIONS:-}"
+  local http_max_concurrent_requests="${HTTP_MAX_CONCURRENT_REQUESTS:-}"
+  local http_read_max_concurrent_requests="${HTTP_READ_MAX_CONCURRENT_REQUESTS:-}"
+  local http_write_max_concurrent_requests="${HTTP_WRITE_MAX_CONCURRENT_REQUESTS:-}"
+  local http_submit_endpoint_max_concurrent_requests="${HTTP_SUBMIT_ENDPOINT_MAX_CONCURRENT_REQUESTS:-}"
+  local http_worker_threads="${HTTP_WORKER_THREADS:-}"
   local cp_build_maven_args="${CP_BUILD_MAVEN_ARGS:?CP_BUILD_MAVEN_ARGS is required}"
   local java_opts=()
 
@@ -144,6 +150,25 @@ start_matcher_node() {
       -Dmatcher.binaryIngressPort="$binary_port"
       -Dmatcher.binaryIngressBindHost="$binary_bind_host"
     )
+    if [[ -n "${binary_ingress_max_connections:-}" ]]; then
+      cmd+=(-Dmatcher.binaryIngressMaxConnections="$binary_ingress_max_connections")
+    fi
+  fi
+
+  if [[ -n "${http_max_concurrent_requests:-}" ]]; then
+    cmd+=(-Dmatcher.httpMaxConcurrentRequests="$http_max_concurrent_requests")
+  fi
+  if [[ -n "${http_read_max_concurrent_requests:-}" ]]; then
+    cmd+=(-Dmatcher.httpReadMaxConcurrentRequests="$http_read_max_concurrent_requests")
+  fi
+  if [[ -n "${http_write_max_concurrent_requests:-}" ]]; then
+    cmd+=(-Dmatcher.httpWriteMaxConcurrentRequests="$http_write_max_concurrent_requests")
+  fi
+  if [[ -n "${http_submit_endpoint_max_concurrent_requests:-}" ]]; then
+    cmd+=(-Dmatcher.httpSubmitEndpointMaxConcurrentRequests="$http_submit_endpoint_max_concurrent_requests")
+  fi
+  if [[ -n "${http_worker_threads:-}" ]]; then
+    cmd+=(-Dmatcher.httpWorkerThreads="$http_worker_threads")
   fi
 
   if [[ "$allow_insecure_remote_http" == "true" ]]; then
