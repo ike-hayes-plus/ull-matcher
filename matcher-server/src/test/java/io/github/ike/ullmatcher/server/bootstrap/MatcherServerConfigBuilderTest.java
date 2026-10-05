@@ -20,6 +20,7 @@ import io.github.ike.ullmatcher.server.cluster.ReplicationTransportPolicyConfig;
 import io.github.ike.ullmatcher.server.engine.TtlCancelConfig;
 import io.github.ike.ullmatcher.server.security.IngressAuthConfig;
 import io.github.ike.ullmatcher.server.security.ServerSecurityConfig;
+import io.github.ike.ullmatcher.storage.wal.WalArchiveConfig;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
@@ -410,11 +411,40 @@ final class MatcherServerConfigBuilderTest {
         assertEquals(MatcherServerConfig.DEFAULT_WAL_DURABILITY_MODE, config.walDurabilityMode());
         assertEquals(MatcherServerConfig.DEFAULT_WAL_FORCE_BATCH_SIZE, config.walForceBatchSize());
         assertEquals(MatcherServerConfig.DEFAULT_WAL_FORCE_MAX_DELAY_MICROS, config.walForceMaxDelayMicros());
+        assertFalse(config.walArchiveConfig().enabled());
         assertFalse(config.binaryIngressEnabled());
         assertEquals(ReplicationMode.WAIT_FOR_ANY_STANDBY,
                 MatcherClusterConfig.defaults(new StubLeaseStore(), new StubNodeRegistry(), "127.0.0.1", "symbol-5")
                         .replicationMode());
         config.validateDeploymentSafety();
+    }
+
+    @Test
+    void prodModeRejectsInvalidWalColdArchiveDirectory() throws Exception {
+        Path dir = Files.createTempDirectory("config-builder-wal-cold");
+        Path cold = dir.resolve("target").resolve("cold");
+        Files.createDirectories(cold);
+        MatcherServerConfig ephemeralCold = MatcherServerConfig.builder("node-a", 1, dir)
+                .serverMode(MatcherServerMode.PROD)
+                .walArchiveConfig(WalArchiveConfig.ofDirectory(cold))
+                .build();
+        assertTrue(assertThrows(IllegalStateException.class, ephemeralCold::validateDeploymentSafety)
+                .getMessage().contains("matcher.walColdArchiveDir"));
+
+        Path persistentCold = dir.resolve("cold");
+        MatcherServerConfig sameAsWal = MatcherServerConfig.builder("node-a", 1, dir)
+                .serverMode(MatcherServerMode.PROD)
+                .walDirectory(dir.resolve("wal"))
+                .walArchiveConfig(WalArchiveConfig.ofDirectory(dir.resolve("wal")))
+                .build();
+        assertEquals("matcher.walColdArchiveDir must not equal the hot WAL directory",
+                assertThrows(IllegalStateException.class, sameAsWal::validateDeploymentSafety).getMessage());
+
+        MatcherServerConfig valid = MatcherServerConfig.builder("node-a", 1, dir)
+                .serverMode(MatcherServerMode.PROD)
+                .walArchiveConfig(WalArchiveConfig.ofDirectory(persistentCold))
+                .build();
+        valid.validateDeploymentSafety();
     }
 
     private static final class StubLeaseStore implements LeaseStore {

@@ -7,6 +7,12 @@
 
 ## [Unreleased]
 
+### Added
+
+- WAL 冷备：`matcher.walColdArchiveDir` / `ull.matcher.wal-cold-archive-dir`，快照后删除热分段前复制到
+  `{cold}/{shardKey}/{nodeId}/`（见 [doc/operations/wal-archive-cold-backup.md](doc/operations/wal-archive-cold-backup.md)）。
+- 2.1 ADR：[doc/architecture/replication-transport-2.1.md](doc/architecture/replication-transport-2.1.md)（传输语义统一、AERON_PREVIEW 废弃路径）。
+
 ## [2.0.0] - 2026-10-05
 
 2.0 基线：JDK 25 / Maven 4，生产安全默认值收敛；集成说明见

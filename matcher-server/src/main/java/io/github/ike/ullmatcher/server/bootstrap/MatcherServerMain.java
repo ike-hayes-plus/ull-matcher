@@ -23,6 +23,7 @@ import io.github.ike.ullmatcher.server.engine.TtlCancelConfig;
 import io.github.ike.ullmatcher.server.api.BinaryIngressLimits;
 import io.github.ike.ullmatcher.server.security.IngressAuthConfig;
 import io.github.ike.ullmatcher.server.security.ServerSecurityConfig;
+import io.github.ike.ullmatcher.storage.wal.WalArchiveConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,6 +51,7 @@ public final class MatcherServerMain {
                 .walDurabilityMode(walDurabilityMode(defaults.walDurabilityMode()))
                 .walForceBatchSize(Integer.getInteger("matcher.walForceBatchSize", defaults.walForceBatchSize()))
                 .walForceMaxDelayMicros(Long.getLong("matcher.walForceMaxDelayMicros", defaults.walForceMaxDelayMicros()))
+                .walArchiveConfig(WalArchiveConfig.fromProperty(System.getProperty("matcher.walColdArchiveDir")))
                 .httpPort(Integer.getInteger("matcher.httpPort", defaults.httpPort()))
                 .httpBindHost(System.getProperty("matcher.httpBindHost", defaults.httpBindHost()))
                 .httpMaxBodyBytes(Integer.getInteger("matcher.httpMaxBodyBytes", defaults.httpMaxBodyBytes()))
