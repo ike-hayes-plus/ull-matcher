@@ -14,6 +14,7 @@ import io.github.ike.ullmatcher.ha.transport.TransportMetricsSnapshot;
 import io.github.ike.ullmatcher.server.engine.MatcherNodeService;
 import io.github.ike.ullmatcher.server.engine.TtlCancelConfig;
 import io.github.ike.ullmatcher.server.security.ServerSecurityConfig;
+import io.github.ike.ullmatcher.server.security.IngressAuthConfig;
 import io.github.ike.ullmatcher.server.telemetry.MatcherNodeMetricsSnapshot;
 import io.github.ike.ullmatcher.server.telemetry.ReadinessSnapshot;
 
@@ -87,6 +88,7 @@ public final class SingleNodeServerCrossingBenchmark {
                 8,
                 WriteAdmissionPolicyConfig.defaults(),
                 false,
+                IngressAuthConfig.disabled(),
                 0,
                 GrpcReplicationServerConfig.defaults(0),
                 ServerSecurityConfig.insecureDefaults(),

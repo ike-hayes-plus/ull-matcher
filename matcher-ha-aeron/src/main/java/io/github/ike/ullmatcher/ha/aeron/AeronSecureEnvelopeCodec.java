@@ -52,6 +52,8 @@ public final class AeronSecureEnvelopeCodec {
     }
 
     public static DecodedEnvelope decode(DirectBuffer buffer, int offset, int length) {
+        int end = AeronFrameBounds.end(buffer, offset, length);
+        AeronFrameBounds.requireHeader(offset, end, OFFSET_CIPHERTEXT);
         int version = buffer.getInt(offset + OFFSET_VERSION);
         if (version != VERSION) {
             throw new IllegalArgumentException("unsupported secure envelope version " + version);
@@ -59,7 +61,8 @@ public final class AeronSecureEnvelopeCodec {
         int messageType = buffer.getInt(offset + OFFSET_MESSAGE_TYPE);
         long sessionId = buffer.getLong(offset + OFFSET_SESSION_ID);
         long counter = buffer.getLong(offset + OFFSET_COUNTER);
-        int ciphertextLength = buffer.getInt(offset + OFFSET_CIPHERTEXT_LENGTH);
+        int ciphertextLength = AeronFrameBounds.fitting(
+                buffer.getInt(offset + OFFSET_CIPHERTEXT_LENGTH), offset + OFFSET_CIPHERTEXT, end);
         byte[] ciphertext = new byte[ciphertextLength];
         buffer.getBytes(offset + OFFSET_CIPHERTEXT, ciphertext);
         return new DecodedEnvelope(messageType, sessionId, counter, ciphertext);

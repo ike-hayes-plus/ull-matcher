@@ -43,4 +43,4 @@ if [[ "${1:-}" == "cluster" ]]; then
 fi
 
 cd "${ROOT_DIR}"
-mvn -Pchaos-tests test "$@"
+"${ROOT_DIR}/mvnw" -Pchaos-tests test "$@"

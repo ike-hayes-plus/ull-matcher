@@ -61,9 +61,14 @@ public final class AeronNodeControlStateCodec {
     }
 
     public static DecodedState decode(DirectBuffer buffer, int offset, int length) {
+        int end = AeronFrameBounds.end(buffer, offset, length);
+        AeronFrameBounds.requireHeader(offset, end, OFFSET_NODE_ID);
         long requestId = buffer.getLong(offset + OFFSET_REQUEST_ID);
         HaRole role = HaRole.values()[buffer.getInt(offset + OFFSET_ROLE)];
         long fencingEpoch = buffer.getLong(offset + OFFSET_FENCING_EPOCH);
+        if (fencingEpoch <= 0L) {
+            throw new IllegalArgumentException("fencing epoch must be positive");
+        }
         boolean acceptingClientCommands = buffer.getInt(offset + OFFSET_ACCEPTING_CLIENT_COMMANDS) == 1;
         MatchLoopState loopState = MatchLoopState.values()[buffer.getInt(offset + OFFSET_LOOP_STATE)];
         long processedCommandCount = buffer.getLong(offset + OFFSET_PROCESSED_COMMAND_COUNT);
@@ -71,13 +76,14 @@ public final class AeronNodeControlStateCodec {
         long lastDurableSequence = buffer.getLong(offset + OFFSET_LAST_DURABLE_SEQUENCE);
         long lastAppliedSequence = buffer.getLong(offset + OFFSET_LAST_APPLIED_SEQUENCE);
         long snapshotSequence = buffer.getLong(offset + OFFSET_SNAPSHOT_SEQUENCE);
-        int nodeIdLength = buffer.getInt(offset + OFFSET_NODE_ID_LENGTH);
+        int nodeIdLength = AeronFrameBounds.fitting(
+                buffer.getInt(offset + OFFSET_NODE_ID_LENGTH), offset + OFFSET_NODE_ID, end);
         byte[] nodeIdBytes = new byte[nodeIdLength];
         buffer.getBytes(offset + OFFSET_NODE_ID, nodeIdBytes);
         NodeControlState state = new NodeControlState(
                 new String(nodeIdBytes, StandardCharsets.UTF_8),
                 role,
-                new FencingToken(Math.max(1L, fencingEpoch)),
+                new FencingToken(fencingEpoch),
                 acceptingClientCommands,
                 loopState,
                 processedCommandCount,

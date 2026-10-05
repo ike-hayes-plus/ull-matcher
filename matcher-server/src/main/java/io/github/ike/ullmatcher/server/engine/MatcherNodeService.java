@@ -276,8 +276,8 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
             ), false);
         }
         enqueueSubmitEnvelope(SubmitEnvelope.batch(tasks, tasks.length));
+        SubmitTask.awaitAll(tasks, tasks.length);
         for (int i = 0; i < tasks.length; i++) {
-            tasks[i].awaitCompletion();
             consumer.accept(i, tasks[i].result(), tasks[i].sequence());
         }
     }
@@ -296,9 +296,71 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
             tasks[i] = new SubmitTask(new SubmissionRequest.CancelOrderRequest(orderIds.orderIdAt(i)), false);
         }
         enqueueSubmitEnvelope(SubmitEnvelope.batch(tasks, tasks.length));
+        SubmitTask.awaitAll(tasks, tasks.length);
         for (int i = 0; i < tasks.length; i++) {
-            tasks[i].awaitCompletion();
             consumer.accept(i, tasks[i].result(), tasks[i].sequence());
+        }
+    }
+
+    /**
+     * Binary ingress committed-ack path: enqueue the whole frame first, then wait for replication
+     * committed on each submission (same pipeline shape as REST {@code ack=committed} batch).
+     */
+    public void submitNewOrderBatchReplicationCommitted(NewOrderBatchSource requests,
+                                                        java.util.function.ObjIntConsumer<SubmissionReceipt> consumer) throws IOException {
+        submitNewOrderBatchReplicationCommitted(requests, config.httpWriteTimeoutMillis(), consumer);
+    }
+
+    public void submitNewOrderBatchReplicationCommitted(NewOrderBatchSource requests,
+                                                        long timeoutMillis,
+                                                        java.util.function.ObjIntConsumer<SubmissionReceipt> consumer) throws IOException {
+        Objects.requireNonNull(requests, "requests");
+        Objects.requireNonNull(consumer, "consumer");
+        int size = requests.size();
+        if (size == 0) {
+            return;
+        }
+        SubmissionTracker.SubmissionHandle[] handles = new SubmissionTracker.SubmissionHandle[size];
+        for (int i = 0; i < size; i++) {
+            String idempotencyKey = "binary-order:" + requests.userIdAt(i) + ":" + requests.orderIdAt(i);
+            SubmissionTracker.RequestFingerprint fingerprint = SubmissionFingerprints.newOrder(
+                    requests.userIdAt(i),
+                    requests.orderIdAt(i),
+                    requests.sideAt(i),
+                    requests.orderTypeAt(i),
+                    requests.timeInForceAt(i),
+                    requests.priceAt(i),
+                    requests.quantityAt(i),
+                    requests.ttlMillisAt(i)
+            );
+            SubmissionTracker.Registration registration = submissionTracker.register(
+                    "NEW_ORDER",
+                    idempotencyKey,
+                    requests.userIdAt(i),
+                    requests.orderIdAt(i),
+                    fingerprint
+            );
+            if (!registration.existing()) {
+                enqueueTrackedSubmit(
+                        new SubmitTask(new SubmissionRequest.NewOrderRequest(
+                                requests.userIdAt(i),
+                                requests.orderIdAt(i),
+                                requests.sideAt(i),
+                                requests.orderTypeAt(i),
+                                requests.timeInForceAt(i),
+                                requests.priceAt(i),
+                                requests.quantityAt(i),
+                                requests.ttlMillisAt(i)
+                        ), false),
+                        registration.trackedSubmission()
+                );
+            }
+            handles[i] = submissionTracker.handle(registration.trackedSubmission());
+        }
+        SubmissionReceipt[] receipts = new SubmissionReceipt[size];
+        BatchReplicationAwait.awaitCommittedReceipts(handles, timeoutMillis, receipts);
+        for (int i = 0; i < size; i++) {
+            consumer.accept(receipts[i], i);
         }
     }
 
@@ -997,18 +1059,30 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
         }
 
         private void awaitCompletion() throws IOException {
-            if (!done) {
-                waiter = Thread.currentThread();
-                while (!done) {
-                    LockSupport.park(this);
-                    if (Thread.interrupted()) {
-                        waiter = null;
-                        Thread.currentThread().interrupt();
-                        throw new IOException("interrupted while waiting for matcher submit task", new InterruptedException());
-                    }
-                }
-                waiter = null;
+            if (done) {
+                throwIfFailed();
+                return;
             }
+            int spins = 0;
+            waiter = Thread.currentThread();
+            while (!done) {
+                if (spins < 512) {
+                    spins++;
+                    Thread.onSpinWait();
+                    continue;
+                }
+                LockSupport.park(this);
+                if (Thread.interrupted()) {
+                    waiter = null;
+                    Thread.currentThread().interrupt();
+                    throw new IOException("interrupted while waiting for matcher submit task", new InterruptedException());
+                }
+            }
+            waiter = null;
+            throwIfFailed();
+        }
+
+        private void throwIfFailed() throws IOException {
             if (failure != null) {
                 if (failure instanceof IOException io) {
                     throw io;
@@ -1020,6 +1094,20 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
                     throw error;
                 }
                 throw new IOException("matcher submit task failed", failure);
+            }
+        }
+
+        private static void awaitAll(SubmitTask[] tasks, int size) throws IOException {
+            if (size <= 0) {
+                return;
+            }
+            tasks[size - 1].awaitCompletion();
+            for (int i = 0; i < size - 1; i++) {
+                if (!tasks[i].done) {
+                    tasks[i].awaitCompletion();
+                } else {
+                    tasks[i].throwIfFailed();
+                }
             }
         }
     }

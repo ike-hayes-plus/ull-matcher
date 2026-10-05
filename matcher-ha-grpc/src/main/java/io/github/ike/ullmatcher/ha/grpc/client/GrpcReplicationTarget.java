@@ -35,12 +35,14 @@ import java.nio.file.StandardCopyOption;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 public final class GrpcReplicationTarget implements ReplicationTarget, ReplicationCursorSource, NodeControlStateClient,
         SnapshotSyncSource, StreamingReplicationTarget, Closeable {
-    private static final int STREAM_MAX_BATCH_COMMANDS = 256;
+    /** Align with coordinator batch size to avoid splitting one replication batch across many stream frames. */
+    private static final int STREAM_MAX_BATCH_COMMANDS = 2_048;
     private static final int STREAM_MAX_BATCH_BYTES = 512 << 10;
 
     private final String nodeId;
@@ -48,6 +50,10 @@ public final class GrpcReplicationTarget implements ReplicationTarget, Replicati
     private final GrpcTransportMetrics metrics;
     private final ReplicationServiceGrpc.ReplicationServiceBlockingStub blockingStub;
     private final ReplicationServiceGrpc.ReplicationServiceStub asyncStub;
+    /** Serializes async batches onto one standby so sequence numbers stay contiguous. */
+    private final Object orderedReplicationLock = new Object();
+    private CompletableFuture<Void> orderedReplicationTail = CompletableFuture.completedFuture(null);
+    private GrpcStream orderedStream;
 
     public GrpcReplicationTarget(String nodeId, ManagedChannel channel) {
         this(nodeId, channel, new GrpcTransportMetrics());
@@ -122,16 +128,40 @@ public final class GrpcReplicationTarget implements ReplicationTarget, Replicati
         if (commands.isEmpty()) {
             return CompletableFuture.completedFuture(null);
         }
+        CompletableFuture<Void> result = new CompletableFuture<>();
+        synchronized (orderedReplicationLock) {
+            orderedReplicationTail = orderedReplicationTail
+                    .handle((ignored, priorError) -> null)
+                    .thenCompose(ignored -> replicateBatchAsyncOnStream(commands, timeoutNanos))
+                    .whenComplete((ignored, error) -> {
+                        if (error != null) {
+                            result.completeExceptionally(error);
+                        } else {
+                            result.complete(null);
+                        }
+                    });
+        }
+        return result;
+    }
+
+    private CompletableFuture<Void> replicateBatchAsyncOnStream(List<Command> commands, long timeoutNanos) {
         try {
-            GrpcStream stream = new GrpcStream(timeoutNanos);
-            for (Command command : commands) {
-                stream.replicate(command);
+            if (orderedStream == null || orderedStream.isTerminal()) {
+                orderedStream = new GrpcStream(timeoutNanos);
             }
-            return stream.closeAsync().thenApply(ignored -> null);
+            return orderedStream.replicateCoordinatorBatch(commands);
         } catch (IOException e) {
+            invalidateOrderedStream();
             CompletableFuture<Void> failed = new CompletableFuture<>();
             failed.completeExceptionally(e);
             return failed;
+        }
+    }
+
+    private void invalidateOrderedStream() {
+        if (orderedStream != null) {
+            orderedStream.closeQuietly();
+            orderedStream = null;
         }
     }
 
@@ -214,6 +244,10 @@ public final class GrpcReplicationTarget implements ReplicationTarget, Replicati
 
     @Override
     public void close() {
+        synchronized (orderedReplicationLock) {
+            orderedReplicationTail.join();
+            invalidateOrderedStream();
+        }
         channel.shutdown();
     }
 
@@ -251,6 +285,7 @@ public final class GrpcReplicationTarget implements ReplicationTarget, Replicati
         private final AtomicReference<ReplicationCursor> lastAck = new AtomicReference<>(new ReplicationCursor(0L, 0L, 0L, 0L));
         private final AtomicReference<Throwable> failure = new AtomicReference<>();
         private final CompletableFuture<ReplicationCursor> completion = new CompletableFuture<>();
+        private final ConcurrentHashMap<Long, CompletableFuture<Void>> pendingBatchAcks = new ConcurrentHashMap<>();
         private final StreamObserver<ReplicationBatchRequest> requestObserver;
         private final int maxBatchCommands;
         private final int maxBatchBytes;
@@ -268,12 +303,17 @@ public final class GrpcReplicationTarget implements ReplicationTarget, Replicati
                         @Override
                         public void onNext(ReplicationBatchAck value) {
                             lastAck.set(ProtoAdapters.fromProto(value.getCursor()));
+                            CompletableFuture<Void> pending = pendingBatchAcks.remove(value.getBatchId());
+                            if (pending != null) {
+                                pending.complete(null);
+                            }
                         }
 
                         @Override
                         public void onError(Throwable throwable) {
                             failure.set(throwable);
                             completion.completeExceptionally(throwable);
+                            failPendingBatchAcks(throwable);
                         }
 
                         @Override
@@ -284,16 +324,41 @@ public final class GrpcReplicationTarget implements ReplicationTarget, Replicati
             );
         }
 
-        @Override
-        public void replicate(Command command) throws IOException {
+        private CompletableFuture<Void> replicateCoordinatorBatch(List<Command> commands) throws IOException {
+            java.util.ArrayList<CompletableFuture<Void>> frameAcks = new java.util.ArrayList<>(4);
+            for (Command command : commands) {
+                appendCommand(command, frameAcks);
+            }
+            if (!pendingBatch.isEmpty()) {
+                frameAcks.add(flushBatch());
+            }
+            throwIfFailed();
+            if (frameAcks.isEmpty()) {
+                return CompletableFuture.completedFuture(null);
+            }
+            CompletableFuture<Void> all = CompletableFuture.allOf(frameAcks.toArray(CompletableFuture[]::new));
+            return all.whenComplete((ignored, error) -> {
+                if (error != null) {
+                    invalidateOrderedStream();
+                }
+            });
+        }
+
+        private void appendCommand(Command command, java.util.ArrayList<CompletableFuture<Void>> frameAcks) throws IOException {
             Objects.requireNonNull(command, "command");
             ensureOpen();
             var encoded = ProtoAdapters.toProto(command);
             pendingBatch.add(encoded);
             pendingBytes += encoded.getSerializedSize();
             if (pendingBatch.size() >= maxBatchCommands || pendingBytes >= maxBatchBytes) {
-                flushBatch();
+                frameAcks.add(flushBatch());
             }
+            throwIfFailed();
+        }
+
+        @Override
+        public void replicate(Command command) throws IOException {
+            appendCommand(command, new java.util.ArrayList<>(1));
             throwIfFailed();
         }
 
@@ -322,7 +387,9 @@ public final class GrpcReplicationTarget implements ReplicationTarget, Replicati
         public void close() {
             if (!closed) {
                 try {
-                    flushBatch();
+                    if (!pendingBatch.isEmpty()) {
+                        flushBatch();
+                    }
                 } catch (IOException ignored) {
                 }
                 closed = true;
@@ -330,9 +397,22 @@ public final class GrpcReplicationTarget implements ReplicationTarget, Replicati
             }
         }
 
+        void closeQuietly() {
+            try {
+                close();
+            } catch (RuntimeException ignored) {
+            }
+        }
+
+        boolean isTerminal() {
+            return closed || failure.get() != null || completion.isDone();
+        }
+
         private CompletableFuture<ReplicationCursor> closeAsync() throws IOException {
             if (!closed) {
-                flushBatch();
+                if (!pendingBatch.isEmpty()) {
+                    flushBatch();
+                }
                 closed = true;
                 requestObserver.onCompleted();
             }
@@ -350,17 +430,27 @@ public final class GrpcReplicationTarget implements ReplicationTarget, Replicati
             throwIfFailed();
         }
 
-        private void flushBatch() throws IOException {
+        private CompletableFuture<Void> flushBatch() throws IOException {
             if (pendingBatch.isEmpty()) {
-                return;
+                return CompletableFuture.completedFuture(null);
             }
+            long batchId = nextBatchId++;
+            CompletableFuture<Void> ack = new CompletableFuture<>();
+            pendingBatchAcks.put(batchId, ack);
             requestObserver.onNext(ReplicationBatchRequest.newBuilder()
-                    .setBatchId(nextBatchId++)
+                    .setBatchId(batchId)
                     .addAllCommands(pendingBatch)
                     .build());
             metrics.recordStreamBatch(pendingBatch.size());
             pendingBatch.clear();
             pendingBytes = 0;
+            throwIfFailed();
+            return ack;
+        }
+
+        private void failPendingBatchAcks(Throwable throwable) {
+            pendingBatchAcks.forEach((batchId, future) -> future.completeExceptionally(throwable));
+            pendingBatchAcks.clear();
         }
 
         private void throwIfFailed() throws IOException {

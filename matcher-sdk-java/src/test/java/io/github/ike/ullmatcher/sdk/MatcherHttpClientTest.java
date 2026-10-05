@@ -1,6 +1,6 @@
 package io.github.ike.ullmatcher.sdk;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
@@ -36,7 +36,7 @@ final class MatcherHttpClientTest {
             assertEquals("/api/v1/orders", path.get());
             assertTrue(body.get().contains("\"userId\":7"));
             assertTrue(body.get().contains("\"idempotencyKey\":\"k1\""));
-            assertEquals("s1", response.get("submissionId").asText());
+            assertEquals("s1", response.get("submissionId").asString());
         }
     }
 

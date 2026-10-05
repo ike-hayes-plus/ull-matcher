@@ -35,7 +35,7 @@ java_home_is_usable() {
   [[ -x "${candidate}/bin/java" ]] || return 1
   local major
   major="$(java_major_version "${candidate}/bin/java")"
-  [[ "$major" -ge 21 ]]
+  [[ "$major" -ge 25 ]]
 }
 
 if [[ -n "${JAVA_HOME:-}" ]] && java_home_is_usable "${JAVA_HOME}"; then
@@ -70,7 +70,7 @@ if [[ ! -x "${JAVA_HOME}/bin/java" ]]; then
 fi
 
 if ! java_home_is_usable "${JAVA_HOME}"; then
-  echo "[java-env] JAVA_HOME must point to Java 21 or newer: ${JAVA_HOME}" >&2
+  echo "[java-env] JAVA_HOME must point to Java 25 or newer: ${JAVA_HOME}" >&2
   "${JAVA_HOME}/bin/java" -version >&2
   exit 4
 fi

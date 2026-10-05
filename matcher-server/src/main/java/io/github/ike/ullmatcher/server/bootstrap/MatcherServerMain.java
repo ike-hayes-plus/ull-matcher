@@ -20,6 +20,8 @@ import io.github.ike.ullmatcher.server.cluster.MatcherClusterConfig;
 import io.github.ike.ullmatcher.server.cluster.ReplicationTransportPolicyConfig;
 import io.github.ike.ullmatcher.ha.transport.ReplicationTransportType;
 import io.github.ike.ullmatcher.server.engine.TtlCancelConfig;
+import io.github.ike.ullmatcher.server.api.BinaryIngressLimits;
+import io.github.ike.ullmatcher.server.security.IngressAuthConfig;
 import io.github.ike.ullmatcher.server.security.ServerSecurityConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,54 +40,47 @@ public final class MatcherServerMain {
         int symbolId = Integer.getInteger("matcher.symbolId", 1);
         Path dataDir = Path.of(System.getProperty("matcher.dataDir", "target/matcher-server"));
         MatcherServerConfig defaults = MatcherServerConfig.defaults(nodeId, symbolId, dataDir);
-        MatcherClusterConfig clusterConfig = clusterConfig(System.getProperty("matcher.shardKey", defaults.shardKey()));
-        MatcherServerConfig config = new MatcherServerConfig(
-                serverMode(defaults.serverMode()),
-                defaults.nodeId(),
-                System.getProperty("matcher.shardKey", defaults.shardKey()),
-                matcherConfig(defaults.matcherConfig()),
-                defaults.walDirectory(),
-                defaults.walPrefix(),
-                defaults.walSegmentSizeBytes(),
-                walDurabilityMode(defaults.walDurabilityMode()),
-                Integer.getInteger("matcher.walForceBatchSize", defaults.walForceBatchSize()),
-                Long.getLong("matcher.walForceMaxDelayMicros", defaults.walForceMaxDelayMicros()),
-                defaults.snapshotFile(),
-                defaults.ringCapacity(),
-                defaults.gatewaySpinLimit(),
-                defaults.gatewayOfferTimeoutNanos(),
-                Integer.getInteger("matcher.httpPort", defaults.httpPort()),
-                System.getProperty("matcher.httpBindHost", defaults.httpBindHost()),
-                defaults.httpWorkerThreads(),
-                Integer.getInteger("matcher.httpMaxBodyBytes", defaults.httpMaxBodyBytes()),
-                Integer.getInteger("matcher.httpMaxConcurrentRequests", defaults.httpMaxConcurrentRequests()),
-                Long.getLong("matcher.httpRequestTimeoutMillis", defaults.httpRequestTimeoutMillis()),
-                Boolean.getBoolean("matcher.binaryIngressEnabled"),
-                Integer.getInteger("matcher.binaryIngressPort", defaults.binaryIngressPort()),
-                System.getProperty("matcher.binaryIngressBindHost", defaults.binaryIngressBindHost()),
-                Integer.getInteger("matcher.binaryIngressMaxBatchSize", defaults.binaryIngressMaxBatchSize()),
-                Integer.getInteger("matcher.httpWriteMaxConcurrentRequests", defaults.httpWriteMaxConcurrentRequests()),
-                Integer.getInteger("matcher.httpReadMaxConcurrentRequests", defaults.httpReadMaxConcurrentRequests()),
-                Integer.getInteger("matcher.httpAdminMaxConcurrentRequests", defaults.httpAdminMaxConcurrentRequests()),
-                Long.getLong("matcher.httpWriteTimeoutMillis", defaults.httpWriteTimeoutMillis()),
-                Long.getLong("matcher.httpReadTimeoutMillis", defaults.httpReadTimeoutMillis()),
-                Long.getLong("matcher.httpAdminTimeoutMillis", defaults.httpAdminTimeoutMillis()),
-                Integer.getInteger("matcher.httpSubmitEndpointMaxConcurrentRequests", defaults.httpSubmitEndpointMaxConcurrentRequests()),
-                Integer.getInteger("matcher.httpCancelEndpointMaxConcurrentRequests", defaults.httpCancelEndpointMaxConcurrentRequests()),
-                Integer.getInteger("matcher.httpSnapshotEndpointMaxConcurrentRequests", defaults.httpSnapshotEndpointMaxConcurrentRequests()),
-                Integer.getInteger("matcher.httpReadinessEndpointMaxConcurrentRequests", defaults.httpReadinessEndpointMaxConcurrentRequests()),
-                Integer.getInteger("matcher.httpMetricsEndpointMaxConcurrentRequests", defaults.httpMetricsEndpointMaxConcurrentRequests()),
-                writeAdmissionPolicyConfig(defaults.writeAdmissionPolicyConfig()),
-                Boolean.getBoolean("matcher.allowInsecureRemoteHttp"),
-                Integer.getInteger("matcher.grpcPort", defaults.grpcPort()),
-                grpcServerConfig(Integer.getInteger("matcher.grpcPort", defaults.grpcPort())),
-                securityConfig(),
-                ttlCancelConfig(),
-                initialRole(defaults.initialRole(), clusterConfig),
-                defaults.loopConfig(),
-                defaults.standbySyncConfig(),
-                clusterConfig
-        );
+        MatcherServerMode serverMode = serverMode(defaults.serverMode());
+        MatcherClusterConfig clusterConfig =
+                clusterConfig(System.getProperty("matcher.shardKey", defaults.shardKey()), serverMode);
+        MatcherServerConfig config = defaults.toBuilder()
+                .serverMode(serverMode)
+                .shardKey(System.getProperty("matcher.shardKey", defaults.shardKey()))
+                .matcherConfig(matcherConfig(defaults.matcherConfig()))
+                .walDurabilityMode(walDurabilityMode(defaults.walDurabilityMode()))
+                .walForceBatchSize(Integer.getInteger("matcher.walForceBatchSize", defaults.walForceBatchSize()))
+                .walForceMaxDelayMicros(Long.getLong("matcher.walForceMaxDelayMicros", defaults.walForceMaxDelayMicros()))
+                .httpPort(Integer.getInteger("matcher.httpPort", defaults.httpPort()))
+                .httpBindHost(System.getProperty("matcher.httpBindHost", defaults.httpBindHost()))
+                .httpMaxBodyBytes(Integer.getInteger("matcher.httpMaxBodyBytes", defaults.httpMaxBodyBytes()))
+                .httpMaxConcurrentRequests(Integer.getInteger("matcher.httpMaxConcurrentRequests", defaults.httpMaxConcurrentRequests()))
+                .httpRequestTimeoutMillis(Long.getLong("matcher.httpRequestTimeoutMillis", defaults.httpRequestTimeoutMillis()))
+                .binaryIngressEnabled(Boolean.getBoolean("matcher.binaryIngressEnabled"))
+                .binaryIngressPort(Integer.getInteger("matcher.binaryIngressPort", defaults.binaryIngressPort()))
+                .binaryIngressBindHost(System.getProperty("matcher.binaryIngressBindHost", defaults.binaryIngressBindHost()))
+                .binaryIngressMaxBatchSize(Integer.getInteger("matcher.binaryIngressMaxBatchSize", defaults.binaryIngressMaxBatchSize()))
+                .binaryIngressLimits(binaryIngressLimits(defaults.binaryIngressLimits()))
+                .httpWriteMaxConcurrentRequests(Integer.getInteger("matcher.httpWriteMaxConcurrentRequests", defaults.httpWriteMaxConcurrentRequests()))
+                .httpReadMaxConcurrentRequests(Integer.getInteger("matcher.httpReadMaxConcurrentRequests", defaults.httpReadMaxConcurrentRequests()))
+                .httpAdminMaxConcurrentRequests(Integer.getInteger("matcher.httpAdminMaxConcurrentRequests", defaults.httpAdminMaxConcurrentRequests()))
+                .httpWriteTimeoutMillis(Long.getLong("matcher.httpWriteTimeoutMillis", defaults.httpWriteTimeoutMillis()))
+                .httpReadTimeoutMillis(Long.getLong("matcher.httpReadTimeoutMillis", defaults.httpReadTimeoutMillis()))
+                .httpAdminTimeoutMillis(Long.getLong("matcher.httpAdminTimeoutMillis", defaults.httpAdminTimeoutMillis()))
+                .httpSubmitEndpointMaxConcurrentRequests(Integer.getInteger("matcher.httpSubmitEndpointMaxConcurrentRequests", defaults.httpSubmitEndpointMaxConcurrentRequests()))
+                .httpCancelEndpointMaxConcurrentRequests(Integer.getInteger("matcher.httpCancelEndpointMaxConcurrentRequests", defaults.httpCancelEndpointMaxConcurrentRequests()))
+                .httpSnapshotEndpointMaxConcurrentRequests(Integer.getInteger("matcher.httpSnapshotEndpointMaxConcurrentRequests", defaults.httpSnapshotEndpointMaxConcurrentRequests()))
+                .httpReadinessEndpointMaxConcurrentRequests(Integer.getInteger("matcher.httpReadinessEndpointMaxConcurrentRequests", defaults.httpReadinessEndpointMaxConcurrentRequests()))
+                .httpMetricsEndpointMaxConcurrentRequests(Integer.getInteger("matcher.httpMetricsEndpointMaxConcurrentRequests", defaults.httpMetricsEndpointMaxConcurrentRequests()))
+                .writeAdmissionPolicyConfig(writeAdmissionPolicyConfig(defaults.writeAdmissionPolicyConfig()))
+                .allowInsecureRemoteHttp(Boolean.getBoolean("matcher.allowInsecureRemoteHttp"))
+                .ingressAuthConfig(ingressAuthConfig())
+                .grpcPort(Integer.getInteger("matcher.grpcPort", defaults.grpcPort()))
+                .grpcServerConfig(grpcServerConfig(Integer.getInteger("matcher.grpcPort", defaults.grpcPort())))
+                .securityConfig(securityConfig())
+                .ttlCancelConfig(ttlCancelConfig())
+                .initialRole(initialRole(defaults.initialRole(), clusterConfig))
+                .clusterConfig(clusterConfig)
+                .build();
         MatcherServerApp app = new MatcherServerApp(config);
         app.start();
         Runtime.getRuntime().addShutdownHook(Thread.ofPlatform().unstarted(() -> {
@@ -157,17 +152,18 @@ public final class MatcherServerMain {
         );
     }
 
-    static MatcherClusterConfig clusterConfig(String shardKey) throws Exception {
+    static MatcherClusterConfig clusterConfig(String shardKey, MatcherServerMode serverMode) throws Exception {
         String zkConnect = System.getProperty("matcher.zkConnect", "");
         String etcdEndpoint = System.getProperty("matcher.etcdEndpoint", "");
         String provider = controlPlaneProvider(zkConnect, etcdEndpoint);
         if (zkConnect.isBlank() && !"etcd".equals(provider)) {
             return null;
         }
-        String clusterName = System.getProperty("matcher.cluster", "default");
+        String clusterName = clusterName();
         String host = System.getProperty("matcher.advertisedHost", "127.0.0.1");
-        LeaseStore leaseStore = leaseStore(provider, zkConnect, etcdEndpoint, clusterName);
-        NodeRegistry nodeRegistry = nodeRegistry(provider, zkConnect, etcdEndpoint, clusterName);
+        boolean prod = serverMode == MatcherServerMode.PROD;
+        LeaseStore leaseStore = leaseStore(provider, zkConnect, etcdEndpoint, clusterName, prod);
+        NodeRegistry nodeRegistry = nodeRegistry(provider, zkConnect, etcdEndpoint, clusterName, prod);
         LOG.info("cluster control plane provider={} advertisedHost={}", provider, host);
         MatcherClusterConfig defaults = MatcherClusterConfig.defaults(leaseStore, nodeRegistry, host, shardKey);
         return new MatcherClusterConfig(
@@ -206,7 +202,11 @@ public final class MatcherServerMain {
         return leaseProvider;
     }
 
-    static LeaseStore leaseStore(String provider, String zkConnect, String etcdEndpoint, String clusterName) {
+    static LeaseStore leaseStore(String provider,
+                                 String zkConnect,
+                                 String etcdEndpoint,
+                                 String clusterName,
+                                 boolean enforceProductionSafety) throws Exception {
         return switch (provider) {
             case "zk" -> {
                 if (zkConnect.isBlank()) {
@@ -216,12 +216,16 @@ public final class MatcherServerMain {
                         new ZooKeeperLeaseStoreConfig(zkConnect, "/ull-matcher/lease/" + clusterName, 15_000, 5_000)
                 );
             }
-            case "etcd" -> new EtcdLeaseStore(etcdConfig(etcdEndpoint, clusterName));
+            case "etcd" -> new EtcdLeaseStore(etcdConfig(etcdEndpoint, clusterName, enforceProductionSafety));
             default -> throw new ServerBootstrapException("unsupported lease provider: " + provider);
         };
     }
 
-    static NodeRegistry nodeRegistry(String provider, String zkConnect, String etcdEndpoint, String clusterName) throws Exception {
+    static NodeRegistry nodeRegistry(String provider,
+                                     String zkConnect,
+                                     String etcdEndpoint,
+                                     String clusterName,
+                                     boolean enforceProductionSafety) throws Exception {
         return switch (provider) {
             case "zk" -> {
                 if (zkConnect.isBlank()) {
@@ -229,12 +233,30 @@ public final class MatcherServerMain {
                 }
                 yield new ZooKeeperNodeRegistry(ZooKeeperDiscoveryConfig.defaults(zkConnect, clusterName));
             }
-            case "etcd" -> new EtcdNodeRegistry(etcdConfig(etcdEndpoint, clusterName));
+            case "etcd" -> new EtcdNodeRegistry(etcdConfig(etcdEndpoint, clusterName, enforceProductionSafety));
             default -> throw new ServerBootstrapException("unsupported discovery provider: " + provider);
         };
     }
 
-    static EtcdConfig etcdConfig(String endpoint, String clusterName) {
+    /**
+     * Resolves the cluster name, accepting the deprecated {@code matcher.clusterName} alias.
+     *
+     * @return configured cluster name
+     */
+    static String clusterName() {
+        String legacy = System.getProperty("matcher.clusterName");
+        String preferred = System.getProperty("matcher.cluster");
+        if (preferred != null && !preferred.isBlank()) {
+            return preferred.trim();
+        }
+        if (legacy != null && !legacy.isBlank()) {
+            LOG.warn("matcher.clusterName is deprecated; use matcher.cluster instead");
+            return legacy.trim();
+        }
+        return "default";
+    }
+
+    static EtcdConfig etcdConfig(String endpoint, String clusterName, boolean enforceProductionSafety) {
         if (endpoint.isBlank()) {
             throw new ServerBootstrapException("matcher.etcdEndpoint is required when using etcd provider");
         }
@@ -244,7 +266,26 @@ public final class MatcherServerMain {
                 System.getProperty("matcher.etcdKeyPrefix", defaults.keyPrefix()),
                 Long.getLong("matcher.etcdLeaseTtlSeconds", defaults.leaseTtlSeconds()),
                 Long.getLong("matcher.etcdTimeoutMillis", defaults.timeoutMillis()),
-                Long.getLong("matcher.etcdLocalHeldCheckCacheMillis", defaults.localHeldCheckCacheMillis())
+                Long.getLong("matcher.etcdLocalHeldCheckCacheMillis", defaults.localHeldCheckCacheMillis()),
+                pathProperty("matcher.etcdTlsTrustChain"),
+                pathProperty("matcher.etcdTlsCertChain"),
+                pathProperty("matcher.etcdTlsPrivateKey"),
+                enforceProductionSafety
+        );
+    }
+
+    private static BinaryIngressLimits binaryIngressLimits(BinaryIngressLimits defaults) {
+        return new BinaryIngressLimits(
+                Integer.getInteger("matcher.binaryIngressMaxConnections", defaults.maxConnections()),
+                Long.getLong("matcher.binaryIngressHandshakeTimeoutMillis", defaults.handshakeTimeoutMillis()),
+                Long.getLong("matcher.binaryIngressIdleTimeoutMillis", defaults.idleTimeoutMillis())
+        );
+    }
+
+    private static IngressAuthConfig ingressAuthConfig() {
+        return IngressAuthConfig.fromCommaSeparated(
+                System.getProperty("matcher.ingressApiKeys", ""),
+                System.getProperty("matcher.ingressApiKeyHeader", IngressAuthConfig.DEFAULT_API_KEY_HEADER)
         );
     }
 

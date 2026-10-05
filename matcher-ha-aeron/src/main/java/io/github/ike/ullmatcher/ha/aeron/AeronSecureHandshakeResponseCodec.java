@@ -81,6 +81,10 @@ public final class AeronSecureHandshakeResponseCodec {
     }
 
     public static Response decode(DirectBuffer buffer, int offset, int length) {
+        int end = frameEnd(buffer, offset, length);
+        if (length < OFFSET_ERROR_LENGTH) {
+            throw new IllegalArgumentException("secure handshake response frame is truncated");
+        }
         int cursor = offset;
         int version = buffer.getInt(cursor);
         if (version != VERSION) {
@@ -97,7 +101,7 @@ public final class AeronSecureHandshakeResponseCodec {
         cursor += Long.BYTES;
         long expiresAtMillis = buffer.getLong(cursor);
         cursor += Long.BYTES;
-        BytesValue error = readBytes(buffer, cursor);
+        BytesValue error = readBytes(buffer, cursor, end);
         cursor = error.nextOffset();
         if (!accepted) {
             return new Response(
@@ -114,21 +118,21 @@ public final class AeronSecureHandshakeResponseCodec {
                     new byte[0]
             );
         }
-        BytesValue nodeId = readBytes(buffer, cursor);
+        BytesValue nodeId = readBytes(buffer, cursor, end);
         cursor = nodeId.nextOffset();
-        BytesValue serverNonce = readBytes(buffer, cursor);
+        BytesValue serverNonce = readBytes(buffer, cursor, end);
         cursor = serverNonce.nextOffset();
-        BytesValue serverPublicKey = readBytes(buffer, cursor);
+        BytesValue serverPublicKey = readBytes(buffer, cursor, end);
         cursor = serverPublicKey.nextOffset();
-        int certCount = buffer.getInt(cursor);
+        int certCount = readCount(buffer, cursor, end);
         cursor += Integer.BYTES;
         List<byte[]> certificateChain = new ArrayList<>(certCount);
         for (int i = 0; i < certCount; i++) {
-            BytesValue certificate = readBytes(buffer, cursor);
+            BytesValue certificate = readBytes(buffer, cursor, end);
             cursor = certificate.nextOffset();
             certificateChain.add(certificate.bytes());
         }
-        BytesValue signature = readBytes(buffer, cursor);
+        BytesValue signature = readBytes(buffer, cursor, end);
         return new Response(
                 requestId,
                 sessionId,
@@ -150,11 +154,37 @@ public final class AeronSecureHandshakeResponseCodec {
         return offset + Integer.BYTES + bytes.length;
     }
 
-    private static BytesValue readBytes(DirectBuffer buffer, int offset) {
-        int length = buffer.getInt(offset);
-        byte[] bytes = new byte[length];
-        buffer.getBytes(offset + Integer.BYTES, bytes);
-        return new BytesValue(bytes, offset + Integer.BYTES + length);
+    private static int frameEnd(DirectBuffer buffer, int offset, int length) {
+        if (offset < 0 || length < 0 || offset > buffer.capacity() - length) {
+            throw new IllegalArgumentException("secure handshake frame is outside the buffer");
+        }
+        return offset + length;
+    }
+
+    private static int readCount(DirectBuffer buffer, int offset, int end) {
+        if (offset < 0 || offset > end - Integer.BYTES) {
+            throw new IllegalArgumentException("secure handshake response frame is truncated");
+        }
+        int count = buffer.getInt(offset);
+        int remaining = end - (offset + Integer.BYTES);
+        if (count < 0 || count > remaining / Integer.BYTES) {
+            throw new IllegalArgumentException("secure handshake certificate count exceeds frame");
+        }
+        return count;
+    }
+
+    private static BytesValue readBytes(DirectBuffer buffer, int offset, int end) {
+        if (offset < 0 || offset > end - Integer.BYTES) {
+            throw new IllegalArgumentException("secure handshake response frame is truncated");
+        }
+        int byteLength = buffer.getInt(offset);
+        int payloadOffset = offset + Integer.BYTES;
+        if (byteLength < 0 || byteLength > end - payloadOffset) {
+            throw new IllegalArgumentException("secure handshake field length exceeds frame");
+        }
+        byte[] bytes = new byte[byteLength];
+        buffer.getBytes(payloadOffset, bytes);
+        return new BytesValue(bytes, payloadOffset + byteLength);
     }
 
     private record BytesValue(byte[] bytes, int nextOffset) {

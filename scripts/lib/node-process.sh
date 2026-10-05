@@ -81,7 +81,7 @@ start_matcher_node() {
       cd "$root_dir"
       export JAVA_HOME="$JAVA_HOME" PATH="$JAVA_HOME/bin:$PATH"
       # shellcheck disable=SC2086
-      mvn $cp_build_maven_args -Dmdep.outputFile="$cp_file" -Dmdep.pathSeparator=:
+      "$root_dir/mvnw" $cp_build_maven_args -Dmdep.outputFile="$cp_file" -Dmdep.pathSeparator=:
     )
   fi
 

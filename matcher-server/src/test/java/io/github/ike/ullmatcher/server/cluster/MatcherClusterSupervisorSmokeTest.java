@@ -21,6 +21,7 @@ import io.github.ike.ullmatcher.server.bootstrap.WriteAdmissionPolicyConfig;
 import io.github.ike.ullmatcher.server.engine.MatcherNodeService;
 import io.github.ike.ullmatcher.server.engine.TtlCancelConfig;
 import io.github.ike.ullmatcher.server.security.ServerSecurityConfig;
+import io.github.ike.ullmatcher.server.security.IngressAuthConfig;
 import org.junit.jupiter.api.Test;
 
 
@@ -94,6 +95,7 @@ final class MatcherClusterSupervisorSmokeTest {
                 8,
                 WriteAdmissionPolicyConfig.defaults(),
                 false,
+                IngressAuthConfig.disabled(),
                 19090,
                 GrpcReplicationServerConfig.defaults(19090),
                 ServerSecurityConfig.insecureDefaults(),

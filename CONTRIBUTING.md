@@ -17,20 +17,20 @@
 
 必需：
 
-- JDK 21
-- Maven 3.9+
+- JDK 25
+- Maven 4，使用仓库里的 `./mvnw`
 
 推荐初始化方式：
 
 ```bash
-sdk install java 21.0.11-tem
+sdk install java 25.0.3-tem
 sdk env install
 sdk env
 ```
 
 仓库已提交 `.sdkmanrc`。请使用 `sdk env` 选择的项目本地 JDK，不要依赖 shell 的全局默认 Java。
 
-当使用 `matcher.replicationTransport=AERON_PREVIEW` 且运行在 Java 21 上时，需要补充：
+当使用 `matcher.replicationTransport=AERON_PREVIEW` 时，需要补充：
 
 ```bash
 --add-exports=java.base/jdk.internal.misc=ALL-UNNAMED
@@ -46,34 +46,57 @@ sdk env
 
 ## 构建与测试
 
-提交 Pull Request 前至少运行：
+提交 Pull Request 前运行完整 verify，它会跑样式检查、全部模块的测试和覆盖率门禁：
 
 ```bash
-mvn test
+./mvnw -Pstyle-check verify
 ```
 
-核心撮合与 runtime 模块有覆盖率门禁：
+新 Java 文件请在 `package` 声明前加 SPDX 头：
+
+```
+/*
+ * Copyright 2026 ull-matcher authors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+```
+
+覆盖率门禁对**所有模块**统一要求 line ≥ 0.80、branch ≥ 0.70，没有例外模块。
+生成的报告在 `<module>/target/site/jacoco/index.html`。
+
+> 如果你新增了一个模块的 surefire `<argLine>` 覆盖配置，必须保留 `@{jacocoArgLine}`，
+> 否则 JaCoCo agent 会被静默丢弃，该模块的覆盖率门禁会变成空操作。
+
+撮合内核与 runtime 还有变异测试门禁（mutation score ≥ 70）。它比普通测试慢得多，
+所以单独放在一个 profile 里，CI 会跑，本地按需：
 
 ```bash
-mvn -pl matcher-core,matcher-runtime -am verify
+./mvnw -Pmutation -pl matcher-core,matcher-runtime -am verify
+```
+
+热路径的性能回归门禁（不需要集群，CI 每次都跑）：
+
+```bash
+./scripts/ops/run-benchmark-regression.sh
+```
+
+供应链检查：
+
+```bash
+./mvnw -Psbom package -DskipTests                 # CycloneDX SBOM
+./mvnw -Pdependency-check verify -DskipTests      # OWASP 已知漏洞扫描
 ```
 
 混沌测试按需开启：
 
 ```bash
-mvn test -Pchaos-tests
-```
-
-样式检查在本地可选，在发布自动化里会强制执行：
-
-```bash
-mvn -Pstyle-check validate
+./mvnw test -Pchaos-tests
 ```
 
 签名发布到中央仓库的路径：
 
 ```bash
-mvn -Pstyle-check,release-signing,central-publish -DskipTests deploy
+./mvnw -Pstyle-check,release-signing,central-publish -DskipTests deploy
 ```
 
 ## 代码约束
@@ -125,6 +148,8 @@ mvn -Pstyle-check,release-signing,central-publish -DskipTests deploy
 
 - Pull Request 保持聚焦，不要同时夹带无关改动。
 - 当用户可见行为、API 或配置变更时，必须同步更新 `README.md`。
+- 任何用户可见的变更都要在 `CHANGELOG.md` 的 `Unreleased` 段落里记一笔，
+  破坏性变更要标 `BREAKING` 并说明迁移动作。
 - 坐标、包名、持久化格式或 API 契约变更时，必须补迁移说明。
 - 如果修改影响发布产物或公开元数据，请确认 `.github/workflows/release.yml` 仍与预期产物集合一致。
 

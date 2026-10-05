@@ -1,0 +1,26 @@
+{
+  "_comment": [
+    "Regression floors for the benchmarks that need no cluster, enforced by",
+    "scripts/ops/check-benchmark-regression.py on every CI run.",
+    "These are NOT the published baseline. The baseline in benchmark-baseline.md",
+    "comes from a dedicated machine; these floors have to survive a shared,",
+    "throttled GitHub runner, so they sit roughly an order of magnitude lower.",
+    "Raise them only if CI has been comfortably above the new value for a while."
+  ],
+  "scenarios": {
+    "core-only": {
+      "atLeast": {
+        "acceptedOrdersPerSecond": 2000000.0
+      },
+      "atMost": {
+        "p99LatencyMicros": 5.0
+      }
+    },
+    "embed-journaled-core": {
+      "atLeast": {
+        "acceptedOrdersPerSecond": 20000.0,
+        "tradeEventsPerSecond": 20000.0
+      }
+    }
+  }
+}

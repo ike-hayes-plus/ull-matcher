@@ -16,16 +16,16 @@
 基线见：
 - [benchmark-baseline.md](../operations/benchmark-baseline.md)
 
-最重要的规划基线如下：
+最重要的规划基线如下（Temurin 25，事实源 [benchmark-baseline.md](../operations/benchmark-baseline.md) / `target/benchmark/current/`）：
 
 | 场景 | Accepted orders/s | Trade events/s | Committed orders/s |
 |---|---:|---:|---:|
-| External `1P1S` binary + `GRPC` | `333,904` | `333,904` | `246,046` |
-| External `1P1S` binary + `AERON` | `194,343` | `194,343` | `192,530` |
-| External `1P2S` binary + `GRPC` quorum | `301,379` | `301,379` | `190,916` |
-| External `1P2S` binary + `AERON` quorum | `384,903` | `384,903` | `131,249` |
-| External `1P3S` binary + `GRPC` quorum | `223,078` | `223,078` | `131,616` |
-| External `1P3S` binary + `AERON` quorum | `385,718` | `385,718` | `54,820` |
+| External `1P1S` binary + `GRPC` | `302,069` | `302,069` | `264,048` |
+| External `1P1S` binary + `AERON` | `270,880` | `270,880` | `210,889` |
+| External `1P2S` binary + `GRPC` quorum | `218,302` | `218,302` | `205,545` |
+| External `1P2S` binary + `AERON` quorum | `324,817` | `324,817` | `78,769` |
+| External `1P3S` binary + `GRPC` quorum | `194,859` | `194,859` | `182,880` |
+| External `1P3S` binary + `AERON` quorum | `297,155` | `297,155` | `43,807` |
 
 ## 规划规则
 
@@ -45,21 +45,21 @@ safe shard budget = committed throughput * utilization cap
 
 ### `GRPC`，`1P1S`
 
-- committed 基线：`246,046/s`
-- `60%` 保守预算：`147,628/s`
-- `70%` 激进预算：`172,232/s`
+- committed 基线：`264,048/s`
+- `60%` 保守预算：`158,429/s`
+- `70%` 激进预算：`184,834/s`
 
 ### `GRPC`，`1P2S quorum`
 
-- committed 基线：`190,916/s`
-- `60%` 保守预算：`114,550/s`
-- `70%` 激进预算：`133,641/s`
+- committed 基线：`205,545/s`
+- `60%` 保守预算：`123,327/s`
+- `70%` 激进预算：`143,882/s`
 
 ### `GRPC`，`1P3S quorum`
 
-- committed 基线：`131,616/s`
-- `60%` 保守预算：`78,970/s`
-- `70%` 激进预算：`92,131/s`
+- 本次 quorum committed：`182,880/s`（3 备里确认 2 备即算 committed）
+- 窗口内 `allStandbysDurableCommands=0`，不能当作三备都已追上
+- 三备都追上之前，不要单独用 quorum committed 做全备 durability 规划
 
 ## 多分片总容量
 
@@ -77,13 +77,13 @@ total safe capacity ~= shard_count * safe shard budget
 
 示例：`GRPC 1P1S`，`8` 个分片
 
-- 理论 committed 总量：`8 * 246,046 = 1,968,368/s`
-- `60%` 保守总量：`8 * 147,628 = 1,181,024/s`
+- 理论 committed 总量：`8 * 264,048 = 2,112,384/s`
+- `60%` 保守总量：`8 * 158,429 = 1,267,432/s`
 
 示例：`GRPC 1P2S quorum`，`16` 个分片
 
-- 理论 committed 总量：`16 * 190,916 = 3,054,656/s`
-- `60%` 保守总量：`16 * 114,550 = 1,832,800/s`
+- 理论 committed 总量：`16 * 205,545 = 3,288,720/s`
+- `60%` 保守总量：`16 * 123,327 = 1,973,232/s`
 
 ## 这些数字不代表什么
 

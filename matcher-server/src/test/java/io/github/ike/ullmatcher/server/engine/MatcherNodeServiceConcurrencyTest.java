@@ -29,6 +29,7 @@ import io.github.ike.ullmatcher.server.cluster.MatcherClusterConfig;
 import io.github.ike.ullmatcher.server.cluster.ReplicationTransportPolicyConfig;
 import io.github.ike.ullmatcher.ha.transport.ReplicationTransportType;
 import io.github.ike.ullmatcher.server.security.ServerSecurityConfig;
+import io.github.ike.ullmatcher.server.security.IngressAuthConfig;
 import io.github.ike.ullmatcher.storage.snapshot.SnapshotStore;
 import org.junit.jupiter.api.Test;
 
@@ -268,6 +269,7 @@ final class MatcherNodeServiceConcurrencyTest {
                 8,
                 WriteAdmissionPolicyConfig.defaults(),
                 false,
+                IngressAuthConfig.disabled(),
                 0,
                 GrpcReplicationServerConfig.defaults(0),
                 ServerSecurityConfig.insecureDefaults(),
@@ -369,6 +371,7 @@ final class MatcherNodeServiceConcurrencyTest {
                 8,
                 WriteAdmissionPolicyConfig.defaults(),
                 false,
+                IngressAuthConfig.disabled(),
                 0,
                 GrpcReplicationServerConfig.defaults(0),
                 ServerSecurityConfig.insecureDefaults(),

@@ -30,7 +30,8 @@ final class ReplicationCoordinator implements Closeable {
     private static final long MIN_RETRY_BACKOFF_NANOS = TimeUnit.MILLISECONDS.toNanos(1);
     private static final long MAX_RETRY_BACKOFF_NANOS = TimeUnit.MILLISECONDS.toNanos(250);
     private static final int MAX_BATCH_SIZE = 2_048;
-    private static final int MAX_IN_FLIGHT_BATCHES = 16;
+    /** Pipelined standby acks; raised to keep primary from stalling on wide-area RTT. */
+    private static final int MAX_IN_FLIGHT_BATCHES = 32;
     private static final long BATCH_ACCUMULATION_NANOS = TimeUnit.MICROSECONDS.toNanos(200);
 
     private final MpscArrayQueue<ReplicationWork> queue;
@@ -269,6 +270,9 @@ final class ReplicationCoordinator implements Closeable {
         while (batchBuffer.size() < maxBatchSize) {
             ReplicationWork next = pollNextWork();
             if (next == null) {
+                if (batchBuffer.size() > 0 && accumulationNanos == 0L) {
+                    break;
+                }
                 if (System.nanoTime() >= accumulationDeadline) {
                     break;
                 }

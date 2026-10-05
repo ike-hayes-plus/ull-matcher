@@ -26,7 +26,7 @@
 可在单机进程内稳定复现的故障场景使用 `@Tag("chaos")` 测试执行：
 
 ```bash
-mvn -Pchaos-tests test
+./mvnw -Pchaos-tests test
 ```
 
 或：

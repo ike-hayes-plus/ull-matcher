@@ -42,10 +42,13 @@ public final class AeronSnapshotRequestCodec {
     }
 
     public static Request decode(DirectBuffer buffer, int offset, int length) {
+        int end = AeronFrameBounds.end(buffer, offset, length);
+        AeronFrameBounds.requireHeader(offset, end, OFFSET_CHANNEL);
         long requestId = buffer.getLong(offset + OFFSET_REQUEST_ID);
         long sessionId = buffer.getLong(offset + OFFSET_SESSION_ID);
         int responseStreamId = buffer.getInt(offset + OFFSET_RESPONSE_STREAM_ID);
-        int channelLength = buffer.getInt(offset + OFFSET_CHANNEL_LENGTH);
+        int channelLength = AeronFrameBounds.fitting(
+                buffer.getInt(offset + OFFSET_CHANNEL_LENGTH), offset + OFFSET_CHANNEL, end);
         byte[] channelBytes = new byte[channelLength];
         buffer.getBytes(offset + OFFSET_CHANNEL, channelBytes);
         return new Request(requestId, sessionId, new String(channelBytes, StandardCharsets.UTF_8), responseStreamId);

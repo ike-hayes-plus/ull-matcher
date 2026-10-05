@@ -120,7 +120,11 @@ public final class ReloadableGrpcServer implements Closeable {
     }
 
     private GrpcReplicationServer newServer() {
-        return new GrpcReplicationServer(configSupplier.get(), serviceSupplier.get());
+        GrpcReplicationServerConfig config = configSupplier.get();
+        if (securityConfig.grpcServerTls() != null) {
+            config = config.withTls(securityConfig.grpcServerTls());
+        }
+        return new GrpcReplicationServer(config, serviceSupplier.get());
     }
 
     @Override

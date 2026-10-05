@@ -1,19 +1,15 @@
 package io.github.ike.ullmatcher.server.api;
 
-import io.github.ike.ullmatcher.core.MatcherConfig;
-import io.github.ike.ullmatcher.ha.coordination.HaRole;
 import io.github.ike.ullmatcher.ha.grpc.server.GrpcReplicationServerConfig;
-import io.github.ike.ullmatcher.hft.WalDurabilityMode;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerConfig;
-import io.github.ike.ullmatcher.server.bootstrap.MatcherServerMode;
-import io.github.ike.ullmatcher.server.bootstrap.WriteAdmissionPolicyConfig;
 import io.github.ike.ullmatcher.server.engine.MatcherNodeService;
-import io.github.ike.ullmatcher.server.engine.TtlCancelConfig;
-import io.github.ike.ullmatcher.server.security.ServerSecurityConfig;
+import io.github.ike.ullmatcher.server.security.IngressAuthConfig;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.SocketException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.file.Files;
@@ -21,6 +17,8 @@ import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class BinaryOrderIngressServerTest {
@@ -100,49 +98,138 @@ final class BinaryOrderIngressServerTest {
     }
 
     private static MatcherServerConfig testConfig(Path dir) {
-        return new MatcherServerConfig(
-                MatcherServerMode.DEV,
-                "node-a",
-                "symbol-1",
-                MatcherConfig.defaults(1),
-                dir.resolve("wal"),
-                "symbol-1",
-                4L * 1024L * 1024L,
-                WalDurabilityMode.SYNC_PER_COMMAND,
-                1,
-                0L,
-                dir.resolve("snapshots").resolve("symbol-1.snap"),
-                1 << 10,
-                128,
-                TimeUnit.MILLISECONDS.toNanos(200),
-                0,
-                "127.0.0.1",
-                2,
-                256,
-                256,
-                2_000L,
-                128,
-                96,
-                16,
-                2_000L,
-                1_000L,
-                5_000L,
-                96,
-                64,
-                2,
-                16,
-                8,
-                WriteAdmissionPolicyConfig.defaults(),
-                false,
-                0,
-                GrpcReplicationServerConfig.defaults(0),
-                ServerSecurityConfig.insecureDefaults(),
-                TtlCancelConfig.disabled(),
-                HaRole.PRIMARY,
-                io.github.ike.ullmatcher.runtime.MatchLoopConfig.defaults(),
-                io.github.ike.ullmatcher.ha.standby.StandbySyncConfig.defaults(),
-                null
-        );
+        return MatcherServerConfig.builder("node-a", 1, dir)
+                .ringCapacity(1 << 10)
+                .gatewaySpinLimit(128)
+                .gatewayOfferTimeoutNanos(TimeUnit.MILLISECONDS.toNanos(200))
+                .walSegmentSizeBytes(4L * 1024L * 1024L)
+                .httpPort(0)
+                .httpWorkerThreads(2)
+                .httpMaxBodyBytes(256)
+                .httpMaxConcurrentRequests(256)
+                .grpcPort(0)
+                .grpcServerConfig(GrpcReplicationServerConfig.defaults(0))
+                .build();
+    }
+
+    @Test
+    void handshakeGrantsAccessAndWrongKeyClosesTheConnection() throws Exception {
+        Path dir = Files.createTempDirectory("binary-ingress-auth");
+        IngressAuthConfig auth = IngressAuthConfig.fromCommaSeparated("secret-key", null);
+        try (MatcherNodeService nodeService = new MatcherNodeService(testConfig(dir))) {
+            nodeService.start();
+            try (BinaryOrderIngressServer server =
+                         new BinaryOrderIngressServer("127.0.0.1", 0, 32, auth, nodeService)) {
+                server.start();
+
+                try (Socket socket = connect(server.port())) {
+                    socket.getOutputStream().write(IngressAuthConfig.padHandshakeBytes("secret-key"));
+                    socket.getOutputStream().write(encodeNewOrderBatch());
+                    socket.getOutputStream().flush();
+
+                    ByteBuffer header = ByteBuffer.wrap(socket.getInputStream().readNBytes(16)).order(ByteOrder.BIG_ENDIAN);
+                    assertEquals(0x554C4C52, header.getInt());
+                }
+
+                try (Socket socket = connect(server.port())) {
+                    socket.getOutputStream().write(IngressAuthConfig.padHandshakeBytes("wrong-key"));
+                    socket.getOutputStream().write(encodeNewOrderBatch());
+                    socket.getOutputStream().flush();
+
+                    assertConnectionClosed(socket, "server must close the connection");
+                }
+                assertTrue(await(() -> server.connectionMetrics().handshakeFailures() == 1L, 5_000L));
+            }
+        }
+    }
+
+    @Test
+    void unauthenticatedConnectionIsClosedWhenTheHandshakeTimesOut() throws Exception {
+        Path dir = Files.createTempDirectory("binary-ingress-handshake-timeout");
+        IngressAuthConfig auth = IngressAuthConfig.fromCommaSeparated("secret-key", null);
+        BinaryIngressLimits limits = new BinaryIngressLimits(16, 200L, 0L);
+        try (MatcherNodeService nodeService = new MatcherNodeService(testConfig(dir))) {
+            nodeService.start();
+            try (BinaryOrderIngressServer server =
+                         new BinaryOrderIngressServer("127.0.0.1", 0, 32, auth, limits, nodeService)) {
+                server.start();
+                try (Socket socket = connect(server.port())) {
+                    // Send a partial handshake so the session stays unauthenticated.
+                    socket.getOutputStream().write(new byte[]{1, 2, 3});
+                    socket.getOutputStream().flush();
+
+                    assertConnectionClosed(socket, "server must reap the stalled handshake");
+                }
+                assertTrue(await(() -> server.connectionMetrics().handshakeTimeouts() >= 1L, 5_000L));
+            }
+        }
+    }
+
+    @Test
+    void idleAuthenticatedConnectionIsReaped() throws Exception {
+        Path dir = Files.createTempDirectory("binary-ingress-idle-timeout");
+        BinaryIngressLimits limits = new BinaryIngressLimits(16, 5_000L, 200L);
+        try (MatcherNodeService nodeService = new MatcherNodeService(testConfig(dir))) {
+            nodeService.start();
+            try (BinaryOrderIngressServer server = new BinaryOrderIngressServer(
+                    "127.0.0.1", 0, 32, IngressAuthConfig.disabled(), limits, nodeService)) {
+                server.start();
+                try (Socket socket = connect(server.port())) {
+                    assertConnectionClosed(socket, "idle session must be closed");
+                }
+                assertTrue(await(() -> server.connectionMetrics().idleTimeouts() >= 1L, 5_000L));
+            }
+        }
+    }
+
+    @Test
+    void connectionsBeyondTheCeilingAreRejected() throws Exception {
+        Path dir = Files.createTempDirectory("binary-ingress-max-connections");
+        BinaryIngressLimits limits = new BinaryIngressLimits(1, 5_000L, 0L);
+        try (MatcherNodeService nodeService = new MatcherNodeService(testConfig(dir))) {
+            nodeService.start();
+            try (BinaryOrderIngressServer server = new BinaryOrderIngressServer(
+                    "127.0.0.1", 0, 32, IngressAuthConfig.disabled(), limits, nodeService)) {
+                server.start();
+                try (Socket first = connect(server.port())) {
+                    assertTrue(await(() -> server.connectionMetrics().openConnections() == 1, 5_000L));
+                    try (Socket second = connect(server.port())) {
+                        assertConnectionClosed(second, "second connection must be rejected");
+                    }
+                    assertTrue(await(() -> server.connectionMetrics().rejectedConnections() >= 1L, 5_000L));
+                    assertTrue(first.isConnected());
+                }
+            }
+        }
+    }
+
+    @Test
+    void limitsRejectNonPositiveValues() {
+        assertThrows(IllegalArgumentException.class, () -> new BinaryIngressLimits(0, 1L, 0L));
+        assertThrows(IllegalArgumentException.class, () -> new BinaryIngressLimits(1, 0L, 0L));
+        assertThrows(IllegalArgumentException.class, () -> new BinaryIngressLimits(1, 1L, -1L));
+        assertTrue(BinaryIngressLimits.defaults().idleTimeoutEnabled());
+        assertFalse(new BinaryIngressLimits(1, 1L, 0L).idleTimeoutEnabled());
+    }
+
+    /**
+     * Asserts the peer dropped the connection. A server close with unread client bytes still in
+     * flight surfaces as RST rather than a clean EOF, so both outcomes count as closed.
+     */
+    private static void assertConnectionClosed(Socket socket, String message) throws IOException {
+        try {
+            assertEquals(-1, socket.getInputStream().read(), message);
+        } catch (SocketException expected) {
+            // connection reset by peer
+        }
+    }
+
+    private static Socket connect(int port) throws Exception {
+        Socket socket = new Socket();
+        socket.connect(new InetSocketAddress("127.0.0.1", port), 5_000);
+        socket.setTcpNoDelay(true);
+        socket.setSoTimeout(10_000);
+        return socket;
     }
 
     private static byte[] encodeNewOrderBatch() {

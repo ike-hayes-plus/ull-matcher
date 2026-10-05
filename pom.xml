@@ -5,7 +5,7 @@
 
     <groupId>io.github.ike</groupId>
     <artifactId>ull-matcher-parent</artifactId>
-    <version>1.1.0.0</version>
+    <version>2.0.0</version>
     <packaging>pom</packaging>
 
     <name>Ultra Low Latency HFT Matching Engine</name>
@@ -54,29 +54,39 @@
     </modules>
 
     <properties>
-        <maven.compiler.release>21</maven.compiler.release>
+        <maven.compiler.release>25</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.build.outputTimestamp>2026-01-01T00:00:00Z</project.build.outputTimestamp>
-        <junit.version>5.11.4</junit.version>
+        <junit.version>6.0.3</junit.version>
         <jmh.version>1.37</jmh.version>
-        <curator.version>5.7.1</curator.version>
-        <grpc.version>1.72.0</grpc.version>
-        <jackson.version>2.18.3</jackson.version>
-        <protobuf.version>3.25.5</protobuf.version>
-        <protobuf.maven.plugin.version>0.6.1</protobuf.maven.plugin.version>
-        <os.maven.plugin.version>1.7.1</os.maven.plugin.version>
-        <aeron.version>1.49.3</aeron.version>
+        <curator.version>5.9.0</curator.version>
+        <grpc.version>1.83.1</grpc.version>
+        <jackson.version>3.1.5</jackson.version>
+        <protobuf.version>4.35.1</protobuf.version>
+        <protobuf.maven.plugin.version>5.1.8</protobuf.maven.plugin.version>
+        <aeron.version>1.53.3</aeron.version>
         <opentelemetry.version>1.63.0</opentelemetry.version>
-        <bouncycastle.version>1.78.1</bouncycastle.version>
-        <slf4j.version>2.0.16</slf4j.version>
-        <logback.version>1.5.16</logback.version>
-        <spring.boot.version>3.3.6</spring.boot.version>
-        <undertow.version>2.4.2.Final</undertow.version>
+        <bouncycastle.version>1.86</bouncycastle.version>
+        <slf4j.version>2.0.18</slf4j.version>
+        <logback.version>1.5.38</logback.version>
+        <spring.boot.version>4.1.1</spring.boot.version>
+        <undertow.version>2.4.4.Final</undertow.version>
         <checkstyle.version>3.6.0</checkstyle.version>
         <jacoco.version>0.8.15</jacoco.version>
-        <enforcer.plugin.version>3.5.0</enforcer.plugin.version>
+        <!-- Replaced by jacoco prepare-agent. Modules that override surefire argLine must keep
+             @{jacocoArgLine} first, otherwise the coverage agent is silently dropped. -->
+        <jacocoArgLine/>
+        <jacoco.line.minimum>0.80</jacoco.line.minimum>
+        <jacoco.branch.minimum>0.70</jacoco.branch.minimum>
+        <pitest.version>1.20.5</pitest.version>
+        <pitest.junit5.version>1.2.3</pitest.junit5.version>
+        <pitest.mutation.minimum>70</pitest.mutation.minimum>
+        <pitest.coverage.minimum>80</pitest.coverage.minimum>
+        <cyclonedx.plugin.version>2.9.1</cyclonedx.plugin.version>
+        <dependency.check.version>12.1.3</dependency.check.version>
+        <enforcer.plugin.version>3.6.3</enforcer.plugin.version>
         <gpg.plugin.version>3.2.8</gpg.plugin.version>
-        <central.publishing.plugin.version>0.7.0</central.publishing.plugin.version>
+        <central.publishing.plugin.version>0.11.0</central.publishing.plugin.version>
     </properties>
 
     <dependencyManagement>
@@ -145,7 +155,7 @@
                 <version>${protobuf.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.fasterxml.jackson.core</groupId>
+                <groupId>tools.jackson.core</groupId>
                 <artifactId>jackson-databind</artifactId>
                 <version>${jackson.version}</version>
             </dependency>
@@ -201,7 +211,7 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-compiler-plugin</artifactId>
-                    <version>3.13.0</version>
+                    <version>3.16.0</version>
                     <configuration>
                         <release>${maven.compiler.release}</release>
                         <compilerArgs>
@@ -211,17 +221,43 @@
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-clean-plugin</artifactId>
+                    <version>3.5.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-resources-plugin</artifactId>
+                    <version>3.5.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-jar-plugin</artifactId>
+                    <version>3.5.1</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-install-plugin</artifactId>
+                    <version>3.2.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-deploy-plugin</artifactId>
+                    <version>3.2.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
-                    <version>3.5.2</version>
+                    <version>3.6.0</version>
                     <configuration>
                         <useModulePath>false</useModulePath>
                         <excludedGroups>stress,chaos</excludedGroups>
+                        <argLine>@{jacocoArgLine}</argLine>
                     </configuration>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-source-plugin</artifactId>
-                    <version>3.3.1</version>
+                    <version>3.4.0</version>
                     <executions>
                         <execution>
                             <id>attach-sources</id>
@@ -234,7 +270,7 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-javadoc-plugin</artifactId>
-                    <version>3.11.2</version>
+                    <version>3.12.0</version>
                     <configuration>
                         <doclint>all,-missing</doclint>
                         <source>${maven.compiler.release}</source>
@@ -250,7 +286,7 @@
                     </executions>
                 </plugin>
                 <plugin>
-                    <groupId>org.xolstice.maven.plugins</groupId>
+                    <groupId>io.github.ascopes</groupId>
                     <artifactId>protobuf-maven-plugin</artifactId>
                     <version>${protobuf.maven.plugin.version}</version>
                 </plugin>
@@ -269,6 +305,71 @@
                     <groupId>org.jacoco</groupId>
                     <artifactId>jacoco-maven-plugin</artifactId>
                     <version>${jacoco.version}</version>
+                    <configuration>
+                        <propertyName>jacocoArgLine</propertyName>
+                        <excludes>
+                            <!-- protoc/grpc generated sources; not hand-written code under test. -->
+                            <exclude>io/github/ike/ullmatcher/ha/grpc/proto/**</exclude>
+                            <!-- Live transport hosts are exercised by HA smoke / in-process gRPC tests,
+                                 not by the unit-test bundle. Excluding them keeps the 80/70 gate on
+                                 codecs, config, metrics and adapters. -->
+                            <exclude>io/github/ike/ullmatcher/ha/grpc/server/GrpcReplicationService.class</exclude>
+                            <exclude>io/github/ike/ullmatcher/ha/grpc/server/GrpcReplicationService$*.class</exclude>
+                            <exclude>io/github/ike/ullmatcher/ha/grpc/server/GrpcReplicationServer.class</exclude>
+                            <exclude>io/github/ike/ullmatcher/ha/grpc/server/GrpcReplicationServer$*.class</exclude>
+                            <exclude>io/github/ike/ullmatcher/ha/grpc/client/GrpcReplicationTarget.class</exclude>
+                            <exclude>io/github/ike/ullmatcher/ha/grpc/client/GrpcReplicationTarget$*.class</exclude>
+                            <exclude>io/github/ike/ullmatcher/server/cluster/AeronAuthoritativeClusterPeerClient.class</exclude>
+                            <exclude>io/github/ike/ullmatcher/server/cluster/AeronAuthoritativeIngressService.class</exclude>
+                            <exclude>io/github/ike/ullmatcher/server/cluster/AeronReplicationTransportProvider.class</exclude>
+                            <exclude>io/github/ike/ullmatcher/server/cluster/AeronTransportSecuritySupport.class</exclude>
+                            <exclude>io/github/ike/ullmatcher/server/cluster/MatcherClusterSupervisor.class</exclude>
+                            <exclude>io/github/ike/ullmatcher/server/cluster/DiscoveryDrivenReplicator.class</exclude>
+                            <!-- CLI bootstrap parses system properties and wires process hosts. -->
+                            <exclude>io/github/ike/ullmatcher/server/bootstrap/MatcherServerMain.class</exclude>
+                        </excludes>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <id>prepare-coverage-agent</id>
+                            <goals>
+                                <goal>prepare-agent</goal>
+                            </goals>
+                        </execution>
+                        <execution>
+                            <id>coverage-report</id>
+                            <phase>verify</phase>
+                            <goals>
+                                <goal>report</goal>
+                            </goals>
+                        </execution>
+                        <execution>
+                            <id>coverage-check</id>
+                            <phase>verify</phase>
+                            <goals>
+                                <goal>check</goal>
+                            </goals>
+                            <configuration>
+                                <rules>
+                                    <rule>
+                                        <element>BUNDLE</element>
+                                        <limits>
+                                            <limit>
+                                                <counter>LINE</counter>
+                                                <value>COVEREDRATIO</value>
+                                                <minimum>${jacoco.line.minimum}</minimum>
+                                            </limit>
+                                            <limit>
+                                                <counter>BRANCH</counter>
+                                                <value>COVEREDRATIO</value>
+                                                <minimum>${jacoco.branch.minimum}</minimum>
+                                            </limit>
+                                        </limits>
+                                    </rule>
+                                </rules>
+                            </configuration>
+                        </execution>
+                    </executions>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
@@ -291,12 +392,12 @@
                         <configuration>
                             <rules>
                                 <requireJavaVersion>
-                                    <version>[21,22)</version>
-                                    <message>ull-matcher requires JDK 21. Use sdkman in this repo: `sdk env install &amp;&amp; sdk env`.</message>
+                                    <version>[25,26)</version>
+                                    <message>ull-matcher requires JDK 25. Use sdkman in this repo: `sdk env install &amp;&amp; sdk env`.</message>
                                 </requireJavaVersion>
                                 <requireMavenVersion>
-                                    <version>[3.9,)</version>
-                                    <message>ull-matcher requires Maven 3.9+.</message>
+                                    <version>[4.0.0-rc-7,5)</version>
+                                    <message>ull-matcher requires Maven 4. Use the repo wrapper: `./mvnw`.</message>
                                 </requireMavenVersion>
                             </rules>
                         </configuration>
@@ -391,6 +492,118 @@
                             <groups>chaos</groups>
                             <excludedGroups></excludedGroups>
                         </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <!--
+                Mutation testing. Line coverage only proves a line executed; the mutation
+                score proves the assertions would fail if the behaviour changed. Enabled
+                explicitly because a full PIT run is far slower than the normal test phase.
+            -->
+            <id>mutation</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.pitest</groupId>
+                        <artifactId>pitest-maven</artifactId>
+                        <version>${pitest.version}</version>
+                        <dependencies>
+                            <dependency>
+                                <groupId>org.pitest</groupId>
+                                <artifactId>pitest-junit5-plugin</artifactId>
+                                <version>${pitest.junit5.version}</version>
+                            </dependency>
+                        </dependencies>
+                        <configuration>
+                            <targetClasses>
+                                <param>io.github.ike.ullmatcher.*</param>
+                            </targetClasses>
+                            <excludedClasses>
+                                <param>io.github.ike.ullmatcher.ha.grpc.proto.*</param>
+                            </excludedClasses>
+                            <outputFormats>
+                                <param>HTML</param>
+                                <param>XML</param>
+                            </outputFormats>
+                            <mutationThreshold>${pitest.mutation.minimum}</mutationThreshold>
+                            <coverageThreshold>${pitest.coverage.minimum}</coverageThreshold>
+                            <timestampedReports>false</timestampedReports>
+                            <threads>4</threads>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>mutation-coverage</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>mutationCoverage</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <!-- CycloneDX SBOM for every published artifact. -->
+            <id>sbom</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.cyclonedx</groupId>
+                        <artifactId>cyclonedx-maven-plugin</artifactId>
+                        <version>${cyclonedx.plugin.version}</version>
+                        <configuration>
+                            <projectType>library</projectType>
+                            <schemaVersion>1.6</schemaVersion>
+                            <includeBomSerialNumber>true</includeBomSerialNumber>
+                            <outputFormat>all</outputFormat>
+                            <outputName>bom</outputName>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>build-sbom</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>makeAggregateBom</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <!--
+                Known-vulnerability scan. Separate profile because it needs the NVD feed,
+                which is too slow and too flaky to sit in the default build.
+            -->
+            <id>dependency-check</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.owasp</groupId>
+                        <artifactId>dependency-check-maven</artifactId>
+                        <version>${dependency.check.version}</version>
+                        <configuration>
+                            <failBuildOnCVSS>7</failBuildOnCVSS>
+                            <formats>
+                                <format>HTML</format>
+                                <format>JSON</format>
+                            </formats>
+                            <skipTestScope>true</skipTestScope>
+                            <nvdApiKey>${env.NVD_API_KEY}</nvdApiKey>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>scan-dependencies</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>aggregate</goal>
+                                </goals>
+                            </execution>
+                        </executions>
                     </plugin>
                 </plugins>
             </build>

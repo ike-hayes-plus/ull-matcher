@@ -168,6 +168,10 @@ public final class SubmissionTracker {
         public SubmissionView awaitCommitted(long timeoutMillis) throws IOException {
             return tracked.awaitCommitted(timeoutMillis, orderStateTracker);
         }
+
+        public SubmissionReceipt awaitCommittedReceipt(long timeoutMillis) throws IOException {
+            return tracked.awaitCommittedReceipt(timeoutMillis);
+        }
     }
 
     /**
@@ -414,6 +418,10 @@ public final class SubmissionTracker {
             return awaitFuture(committedOutcome, timeoutMillis, orderStateTracker);
         }
 
+        private SubmissionReceipt awaitCommittedReceipt(long timeoutMillis) throws IOException {
+            return awaitReceipt(committedOutcome, timeoutMillis);
+        }
+
         private SubmissionReceipt awaitReceipt(OutcomeSignal future, long timeoutMillis) throws IOException {
             try {
                 if (!future.await(timeoutMillis)) {
@@ -454,6 +462,8 @@ public final class SubmissionTracker {
     }
 
     private static final class OutcomeSignal {
+        private static final int SPIN_TRIES = 512;
+
         private volatile boolean completed;
         private volatile Thread waiter;
 
@@ -464,7 +474,13 @@ public final class SubmissionTracker {
             long remainingNanos = timeoutMillis <= 0L ? 0L : TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
             long deadline = timeoutMillis <= 0L ? 0L : System.nanoTime() + remainingNanos;
             waiter = Thread.currentThread();
+            int spins = 0;
             while (!completed) {
+                if (spins < SPIN_TRIES) {
+                    spins++;
+                    Thread.onSpinWait();
+                    continue;
+                }
                 if (timeoutMillis <= 0L) {
                     waiter = null;
                     return false;

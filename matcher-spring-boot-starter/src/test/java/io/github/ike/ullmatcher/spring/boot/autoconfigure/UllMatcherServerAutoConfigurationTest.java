@@ -249,6 +249,57 @@ class UllMatcherServerAutoConfigurationTest {
     }
 
     @Test
+    void infersEtcdWhenOnlyEtcdEndpointIsSetAndBlankTlsPathsStayNull() {
+        contextRunner
+                .withPropertyValues(
+                        "ull.matcher.cluster.enabled=true",
+                        "ull.matcher.cluster.name=orders",
+                        "ull.matcher.cluster.etcd-endpoint=http://127.0.0.1:2379",
+                        "ull.matcher.cluster.etcd-key-prefix=",
+                        "ull.matcher.cluster.lease-provider= ",
+                        "ull.matcher.cluster.discovery-provider=",
+                        "ull.matcher.tls.cert-chain=",
+                        "ull.matcher.tls.private-key=",
+                        "ull.matcher.tls.trust-chain="
+                )
+                .run(context -> {
+                    assertThat(context).hasSingleBean(LeaseStore.class);
+                    assertThat(context.getBean(LeaseStore.class)).isInstanceOf(EtcdLeaseStore.class);
+                    assertThat(context.getBean(NodeRegistry.class)).isInstanceOf(EtcdNodeRegistry.class);
+                    assertThat(context.getBean(ServerSecurityConfig.class).grpcServerTls()).isNull();
+                });
+    }
+
+    @Test
+    void rejectsUnsupportedAndIncompleteControlPlaneSettings() {
+        contextRunner
+                .withPropertyValues(
+                        "ull.matcher.cluster.enabled=true",
+                        "ull.matcher.cluster.lease-provider=consul",
+                        "ull.matcher.cluster.discovery-provider=consul"
+                )
+                .run(context -> assertThat(context).hasFailed());
+
+        contextRunner
+                .withPropertyValues(
+                        "ull.matcher.cluster.enabled=true",
+                        "ull.matcher.cluster.lease-provider=zk",
+                        "ull.matcher.cluster.discovery-provider=zk",
+                        "ull.matcher.cluster.zookeeper-connect="
+                )
+                .run(context -> assertThat(context).hasFailed());
+
+        contextRunner
+                .withPropertyValues(
+                        "ull.matcher.cluster.enabled=true",
+                        "ull.matcher.cluster.lease-provider=etcd",
+                        "ull.matcher.cluster.discovery-provider=etcd",
+                        "ull.matcher.cluster.etcd-endpoint="
+                )
+                .run(context -> assertThat(context).hasFailed());
+    }
+
+    @Test
     void rejectsMixedControlPlaneProvidersForClusterMode() {
         contextRunner
                 .withPropertyValues(

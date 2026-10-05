@@ -23,8 +23,8 @@ public final class EtcdLeaseStore implements LeaseStore, Closeable {
     private final long localHeldCheckCacheNanos;
     private volatile CachedHeldLease cachedHeldLease;
 
-    public EtcdLeaseStore(EtcdConfig config) {
-        this(new EtcdClient(config.endpoint(), config.timeoutMillis()),
+    public EtcdLeaseStore(EtcdConfig config) throws IOException {
+        this(new EtcdClient(config),
                 normalizePrefix(config.keyPrefix()) + "/lease/primary",
                 config.leaseTtlSeconds(),
                 java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(config.localHeldCheckCacheMillis()));

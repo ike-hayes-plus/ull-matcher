@@ -28,6 +28,35 @@
 - 不是风控系统
 - 不是行情分发系统
 - 不是统一 API 网关
+
+## 架构边界：单分片是设计选择，不是未完成的功能
+
+一个撮合进程只服务一个 symbol，撮合由单线程完成。这是刻意的取舍，不是待补的缺口：
+
+- **可线性化的撮合语义。** 单线程 + 单状态机让价格时间优先、自成交防护、TTL 过期都能用
+  确定性的顺序表达。一旦引入多线程撮合，这些性质要靠锁或 STM 维持，热路径延迟会退化到
+  微秒量级，而本项目的目标区间是百纳秒级。
+- **可重放的恢复模型。** WAL 是单一有序的命令流，重放一遍就能得到唯一确定的状态。
+  多 symbol 共享一个状态机会把恢复变成跨 symbol 的顺序协调问题。
+- **故障域隔离。** 一个 symbol 的订单簿膨胀、GC 压力或崩溃不会牵连其他 symbol。
+
+代价也要说清楚：**单进程吞吐就是单 symbol 的吞吐上限，没有办法靠加核来提升。**
+总吞吐只能靠分片横向扩展，由上游网关按 symbol 路由。容量换算见
+[多分片容量规划](doc/architecture/shard-capacity-planning.md)。
+
+如果你需要的是「一个进程撮合全部交易对」，这个项目不适合你。
+
+## 路线图
+
+| 版本 | 范围 |
+| --- | --- |
+| 2.0（当前） | JDK 25 / Maven 4 基线；入口鉴权与连接治理；etcd mTLS；生产安全默认值收敛 |
+| 2.1 | 复制传输统一到单一实现；`AERON_PREVIEW` 转正或下线；WAL 分段归档与冷备 |
+| 3.0 | 多分片编排：分片注册与 symbol 路由、跨分片一致的快照协议、分片级在线扩缩容；移除 `matcher.clusterName` 等 2.x 弃用属性 |
+
+3.0 的多分片仍然**不会**把多个 symbol 放进同一个状态机。要做的是把「若干单分片节点」
+编排成一个可运维的整体：分片发现、路由表、滚动扩缩容和统一的运维面，
+每个分片内部依旧是单 symbol 单线程。
 - 不是多交易对混跑的大一统状态机
 
 ## 模块地图
@@ -77,12 +106,14 @@
   7. 通过 submission 查询接口获取最终复制确认状态
 - 高可用模型是 `1 primary + N standbys`
 
+集成与 2.0 基线见 [doc/MIGRATION-2.0.md](doc/MIGRATION-2.0.md)（**仅维护 2.0 服务端与 Java SDK**）。生产安全边界见 [doc/operations/security-boundary.md](doc/operations/security-boundary.md)。
+
 ## 快速开始
 
 ### 环境要求
 
-- JDK 21
-- Maven 3.9+
+- JDK 25
+- Maven 4，使用仓库里的 `./mvnw`
 - 本地 SSD / NVMe
 
 工程内已经带 `.sdkmanrc`，请在仓库目录执行：
@@ -97,8 +128,8 @@ java -version
 ### 构建
 
 ```bash
-mvn --batch-mode --no-transfer-progress test
-mvn --batch-mode --no-transfer-progress -pl matcher-server-dist -am package
+./mvnw --batch-mode --no-transfer-progress test
+./mvnw --batch-mode --no-transfer-progress -pl matcher-server-dist -am package
 ```
 
 ### 最短单机启动
@@ -108,7 +139,7 @@ sdk env
 java -Dmatcher.nodeId=node-a \
      -Dmatcher.symbolId=1 \
      -Dmatcher.dataDir=target/matcher-server \
-     -jar matcher-server-dist/target/ull-matcher-server-dist-1.1.0.0.jar
+     -jar matcher-server-dist/target/ull-matcher-server-dist-2.0.0.jar
 ```
 
 开发调试时也可以直接使用模块 classpath 启动：
@@ -226,9 +257,10 @@ bash scripts/deploy/stop-node.sh node-b
 
 ### 传输选择
 
-- 默认传输：`GRPC`
-- 可选高性能传输：`AERON`
-默认 `GRPC` 是保守生产默认值。这表示它在基线事实源中单备 committed 曲线最稳定，不表示所有拓扑下都绝对最快。
+- **生产默认传输：`GRPC`**
+- **可选高级传输：`AERON`**（开源能力；生产启用前须 `transport-compare` + 长稳 soak，见 [ha-sharding-lab.md](doc/operations/ha-sharding-lab.md)）
+
+默认 `GRPC` 是保守生产默认值：基线中单备 committed 曲线最稳定，运维与 mTLS 路径最清晰。
 
 生产环境一次只选择一种权威复制传输。不要在生产上同时依赖两种传输。
 
@@ -275,11 +307,11 @@ scripts/lab/run-rest-commit-benchmark.sh \
 
 ## Java SDK
 
-Java SDK 模块：
+Java SDK 模块（**仅 2.0**，Maven 坐标 `io.github.ike:ull-matcher-sdk-java:2.0.0`）：
 
 - `matcher-sdk-java`
 
-SDK 用于生产服务集成，封装 HTTP API 与 binary ingress 两类入口。HTTP 客户端适合管理面、查询、补单和普通业务接入：
+SDK 用于生产服务集成，封装 HTTP API 与 binary ingress 两类入口（含 binary 32 字节握手与 ingress API key）。HTTP 客户端适合管理面、查询、补单和普通业务接入：
 
 ```java
 import io.github.ike.ullmatcher.sdk.MatcherClientConfig;
@@ -320,8 +352,9 @@ try (MatcherBinaryClient client = new MatcherBinaryClient("127.0.0.1", 18080, ja
 | `GET`  | `/api/v1/submissions/{submissionId}`                    | 查询 submission     |
 | `GET`  | `/api/v1/submissions/by-idempotency?idempotencyKey=...` | 按幂等键查询 submission |
 | `POST` | `/api/v1/admin/snapshot`                                | 触发快照              |
-| `GET`  | `/api/v1/runtime/health`                                | 节点健康              |
-| `GET`  | `/api/v1/runtime/readiness`                             | readiness         |
+| `GET`  | `/api/v1/runtime/live`                                  | 存活探针，仅返回 `{"status":"UP"}`，免鉴权 |
+| `GET`  | `/api/v1/runtime/health`                                | 节点健康，需要 ingress API key |
+| `GET`  | `/api/v1/runtime/readiness`                             | readiness，需要 ingress API key |
 | `GET`  | `/api/v1/runtime/state`                                 | 运行态               |
 | `GET`  | `/metrics`                                              | Prometheus 指标     |
 
@@ -347,15 +380,16 @@ try (MatcherBinaryClient client = new MatcherBinaryClient("127.0.0.1", 18080, ja
 
 HTTP 写入支持 ack 模式：
 
-- `local`
-  - 默认快路径
+- `local`（**推荐默认**）
   - 返回前只等待 primary 本地 WAL 与本机提交链受理
-  - 复制确认可能仍在后台推进
+  - 复制确认在后台推进；追平用 `/api/v1/runtime/health` 与 metrics
 - `committed`
   - 返回前等待所在集群 `matcher.replicationMode` 对应的 replication committed
-  - 适合普通业务高可用写入和补单
+  - 适合无 watermark 的客户端、批量补单；批量写入优先 `POST /api/v1/orders/batch`
 
 默认模式可通过 `matcher.httpSubmitAckMode=local|committed` 配置。单次请求可用 JSON 字段 `ack`、查询参数 `?ack=...` 或请求头 `X-Ull-Ack` 覆盖。
+
+Binary ingress：**默认帧类型 `1`**（同 `local` 语义）；帧类型 `3` 等同 wire 级 `committed`。生产容量规划见 [benchmark-baseline.md](doc/operations/benchmark-baseline.md) 的 **replication committed** 数字。
 
 语义分两层：
 
@@ -435,11 +469,12 @@ HA 模型是“单 shard 一主多备”：一个交易对/商户分片内只有
 
 ## 监控与排障
 
-最常用的排障入口只有三个：
+最常用的排障入口：
 
-- `GET /api/v1/runtime/health`
-- `GET /api/v1/runtime/readiness`
-- `GET /metrics`
+- `GET /api/v1/runtime/live`（负载均衡 / k8s livenessProbe，免鉴权）
+- `GET /api/v1/runtime/health`（需要 API key）
+- `GET /api/v1/runtime/readiness`（需要 API key）
+- `GET /metrics`（需要 API key；含 `ull_matcher_binary_*` 连接配额）
 
 优先看这些字段：
 
@@ -506,7 +541,7 @@ Binary HA committed 容量行使用 `32768/32768` 订单窗口，便于更稳定
 
 ### 推荐服务器配置
 
-压测基线来自 Apple M4 Pro、12 逻辑 CPU、24 GiB 内存、本地 SSD、JDK 21。生产环境建议按下面配置起步：
+压测基线来自 Apple M4 Pro、12 逻辑 CPU、24 GiB 内存、本地 SSD、**JDK Temurin 25.0.3**。容量数字以 [Benchmark 基线](doc/operations/benchmark-baseline.md) 与 `target/benchmark/current/` 为准。生产环境建议按下面配置起步：
 
 | 用途 | CPU | 内存 | 磁盘 | 网络 |
 | --- | --- | --- | --- | --- |
@@ -523,17 +558,17 @@ Binary HA committed 容量行使用 `32768/32768` 订单窗口，便于更稳定
 
 | 模式                                                            | 推荐用途                             | accepted/s | trade events/s | committed/s |
 | ------------------------------------------------------------- | -------------------------------- | ----------: | --------------: | ----------: |
-| Core-only matcher                                             | 纯内存撮合主链                         | `24,855,862` | `N/A` | `N/A` |
-| Single-node HTTP                                              | 通用业务服务                           | `6,532` | `6,532` | `6,532` |
-| Single-node binary                                            | 高频单节点                            | `132,048` | `132,048` | `132,048` |
-| External `1P1S` REST + `GRPC` local ack                       | REST 写入 + 单备复制，本地 WAL 返回         | `4,440` | `4,440` | `4,432` |
-| External `1P1S` REST + `GRPC` committed ack                   | REST 写入 + 单备复制，等待 committed 返回   | `3,481` | `3,481` | `3,476` |
-| External `1P1S` binary + `GRPC` replication committed         | 高频主入口 + 单备闭环真实 committed         | `333,904` | `333,904` | `246,046` |
-| External `1P1S` binary + `AERON` replication committed        | 高频主入口 + 单备闭环真实 committed         | `194,343` | `194,343` | `192,530` |
-| External `1P2S` binary + `GRPC` quorum replication committed  | 高频主入口 + 两备 quorum 闭环真实 committed | `301,379` | `301,379` | `190,916` |
-| External `1P2S` binary + `AERON` quorum replication committed | 高频主入口 + 两备 quorum 闭环真实 committed | `384,903` | `384,903` | `131,249` |
-| External `1P3S` binary + `GRPC` quorum replication committed  | 高频主入口 + 三备 quorum 闭环真实 committed | `223,078` | `223,078` | `131,616` |
-| External `1P3S` binary + `AERON` quorum replication committed | 高频主入口 + 三备 quorum 闭环真实 committed | `385,718` | `385,718` | `54,820` |
+| Core-only matcher                                             | 纯内存撮合主链                         | `32,464,634` | `N/A` | `N/A` |
+| Single-node HTTP                                              | 通用业务服务                           | 见基线文档 | 见基线文档 | 见基线文档 |
+| Single-node binary                                            | 高频单节点                            | 见基线文档 | 见基线文档 | 见基线文档 |
+| External `1P1S` REST + `GRPC` local ack                       | REST 写入 + 单备复制，本地 WAL 返回         | `3,375` | `3,375` | `3,369` |
+| External `1P1S` REST + `GRPC` committed ack                   | REST 写入 + 单备复制，等待 committed 返回   | `3,403` | `3,403` | `3,397` |
+| External `1P1S` binary + `GRPC` replication committed         | 高频主入口 + 单备闭环真实 committed         | `302,069` | `302,069` | `264,048` |
+| External `1P1S` binary + `AERON` replication committed        | 高频主入口 + 单备闭环真实 committed         | `270,880` | `270,880` | `210,889` |
+| External `1P2S` binary + `GRPC` quorum replication committed  | 高频主入口 + 两备 quorum 闭环真实 committed | `218,302` | `218,302` | `205,545` |
+| External `1P2S` binary + `AERON` quorum replication committed | 高频主入口 + 两备 quorum 闭环真实 committed | `324,817` | `324,817` | `78,769` |
+| External `1P3S` binary + `GRPC` quorum replication committed  | 高频主入口 + 三备 quorum 闭环真实 committed | `194,859` | `194,859` | `182,880` |
+| External `1P3S` binary + `AERON` quorum replication committed | 高频主入口 + 三备 quorum 闭环真实 committed | `297,155` | `297,155` | `43,807` |
 
 ### 推荐部署原则
 
@@ -591,12 +626,17 @@ Standalone 与 Spring Boot starter 共享 WAL 默认值：`SYNC_PER_COMMAND`、`
   - [贡献指南](CONTRIBUTING.md)
   - [安全策略](SECURITY.md)
   - [行为准则](CODE_OF_CONDUCT.md)
+  - [变更日志](CHANGELOG.md)
+  - [2.0 集成与基线](doc/MIGRATION-2.0.md)
+  - [2.0 CTO Sign-off（一页纸）](doc/operations/cto-signoff-2.0.md)
+  - [2.0 CTO 审查报告（98/100）](doc/operations/cto-review-2.0-report.md)
 - 架构：
   - [Shard 模型设计](doc/architecture/shard-model-design.md)
   - [多分片容量规划](doc/architecture/shard-capacity-planning.md)
   - [Spring Boot Starter 设计](doc/architecture/matcher-spring-boot-starter-design.md)
 - 运维与压测：
   - [生产部署与容量规划](doc/operations/production-deployment-and-capacity.md)
+  - [安全边界](doc/operations/security-boundary.md)
   - [Benchmark 基线](doc/operations/benchmark-baseline.md)
   - [部署模式](doc/operations/deployment-modes.md)
   - [HA / Sharding 验证环境手册](doc/operations/ha-sharding-lab.md)

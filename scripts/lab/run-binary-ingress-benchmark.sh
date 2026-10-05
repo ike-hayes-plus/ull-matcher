@@ -30,6 +30,7 @@ CONTROL_PLANE="${CONTROL_PLANE:-zk}"
 CLUSTER_STABLE_ROUNDS="${CLUSTER_STABLE_ROUNDS:-8}"
 CLUSTER_STABLE_TIMEOUT_SECONDS="${CLUSTER_STABLE_TIMEOUT_SECONDS:-30}"
 BENCHMARK_RETRIES="${BENCHMARK_RETRIES:-1}"
+COMMITTED_FRAME="${COMMITTED_FRAME:-false}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -46,6 +47,7 @@ while [[ $# -gt 0 ]]; do
     --mixed-rounds) MIXED_ROUNDS="$2"; shift 2 ;;
     --mixed-maker-batch-size) MIXED_MAKER_BATCH_SIZE="$2"; shift 2 ;;
     --mixed-taker-batch-size) MIXED_TAKER_BATCH_SIZE="$2"; shift 2 ;;
+    --committed-frame) COMMITTED_FRAME="true"; shift ;;
     *)
       echo "unknown arg: $1" >&2
       exit 2
@@ -101,10 +103,11 @@ if [[ "$MODE" != "replication-commit" && "$STANDBY_COMMIT_MODE" != "any" ]]; the
   echo "[bench] --standby-commit-mode=${STANDBY_COMMIT_MODE} only applies to replication-commit; using any for ${MODE}" >&2
   STANDBY_COMMIT_MODE="any"
 fi
+# CLI commit mode wins over a stale REPLICATION_MODE inherited from the parent shell.
 case "$STANDBY_COMMIT_MODE" in
-  any) REPLICATION_MODE="${REPLICATION_MODE:-WAIT_FOR_ANY_STANDBY}" ;;
-  quorum) REPLICATION_MODE="${REPLICATION_MODE:-WAIT_FOR_QUORUM_STANDBYS}" ;;
-  all) REPLICATION_MODE="${REPLICATION_MODE:-WAIT_FOR_ALL_STANDBYS}" ;;
+  any) REPLICATION_MODE="WAIT_FOR_ANY_STANDBY" ;;
+  quorum) REPLICATION_MODE="WAIT_FOR_QUORUM_STANDBYS" ;;
+  all) REPLICATION_MODE="WAIT_FOR_ALL_STANDBYS" ;;
   *)
     echo "--standby-commit-mode must be any, quorum, or all: ${STANDBY_COMMIT_MODE}" >&2
     exit 2
@@ -190,6 +193,7 @@ rm -rf "$DATA_ROOT" "$LOG_ROOT"
 mkdir -p "$DATA_ROOT" "$LOG_ROOT"
 
 export SHARD_KEY SYMBOL_ID CLUSTER_NAME ZK_CONNECT ETCD_ENDPOINT DATA_ROOT LOG_ROOT REPLICATION_MODE REPLICATION_TRANSPORT="$TRANSPORT"
+echo "[bench] replicationMode=${REPLICATION_MODE} cluster=${CLUSTER_NAME} data=${DATA_ROOT}"
 if [[ "$CONTROL_PLANE" == "etcd" ]]; then
   export LEASE_PROVIDER="etcd" DISCOVERY_PROVIDER="etcd"
 else
@@ -386,6 +390,9 @@ if [[ "$MODE" == "replication-commit" ]]; then
     --batch-size "$BATCH_SIZE"
     --crossing-orders "$CROSSING_ORDERS"
   )
+  if [[ "$COMMITTED_FRAME" == "true" ]]; then
+    CMD+=(--committed-frame)
+  fi
 fi
 for ((i = 0; i < NODE_COUNT; i++)); do
   if [[ "${NODE_IDS[$i]}" != "$PRIMARY_NODE_ID" ]]; then

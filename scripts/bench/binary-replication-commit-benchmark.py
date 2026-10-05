@@ -22,6 +22,7 @@ REQUEST_MAGIC = 0x554C4C42
 RESPONSE_MAGIC = 0x554C4C52
 PROTOCOL_VERSION = 1
 FRAME_TYPE_NEW_ORDER_BATCH = 1
+FRAME_TYPE_NEW_ORDER_BATCH_COMMITTED = 3
 FRAME_TYPE_BATCH_RESULT = 101
 RESPONSE_RECORD_BYTES = 24
 
@@ -92,7 +93,7 @@ class BinarySession:
     def close(self):
         self.sock.close()
 
-    def send_new_orders(self, records):
+    def send_new_orders(self, records, *, committed_frame: bool = False):
         payload = bytearray()
         for item in records:
             payload.extend(struct.pack(
@@ -106,7 +107,8 @@ class BinarySession:
                 item["orderType"].encode("ascii"),
                 item["tif"].encode("ascii"),
             ))
-        header = struct.pack(">IHHII", REQUEST_MAGIC, PROTOCOL_VERSION, FRAME_TYPE_NEW_ORDER_BATCH, len(records), len(payload))
+        frame_type = FRAME_TYPE_NEW_ORDER_BATCH_COMMITTED if committed_frame else FRAME_TYPE_NEW_ORDER_BATCH
+        header = struct.pack(">IHHII", REQUEST_MAGIC, PROTOCOL_VERSION, frame_type, len(records), len(payload))
         started = time.perf_counter_ns()
         self.sock.sendall(header + payload)
         response_header = self._recv_exact(16)
@@ -120,8 +122,14 @@ class BinarySession:
         responses = []
         for i in range(response_count):
             base = i * RESPONSE_RECORD_BYTES
-            order_id, sequence, status, _reserved = struct.unpack(">QQII", response_payload[base:base + RESPONSE_RECORD_BYTES])
-            responses.append({"orderId": order_id, "sequence": sequence, "status": status})
+            order_id, sequence, status, reserved = struct.unpack(">QQII", response_payload[base:base + RESPONSE_RECORD_BYTES])
+            responses.append({"orderId": order_id, "sequence": sequence, "status": status, "replicationCommitted": reserved == 1})
+        if committed_frame:
+            for response in responses:
+                if status_to_result(response["status"]) != "ACCEPTED":
+                    continue
+                if not response.get("replicationCommitted"):
+                    raise IOError(f"binary committed frame missing replication ack for order {response['orderId']}")
         return responses, latency_ms
 
     def _recv_exact(self, size: int) -> bytes:
@@ -199,7 +207,7 @@ def run_warmup(binary_host: str, binary_port: int, timeout_seconds: float, warmu
         session.close()
 
 
-def run_worker(start_latch: threading.Event, binary_host: str, binary_port: int, timeout_seconds: float, batch_size: int, order_id_base: int, order_count: int):
+def run_worker(start_latch: threading.Event, binary_host: str, binary_port: int, timeout_seconds: float, batch_size: int, order_id_base: int, order_count: int, committed_frame: bool):
     session = BinarySession(binary_host, binary_port, timeout_seconds)
     latencies = []
     rejected = 0
@@ -213,7 +221,7 @@ def run_worker(start_latch: threading.Event, binary_host: str, binary_port: int,
                 build_new_order(order_id_base + sent + i, 1, "B", "L", "I", 101, 1)
                 for i in range(count)
             ]
-            responses, latency_ms = session.send_new_orders(records)
+            responses, latency_ms = session.send_new_orders(records, committed_frame=committed_frame)
             per_order_latency = latency_ms / max(1, count)
             for response in responses:
                 latencies.append(per_order_latency)
@@ -248,6 +256,11 @@ def main():
     parser.add_argument("--poll-interval-seconds", type=float, default=0.005)
     parser.add_argument("--order-id-start", type=int, default=int(time.time() * 1_000_000))
     parser.add_argument("--standby-commit-mode", choices=("any", "quorum", "all"), default="any")
+    parser.add_argument(
+        "--committed-frame",
+        action="store_true",
+        help="use binary frame type 3 (wait for replication committed in the response)",
+    )
     args = parser.parse_args()
 
     phase = "bootstrap"
@@ -355,6 +368,7 @@ def main():
                     args.batch_size,
                     next_order_id,
                     worker_orders,
+                    args.committed_frame,
                 ))
                 next_order_id += worker_orders
             start_latch.set()
@@ -461,6 +475,7 @@ def main():
         "binaryHost": args.binary_host,
         "binaryPort": args.binary_port,
         "standbyCommitMode": args.standby_commit_mode,
+        "binaryCommittedFrame": args.committed_frame,
         "restingOrders": args.resting_orders,
         "concurrency": args.concurrency,
         "batchSize": args.batch_size,

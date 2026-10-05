@@ -58,16 +58,20 @@ public final class AeronReplicatedCommandBatchCodec {
     }
 
     public static DecodedBatch decode(DirectBuffer buffer, int offset, int length) {
+        int end = AeronFrameBounds.end(buffer, offset, length);
+        AeronFrameBounds.requireHeader(offset, end, OFFSET_CHANNEL);
         int frameKind = buffer.getInt(offset + OFFSET_FRAME_KIND);
         if (frameKind != FRAME_KIND_BATCH) {
             throw new IllegalArgumentException("unsupported replicated command batch frame kind " + frameKind);
         }
         int responseStreamId = buffer.getInt(offset + OFFSET_RESPONSE_STREAM_ID);
         int commandCount = buffer.getInt(offset + OFFSET_COMMAND_COUNT);
-        int channelLength = buffer.getInt(offset + OFFSET_CHANNEL_LENGTH);
+        int channelLength = AeronFrameBounds.fitting(
+                buffer.getInt(offset + OFFSET_CHANNEL_LENGTH), offset + OFFSET_CHANNEL, end);
         byte[] channelBytes = new byte[channelLength];
         buffer.getBytes(offset + OFFSET_CHANNEL, channelBytes);
         int commandsOffset = offset + OFFSET_CHANNEL + channelLength;
+        AeronFrameBounds.fittingCount(commandCount, AeronCommandCodec.ENCODED_LENGTH, commandsOffset, end);
         return new DecodedBatch(
                 new CommandListView(buffer, commandsOffset, commandCount),
                 new String(channelBytes, StandardCharsets.UTF_8),

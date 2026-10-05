@@ -12,6 +12,7 @@ import io.github.ike.ullmatcher.server.bootstrap.MatcherServerConfig;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerMode;
 import io.github.ike.ullmatcher.server.bootstrap.WriteAdmissionPolicyConfig;
 import io.github.ike.ullmatcher.server.security.ServerSecurityConfig;
+import io.github.ike.ullmatcher.server.security.IngressAuthConfig;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
@@ -60,6 +61,7 @@ final class StrictTtlRecoveryTest {
                 8,
                 WriteAdmissionPolicyConfig.defaults(),
                 false,
+                IngressAuthConfig.disabled(),
                 0,
                 GrpcReplicationServerConfig.defaults(0),
                 ServerSecurityConfig.insecureDefaults(),

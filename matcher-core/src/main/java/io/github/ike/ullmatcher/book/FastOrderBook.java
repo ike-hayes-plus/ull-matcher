@@ -11,15 +11,16 @@ import java.util.function.Consumer;
 /**
  * 单线程订单簿，面向极低延迟撮合场景。
  * <p>
- * 核心结构：
+ * 设计取向（与一线交易所内核常见做法一致）：
  * <ul>
- *     <li>买盘和卖盘：{@code long price -> PriceLevel}，避免 {@code BigDecimal} 和装箱。</li>
- *     <li>订单索引：{@code long orderId -> Order}，用于 {@code O(1)} 撤单。</li>
- *     <li>买盘价格堆和卖盘价格堆：原始 {@code long} 堆，使用懒删除查找最优价。</li>
+ *     <li>价格-时间优先：每个价位 {@link PriceLevel} 维护侵入式 FIFO 双向链表，撮合在同档内 O(1) 前进。</li>
+ *     <li>定点数价格索引：{@code long price -> PriceLevel}，无 {@code BigDecimal}、无装箱。</li>
+ *     <li>订单索引：{@code long orderId -> Order}，撤单 O(1)。</li>
+ *     <li>最优价：原始 {@code long} 堆 + 空档懒删除，避免堆内删除的 log 成本。</li>
+ *     <li>对象池：{@link PriceLevel} 与 {@link io.github.ike.ullmatcher.core.OrderPool} 复用节点，热路径零分配。</li>
  * </ul>
  * <p>
- * 注意：
- * 本类不是线程安全的，只能在一个撮合线程内使用。
+ * 注意：本类不是线程安全的，只能在一个撮合线程内使用。
  */
 public final class FastOrderBook {
     /** 按定点数价格索引的买盘价格档。 */

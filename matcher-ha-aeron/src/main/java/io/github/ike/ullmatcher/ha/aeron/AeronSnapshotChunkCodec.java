@@ -48,6 +48,8 @@ public final class AeronSnapshotChunkCodec {
     }
 
     public static DecodedChunk decode(DirectBuffer buffer, int offset, int length) {
+        int end = AeronFrameBounds.end(buffer, offset, length);
+        AeronFrameBounds.requireHeader(offset, end, OFFSET_PAYLOAD);
         long requestId = buffer.getLong(offset + OFFSET_REQUEST_ID);
         long lastSequence = buffer.getLong(offset + OFFSET_LAST_SEQUENCE);
         long lastTradeId = buffer.getLong(offset + OFFSET_LAST_TRADE_ID);
@@ -55,7 +57,8 @@ public final class AeronSnapshotChunkCodec {
         long totalBytes = buffer.getLong(offset + OFFSET_TOTAL_BYTES);
         int chunkIndex = buffer.getInt(offset + OFFSET_CHUNK_INDEX);
         boolean lastChunk = (buffer.getInt(offset + OFFSET_FLAGS) & FLAG_LAST_CHUNK) != 0;
-        int payloadLength = buffer.getInt(offset + OFFSET_PAYLOAD_LENGTH);
+        int payloadLength = AeronFrameBounds.fitting(
+                buffer.getInt(offset + OFFSET_PAYLOAD_LENGTH), offset + OFFSET_PAYLOAD, end, MAX_CHUNK_BYTES);
         byte[] payload = new byte[payloadLength];
         buffer.getBytes(offset + OFFSET_PAYLOAD, payload);
         return new DecodedChunk(

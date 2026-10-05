@@ -42,7 +42,7 @@ fi
 
 echo "[lab] building matcher-server runtime classpath"
 (cd "$ROOT_DIR" && export JAVA_HOME="$JAVA_HOME" PATH="$JAVA_HOME/bin:$PATH" && \
-  mvn -q -pl matcher-server -am -DskipTests package dependency:build-classpath \
+  "$ROOT_DIR/mvnw" -q -pl matcher-server -am -DskipTests package dependency:build-classpath \
     -Dmdep.outputFile="$CP_FILE" -Dmdep.pathSeparator=:)
 
 export SHARD_KEY SYMBOL_ID CLUSTER_NAME ZK_CONNECT ETCD_ENDPOINT DATA_ROOT LOG_ROOT CP_FILE REPLICATION_TRANSPORT ENABLE_TRANSPORT_TLS TRANSPORT_TLS_DIR

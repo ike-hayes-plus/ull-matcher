@@ -16,6 +16,7 @@ import io.github.ike.ullmatcher.server.cluster.ClusterSupervisorMetricsSnapshot;
 import io.github.ike.ullmatcher.ha.transport.TransportMetricsSnapshot;
 import io.github.ike.ullmatcher.server.engine.MatcherNodeService;
 import io.github.ike.ullmatcher.server.engine.TtlCancelConfig;
+import io.github.ike.ullmatcher.server.security.IngressAuthConfig;
 import io.github.ike.ullmatcher.server.security.ServerSecurityConfig;
 import io.github.ike.ullmatcher.server.telemetry.ReadinessSnapshot;
 import org.junit.jupiter.api.Test;
@@ -39,6 +40,107 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class HttpApiServerTest {
+    @Test
+    void protectedRouteRequiresIngressApiKeyWhenEnabled() throws Exception {
+        Path dir = Files.createTempDirectory("http-api-auth");
+        MatcherServerConfig config = baseConfig(dir);
+        try (MatcherNodeService nodeService = new MatcherNodeService(config)) {
+            nodeService.start();
+            IngressAuthConfig ingressAuth = IngressAuthConfig.fromCommaSeparated("secret-key", IngressAuthConfig.DEFAULT_API_KEY_HEADER);
+            try (HttpApiServer server = baseServer(nodeService, ingressAuth)) {
+                server.start();
+                HttpClient client = HttpClient.newHttpClient();
+                HttpResponse<String> denied = client.send(
+                        HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + server.port() + "/metrics")).GET().build(),
+                        HttpResponse.BodyHandlers.ofString()
+                );
+                assertEquals(401, denied.statusCode());
+
+                HttpResponse<String> allowed = client.send(
+                        HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + server.port() + "/metrics"))
+                                .header("X-Ull-Api-Key", "secret-key")
+                                .GET()
+                                .build(),
+                        HttpResponse.BodyHandlers.ofString()
+                );
+                assertEquals(200, allowed.statusCode());
+            }
+        }
+    }
+
+    @Test
+    void livenessStaysUnauthenticatedWhileHealthRequiresTheKey() throws Exception {
+        Path dir = Files.createTempDirectory("http-api-live");
+        MatcherServerConfig config = baseConfig(dir);
+        try (MatcherNodeService nodeService = new MatcherNodeService(config)) {
+            nodeService.start();
+            IngressAuthConfig ingressAuth = IngressAuthConfig.fromCommaSeparated("secret-key", IngressAuthConfig.DEFAULT_API_KEY_HEADER);
+            try (HttpApiServer server = baseServer(nodeService, ingressAuth)) {
+                server.start();
+                HttpClient client = HttpClient.newHttpClient();
+                HttpResponse<String> live = client.send(
+                        HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + server.port() + "/api/v1/runtime/live")).GET().build(),
+                        HttpResponse.BodyHandlers.ofString()
+                );
+                assertEquals(200, live.statusCode());
+                assertTrue(live.body().contains("\"status\":\"UP\""));
+                assertFalse(live.body().contains("fencingEpoch"));
+
+                HttpResponse<String> healthDenied = client.send(
+                        HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + server.port() + "/api/v1/runtime/health")).GET().build(),
+                        HttpResponse.BodyHandlers.ofString()
+                );
+                assertEquals(401, healthDenied.statusCode());
+
+                HttpResponse<String> readinessDenied = client.send(
+                        HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + server.port() + "/api/v1/runtime/readiness")).GET().build(),
+                        HttpResponse.BodyHandlers.ofString()
+                );
+                assertEquals(401, readinessDenied.statusCode());
+            }
+        }
+    }
+
+    @Test
+    void metricsExposeBinaryIngressConnectionCounters() throws Exception {
+        Path dir = Files.createTempDirectory("http-api-binary-metrics");
+        MatcherServerConfig config = baseConfig(dir);
+        BinaryOrderIngressServer.BinaryIngressConnectionMetrics binary =
+                new BinaryOrderIngressServer.BinaryIngressConnectionMetrics(3, 16, 7L, 2L, 1L, 4L);
+        try (MatcherNodeService nodeService = new MatcherNodeService(config)) {
+            nodeService.start();
+            try (HttpApiServer server = new HttpApiServer(
+                    0, "127.0.0.1", 2, 256, 256, 2_000L,
+                    128, 96, 16, 2_000L, 1_000L, 5_000L,
+                    96, 64, 2, 16, 8, "symbol-1", WriteAdmissionPolicyConfig.defaults(),
+                    HttpSubmitAckMode.LOCAL, MatcherServerMode.DEV, IngressAuthConfig.disabled(), nodeService,
+                    new GrpcTransportMetrics(),
+                    () -> new ClusterSupervisorMetricsSnapshot(0L, 0L, null, null, Map.of(), List.of(), "IDLE", "", TransportMetricsSnapshot.none("NONE")),
+                    () -> new ReadinessSnapshot(
+                            true, true, true, false, false, false, 0L, 0L, 0L, "", "READY", List.of(),
+                            null, null, "NONE", "", "", 0L, 0L, 0L, 0L,
+                            "STABLE", "transport policy is stable", "DISABLED",
+                            "sequence reconciliation is disabled for this transport mode", "ready"
+                    ),
+                    () -> binary
+            )) {
+                server.start();
+                HttpClient client = HttpClient.newHttpClient();
+                HttpResponse<String> metrics = client.send(
+                        HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + server.port() + "/metrics")).GET().build(),
+                        HttpResponse.BodyHandlers.ofString()
+                );
+                assertEquals(200, metrics.statusCode());
+                assertTrue(metrics.body().contains("ull_matcher_binary_open_connections 3"));
+                assertTrue(metrics.body().contains("ull_matcher_binary_max_connections 16"));
+                assertTrue(metrics.body().contains("ull_matcher_binary_rejected_connections_total 7"));
+                assertTrue(metrics.body().contains("ull_matcher_binary_handshake_failures_total 2"));
+                assertTrue(metrics.body().contains("ull_matcher_binary_handshake_timeouts_total 1"));
+                assertTrue(metrics.body().contains("ull_matcher_binary_idle_timeouts_total 4"));
+            }
+        }
+    }
+
     @Test
     void serviceFailurePayloadHidesDetailInProdMode() {
         ServiceUnavailableException apiError = new ServiceUnavailableException(
@@ -100,6 +202,7 @@ final class HttpApiServerTest {
                 8,
                 WriteAdmissionPolicyConfig.defaults(),
                 false,
+                IngressAuthConfig.disabled(),
                 0,
                 GrpcReplicationServerConfig.defaults(0),
                 ServerSecurityConfig.insecureDefaults(),
@@ -138,7 +241,7 @@ final class HttpApiServerTest {
                 );
                 assertTrue(Set.of(200, 202).contains(first.statusCode()));
                 @SuppressWarnings("unchecked")
-                Map<String, Object> firstPayload = new com.fasterxml.jackson.databind.ObjectMapper().readValue(first.body(), Map.class);
+                Map<String, Object> firstPayload = tools.jackson.databind.json.JsonMapper.builderWithJackson2Defaults().build().readValue(first.body(), Map.class);
                 String submissionId = firstPayload.get("submissionId").toString();
 
                 HttpResponse<String> second = client.send(
@@ -152,7 +255,7 @@ final class HttpApiServerTest {
                 );
                 assertTrue(Set.of(200, 202).contains(second.statusCode()));
                 @SuppressWarnings("unchecked")
-                Map<String, Object> secondPayload = new com.fasterxml.jackson.databind.ObjectMapper().readValue(second.body(), Map.class);
+                Map<String, Object> secondPayload = tools.jackson.databind.json.JsonMapper.builderWithJackson2Defaults().build().readValue(second.body(), Map.class);
                 assertEquals(submissionId, secondPayload.get("submissionId"));
 
                 String changedBody = "{\"userId\":1,\"orderId\":1001,\"side\":\"BUY\",\"orderType\":\"LIMIT\"," +
@@ -176,6 +279,31 @@ final class HttpApiServerTest {
                 assertEquals(200, query.statusCode());
                 assertTrue(query.body().contains("\"replicationCommitted\":true"));
                 assertTrue(query.body().contains("\"orderId\":1001"));
+
+                HttpResponse<String> byKey = client.send(
+                        request(server.port(), "GET", "/api/v1/submissions/by-idempotency?idempotencyKey=submit-1001", null),
+                        HttpResponse.BodyHandlers.ofString()
+                );
+                assertEquals(200, byKey.statusCode());
+                assertTrue(byKey.body().contains(submissionId));
+
+                HttpResponse<String> missingKey = client.send(
+                        request(server.port(), "GET", "/api/v1/submissions/by-idempotency", null),
+                        HttpResponse.BodyHandlers.ofString()
+                );
+                assertEquals(400, missingKey.statusCode());
+
+                HttpResponse<String> unknownKey = client.send(
+                        request(server.port(), "GET", "/api/v1/submissions/by-idempotency?idempotencyKey=missing", null),
+                        HttpResponse.BodyHandlers.ofString()
+                );
+                assertEquals(404, unknownKey.statusCode());
+
+                HttpResponse<String> unknownId = client.send(
+                        request(server.port(), "GET", "/api/v1/submissions/does-not-exist", null),
+                        HttpResponse.BodyHandlers.ofString()
+                );
+                assertEquals(404, unknownId.statusCode());
             }
         }
     }
@@ -266,7 +394,7 @@ final class HttpApiServerTest {
 
                 assertTrue(Set.of(200, 202).contains(response.statusCode()));
                 @SuppressWarnings("unchecked")
-                Map<String, Object> payload = new com.fasterxml.jackson.databind.ObjectMapper().readValue(response.body(), Map.class);
+                Map<String, Object> payload = tools.jackson.databind.json.JsonMapper.builderWithJackson2Defaults().build().readValue(response.body(), Map.class);
                 assertEquals(2, payload.get("accepted"));
                 assertEquals(0, payload.get("failed"));
                 assertEquals(2, payload.get("count"));
@@ -358,6 +486,7 @@ final class HttpApiServerTest {
                 8,
                 WriteAdmissionPolicyConfig.defaults(),
                 false,
+                IngressAuthConfig.disabled(),
                 0,
                 GrpcReplicationServerConfig.defaults(0),
                 ServerSecurityConfig.insecureDefaults(),
@@ -482,6 +611,7 @@ final class HttpApiServerTest {
                 1,
                 new WriteAdmissionPolicyConfig(1, 0, "X-Ull-Tenant-Key", 0.0d, 0, 0.0d, 0, 1, "", "X-Ull-Tenant-Priority"),
                 false,
+                IngressAuthConfig.disabled(),
                 0,
                 GrpcReplicationServerConfig.defaults(0),
                 ServerSecurityConfig.insecureDefaults(),
@@ -568,6 +698,69 @@ final class HttpApiServerTest {
                 assertTrue(metrics.body().contains("ull_matcher_http_shard_write_rate_limited_total{shard=\"symbol-1\"} 0"));
             }
         }
+    }
+
+    private static MatcherServerConfig baseConfig(Path dir) {
+        return new MatcherServerConfig(
+                MatcherServerMode.DEV,
+                "node-a",
+                "symbol-1",
+                MatcherConfig.defaults(1),
+                dir.resolve("wal"),
+                "symbol-1",
+                4L * 1024L * 1024L,
+                WalDurabilityMode.SYNC_PER_COMMAND,
+                1,
+                0L,
+                dir.resolve("snapshots").resolve("symbol-1.snap"),
+                1 << 10,
+                128,
+                TimeUnit.MILLISECONDS.toNanos(200),
+                0,
+                "127.0.0.1",
+                2,
+                256,
+                256,
+                2_000L,
+                128,
+                96,
+                16,
+                2_000L,
+                1_000L,
+                5_000L,
+                96,
+                64,
+                2,
+                16,
+                8,
+                WriteAdmissionPolicyConfig.defaults(),
+                false,
+                IngressAuthConfig.disabled(),
+                0,
+                GrpcReplicationServerConfig.defaults(0),
+                ServerSecurityConfig.insecureDefaults(),
+                TtlCancelConfig.disabled(),
+                HaRole.PRIMARY,
+                io.github.ike.ullmatcher.runtime.MatchLoopConfig.defaults(),
+                io.github.ike.ullmatcher.ha.standby.StandbySyncConfig.defaults(),
+                null
+        );
+    }
+
+    private static HttpApiServer baseServer(MatcherNodeService nodeService, IngressAuthConfig ingressAuth) {
+        return new HttpApiServer(
+                0, "127.0.0.1", 2, 256, 256, 2_000L,
+                128, 96, 16, 2_000L, 1_000L, 5_000L,
+                96, 64, 2, 16, 8, "symbol-1", WriteAdmissionPolicyConfig.defaults(),
+                HttpSubmitAckMode.LOCAL, MatcherServerMode.DEV, ingressAuth, nodeService, new GrpcTransportMetrics(),
+                () -> new ClusterSupervisorMetricsSnapshot(0L, 0L, null, null, Map.of(), List.of(), "IDLE", "", TransportMetricsSnapshot.none("NONE")),
+                () -> new ReadinessSnapshot(
+                        true, true, true, false, false, false, 0L, 0L, 0L, "", "READY", List.of(),
+                        null, null, "NONE", "", "", 0L, 0L, 0L, 0L,
+                        "STABLE", "transport policy is stable", "DISABLED",
+                        "sequence reconciliation is disabled for this transport mode", "ready"
+                )
+        );
     }
 
     private static HttpRequest request(int port, String method, String path, String body) {

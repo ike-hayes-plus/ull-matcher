@@ -34,7 +34,8 @@ final class DiscoveryDrivenReplicator implements CommandReplicator, Closeable {
     private static final Logger LOG = LoggerFactory.getLogger(DiscoveryDrivenReplicator.class);
     private static final int DEFAULT_PREFERRED_BATCH_SIZE = 2_048;
     private static final int DEFAULT_PREFERRED_IN_FLIGHT_BATCHES = 16;
-    private static final long DEFAULT_PREFERRED_ACCUMULATION_NANOS = TimeUnit.MICROSECONDS.toNanos(200);
+    /** GRPC replication sends immediately; micro-waits only add REST committed latency. */
+    private static final long DEFAULT_PREFERRED_ACCUMULATION_NANOS = 0L;
     private static final int AERON_MULTI_STANDBY_BATCH_SIZE = 256;
     private static final int AERON_SINGLE_STANDBY_BATCH_SIZE = 256;
     private static final int AERON_MULTI_STANDBY_IN_FLIGHT_BATCHES = 16;

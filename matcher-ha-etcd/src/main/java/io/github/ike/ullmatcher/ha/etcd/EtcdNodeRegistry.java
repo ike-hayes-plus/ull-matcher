@@ -21,8 +21,8 @@ public final class EtcdNodeRegistry implements NodeRegistry, Closeable {
     private final String servicePrefix;
     private final long leaseTtlSeconds;
 
-    public EtcdNodeRegistry(EtcdConfig config) {
-        this(new EtcdClient(config.endpoint(), config.timeoutMillis()),
+    public EtcdNodeRegistry(EtcdConfig config) throws IOException {
+        this(new EtcdClient(config),
                 normalizePrefix(config.keyPrefix()) + "/discovery/",
                 config.leaseTtlSeconds());
     }
