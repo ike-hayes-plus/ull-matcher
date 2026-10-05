@@ -318,6 +318,7 @@ final class MatcherServerMainBootstrapTest {
                 HaRole.PRIMARY,
                 io.github.ike.ullmatcher.runtime.MatchLoopConfig.defaults(),
                 io.github.ike.ullmatcher.ha.standby.StandbySyncConfig.defaults(),
+                io.github.ike.ullmatcher.server.orchestrator.OrchestratorRegistrationConfig.disabled(),
                 null
         );
         IllegalStateException error = assertThrows(IllegalStateException.class, config::validateDeploymentSafety);
@@ -368,6 +369,7 @@ final class MatcherServerMainBootstrapTest {
                 HaRole.PRIMARY,
                 io.github.ike.ullmatcher.runtime.MatchLoopConfig.defaults(),
                 io.github.ike.ullmatcher.ha.standby.StandbySyncConfig.defaults(),
+                io.github.ike.ullmatcher.server.orchestrator.OrchestratorRegistrationConfig.disabled(),
                 null
         );
         IllegalStateException error = assertThrows(IllegalStateException.class, config::validateDeploymentSafety);
@@ -419,6 +421,7 @@ final class MatcherServerMainBootstrapTest {
                 HaRole.PRIMARY,
                 io.github.ike.ullmatcher.runtime.MatchLoopConfig.defaults(),
                 io.github.ike.ullmatcher.ha.standby.StandbySyncConfig.defaults(),
+                io.github.ike.ullmatcher.server.orchestrator.OrchestratorRegistrationConfig.disabled(),
                 MatcherClusterConfig.defaults(new TestLeaseStore(), new TestNodeRegistry(), "127.0.0.1", "merchant:42")
                         .withReplicationTransport(
                                 ReplicationTransportType.AERON_PREVIEW,
@@ -475,6 +478,7 @@ final class MatcherServerMainBootstrapTest {
                 HaRole.PRIMARY,
                 io.github.ike.ullmatcher.runtime.MatchLoopConfig.defaults(),
                 io.github.ike.ullmatcher.ha.standby.StandbySyncConfig.defaults(),
+                io.github.ike.ullmatcher.server.orchestrator.OrchestratorRegistrationConfig.disabled(),
                 MatcherClusterConfig.defaults(new TestLeaseStore(), new TestNodeRegistry(), "127.0.0.1", "merchant:42")
                         .withReplicationTransport(
                                 ReplicationTransportType.AERON,
@@ -531,6 +535,7 @@ final class MatcherServerMainBootstrapTest {
                 HaRole.PRIMARY,
                 io.github.ike.ullmatcher.runtime.MatchLoopConfig.defaults(),
                 io.github.ike.ullmatcher.ha.standby.StandbySyncConfig.defaults(),
+                io.github.ike.ullmatcher.server.orchestrator.OrchestratorRegistrationConfig.disabled(),
                 MatcherClusterConfig.defaults(new TestLeaseStore(), new TestNodeRegistry(), "10.0.0.10", "merchant:42")
                         .withReplicationTransport(
                                 ReplicationTransportType.AERON,

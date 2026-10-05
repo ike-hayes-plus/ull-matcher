@@ -103,6 +103,7 @@ final class MatcherClusterSupervisorSmokeTest {
                 HaRole.PRIMARY,
                 MatchLoopConfig.defaults(),
                 StandbySyncConfig.defaults(),
+                io.github.ike.ullmatcher.server.orchestrator.OrchestratorRegistrationConfig.disabled(),
                 clusterConfig
         );
         try (MatcherNodeService nodeService = new MatcherNodeService(config)) {

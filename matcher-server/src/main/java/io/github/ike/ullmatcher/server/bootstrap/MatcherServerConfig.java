@@ -10,6 +10,7 @@ import io.github.ike.ullmatcher.server.api.BinaryIngressLimits;
 import io.github.ike.ullmatcher.server.cluster.MatcherClusterConfig;
 import io.github.ike.ullmatcher.ha.transport.ReplicationTransportType;
 import io.github.ike.ullmatcher.server.engine.TtlCancelConfig;
+import io.github.ike.ullmatcher.server.orchestrator.OrchestratorRegistrationConfig;
 import io.github.ike.ullmatcher.server.security.IngressAuthConfig;
 import io.github.ike.ullmatcher.server.security.ServerSecurityConfig;
 import io.github.ike.ullmatcher.storage.wal.WalArchiveConfig;
@@ -67,6 +68,7 @@ public record MatcherServerConfig(
         HaRole initialRole,
         MatchLoopConfig loopConfig,
         StandbySyncConfig standbySyncConfig,
+        OrchestratorRegistrationConfig orchestratorRegistrationConfig,
         MatcherClusterConfig clusterConfig
 ) {
     public static final WalDurabilityMode DEFAULT_WAL_DURABILITY_MODE = WalDurabilityMode.SYNC_PER_COMMAND;
@@ -93,6 +95,9 @@ public record MatcherServerConfig(
         }
         if (walArchiveConfig == null) {
             walArchiveConfig = WalArchiveConfig.disabled();
+        }
+        if (orchestratorRegistrationConfig == null) {
+            orchestratorRegistrationConfig = OrchestratorRegistrationConfig.disabled();
         }
         Objects.requireNonNull(initialRole, "initialRole");
         Objects.requireNonNull(grpcServerConfig, "grpcServerConfig");
@@ -177,6 +182,7 @@ public record MatcherServerConfig(
                 HaRole.PRIMARY,
                 MatchLoopConfig.defaults(),
                 StandbySyncConfig.defaults(),
+                OrchestratorRegistrationConfig.disabled(),
                 null
         );
     }
@@ -223,6 +229,7 @@ public record MatcherServerConfig(
             HaRole initialRole,
             MatchLoopConfig loopConfig,
             StandbySyncConfig standbySyncConfig,
+            OrchestratorRegistrationConfig orchestratorRegistrationConfig,
             MatcherClusterConfig clusterConfig
     ) {
         this(
@@ -273,6 +280,9 @@ public record MatcherServerConfig(
                 initialRole,
                 loopConfig,
                 standbySyncConfig,
+                orchestratorRegistrationConfig == null
+                        ? OrchestratorRegistrationConfig.disabled()
+                        : orchestratorRegistrationConfig,
                 clusterConfig
         );
     }
@@ -356,6 +366,7 @@ public record MatcherServerConfig(
         private HaRole initialRole;
         private MatchLoopConfig loopConfig;
         private StandbySyncConfig standbySyncConfig;
+        private OrchestratorRegistrationConfig orchestratorRegistrationConfig;
         private MatcherClusterConfig clusterConfig;
 
         private Builder(MatcherServerConfig source) {
@@ -406,6 +417,7 @@ public record MatcherServerConfig(
             this.initialRole = source.initialRole;
             this.loopConfig = source.loopConfig;
             this.standbySyncConfig = source.standbySyncConfig;
+            this.orchestratorRegistrationConfig = source.orchestratorRegistrationConfig;
             this.clusterConfig = source.clusterConfig;
         }
 
@@ -644,6 +656,11 @@ public record MatcherServerConfig(
             return this;
         }
 
+        public Builder orchestratorRegistrationConfig(OrchestratorRegistrationConfig value) {
+            this.orchestratorRegistrationConfig = value;
+            return this;
+        }
+
         public Builder clusterConfig(MatcherClusterConfig value) {
             this.clusterConfig = value;
             return this;
@@ -698,6 +715,7 @@ public record MatcherServerConfig(
                     initialRole,
                     loopConfig,
                     standbySyncConfig,
+                    orchestratorRegistrationConfig,
                     clusterConfig
             );
         }

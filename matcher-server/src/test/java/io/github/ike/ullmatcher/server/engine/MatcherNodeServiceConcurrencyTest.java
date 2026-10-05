@@ -277,6 +277,7 @@ final class MatcherNodeServiceConcurrencyTest {
                 HaRole.PRIMARY,
                 io.github.ike.ullmatcher.runtime.MatchLoopConfig.defaults(),
                 io.github.ike.ullmatcher.ha.standby.StandbySyncConfig.defaults(),
+                io.github.ike.ullmatcher.server.orchestrator.OrchestratorRegistrationConfig.disabled(),
                 null
         );
     }
@@ -379,6 +380,7 @@ final class MatcherNodeServiceConcurrencyTest {
                 HaRole.PRIMARY,
                 io.github.ike.ullmatcher.runtime.MatchLoopConfig.defaults(),
                 io.github.ike.ullmatcher.ha.standby.StandbySyncConfig.defaults(),
+                io.github.ike.ullmatcher.server.orchestrator.OrchestratorRegistrationConfig.disabled(),
                 clusterConfig
         );
     }

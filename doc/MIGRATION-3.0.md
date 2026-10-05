@@ -23,7 +23,9 @@
 | 2.x | 3.0 |
 | --- | --- |
 | `matcher.clusterName` | **移除**；使用 `matcher.cluster` |
-| 上游自行维护 symbol→host | 可选 `matcher.orchestratorEndpoint`（SDK / sidecar） |
+| 上游自行维护 symbol→host | 可选编排自注册 + 后续 SDK 解析 |
+| （无） | `-Dmatcher.orchestratorEnabled=true` + 现有 `matcher.etcdEndpoint`（须 etcd 控制面） |
+| （无） | `-Dmatcher.orchestratorGeneration=1`（路由 generation，默认 1） |
 
 ## 迁移步骤（GA 时填充）
 

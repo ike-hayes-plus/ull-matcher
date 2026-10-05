@@ -58,6 +58,7 @@
 
 ### Phase C — SDK / 运维（3.0.0）
 
+- [x] `matcher-server`：`matcher.orchestratorEnabled` + etcd 自注册 / heartbeat / shutdown drain
 - [ ] Java SDK：`MatcherClient` 可选 **orchestrator 感知**（自动 pick 端点）
 - [ ] 移除 `matcher.clusterName`（2.x 已弃用）
 - [ ] Runbook：滚动新增 shard、drain、故障域

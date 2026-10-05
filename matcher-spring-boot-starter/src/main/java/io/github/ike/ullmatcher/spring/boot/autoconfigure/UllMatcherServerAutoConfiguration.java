@@ -19,6 +19,7 @@ import io.github.ike.ullmatcher.server.cluster.AeronPreviewTransportConfig;
 import io.github.ike.ullmatcher.server.cluster.MatcherClusterConfig;
 import io.github.ike.ullmatcher.server.cluster.ReplicationTransportPolicyConfig;
 import io.github.ike.ullmatcher.server.engine.TtlCancelConfig;
+import io.github.ike.ullmatcher.server.orchestrator.OrchestratorRegistrationConfig;
 import io.github.ike.ullmatcher.server.security.IngressAuthConfig;
 import io.github.ike.ullmatcher.server.security.ServerSecurityConfig;
 import io.github.ike.ullmatcher.storage.wal.WalArchiveConfig;
@@ -103,6 +104,7 @@ public class UllMatcherServerAutoConfiguration {
                 defaults.initialRole(),
                 defaults.loopConfig(),
                 defaults.standbySyncConfig(),
+                OrchestratorRegistrationConfig.disabled(),
                 clusterConfigProvider.getIfAvailable()
         );
         return config.toBuilder()

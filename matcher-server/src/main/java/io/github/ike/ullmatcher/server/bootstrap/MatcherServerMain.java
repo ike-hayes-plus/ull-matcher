@@ -20,6 +20,7 @@ import io.github.ike.ullmatcher.server.cluster.MatcherClusterConfig;
 import io.github.ike.ullmatcher.server.cluster.ReplicationTransportPolicyConfig;
 import io.github.ike.ullmatcher.ha.transport.ReplicationTransportType;
 import io.github.ike.ullmatcher.server.engine.TtlCancelConfig;
+import io.github.ike.ullmatcher.server.orchestrator.OrchestratorRegistrationConfig;
 import io.github.ike.ullmatcher.server.api.BinaryIngressLimits;
 import io.github.ike.ullmatcher.server.security.IngressAuthConfig;
 import io.github.ike.ullmatcher.server.security.ServerSecurityConfig;
@@ -81,6 +82,7 @@ public final class MatcherServerMain {
                 .securityConfig(securityConfig())
                 .ttlCancelConfig(ttlCancelConfig())
                 .initialRole(initialRole(defaults.initialRole(), clusterConfig))
+                .orchestratorRegistrationConfig(orchestratorRegistrationConfig(serverMode, clusterConfig))
                 .clusterConfig(clusterConfig)
                 .build();
         MatcherServerApp app = new MatcherServerApp(config);
@@ -256,6 +258,25 @@ public final class MatcherServerMain {
             return legacy.trim();
         }
         return "default";
+    }
+
+    static OrchestratorRegistrationConfig orchestratorRegistrationConfig(MatcherServerMode serverMode,
+                                                                           MatcherClusterConfig clusterConfig) {
+        if (!Boolean.getBoolean("matcher.orchestratorEnabled")) {
+            return OrchestratorRegistrationConfig.disabled();
+        }
+        if (clusterConfig == null) {
+            throw new ServerBootstrapException(
+                    "matcher.orchestratorEnabled requires HA cluster mode (etcd control plane)");
+        }
+        String etcdEndpoint = System.getProperty("matcher.etcdEndpoint", "");
+        String provider = controlPlaneProvider(System.getProperty("matcher.zookeeperConnect", ""), etcdEndpoint);
+        if (!"etcd".equals(provider)) {
+            throw new ServerBootstrapException("matcher.orchestratorEnabled requires matcher control plane provider etcd");
+        }
+        boolean prod = serverMode == MatcherServerMode.PROD;
+        long generation = Long.getLong("matcher.orchestratorGeneration", 1L);
+        return OrchestratorRegistrationConfig.etcd(generation, etcdConfig(etcdEndpoint, clusterName(), prod));
     }
 
     static EtcdConfig etcdConfig(String endpoint, String clusterName, boolean enforceProductionSafety) {

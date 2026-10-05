@@ -216,6 +216,7 @@ public final class EmbeddedHaCrossingBenchmark {
                 role,
                 io.github.ike.ullmatcher.runtime.MatchLoopConfig.defaults(),
                 StandbySyncConfig.defaults(),
+                io.github.ike.ullmatcher.server.orchestrator.OrchestratorRegistrationConfig.disabled(),
                 null
         );
     }

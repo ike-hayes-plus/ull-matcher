@@ -10,7 +10,10 @@ import io.github.ike.ullmatcher.server.cluster.ClusterSupervisorMetricsSnapshot;
 import io.github.ike.ullmatcher.server.cluster.MatcherClusterSupervisor;
 import io.github.ike.ullmatcher.server.cluster.ReplicationTransportPolicyEnforcer;
 import io.github.ike.ullmatcher.ha.transport.ReplicationTransportProvider;
+import io.github.ike.ullmatcher.ha.etcd.EtcdOrchestratorStore;
 import io.github.ike.ullmatcher.server.cluster.ReplicationTransportProviders;
+import io.github.ike.ullmatcher.server.orchestrator.OrchestratorRegistrationConfig;
+import io.github.ike.ullmatcher.server.orchestrator.OrchestratorShardLifecycle;
 import io.github.ike.ullmatcher.ha.transport.TransportMetricsSnapshot;
 import io.github.ike.ullmatcher.server.engine.MatcherNodeService;
 import io.github.ike.ullmatcher.server.security.ReloadableGrpcServer;
@@ -25,6 +28,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 public final class MatcherServerApp implements Closeable {
+    private final MatcherServerConfig config;
     private final MatcherNodeService nodeService;
     private final HttpApiServer httpApiServer;
     private final BinaryOrderIngressServer binaryIngressServer;
@@ -35,8 +39,10 @@ public final class MatcherServerApp implements Closeable {
     private final OpenTelemetryGrpcMetricsBridge openTelemetryMetricsBridge;
     private final OpenTelemetryServerMetricsBridge openTelemetryServerMetricsBridge;
     private final GrpcTransportMetrics grpcMetrics;
+    private final OrchestratorShardLifecycle orchestratorShardLifecycle;
 
     public MatcherServerApp(MatcherServerConfig config) throws IOException {
+        this.config = config;
         config.validateDeploymentSafety();
         ReplicationTransportPolicyEnforcer.validateAndLock(config);
         this.grpcReplicationServerEnabled = config.requiresGrpcReplicationServer();
@@ -118,6 +124,7 @@ public final class MatcherServerApp implements Closeable {
         this.openTelemetryServerMetricsBridge = config.securityConfig().openTelemetryMetricsEnabled()
                 ? new OpenTelemetryServerMetricsBridge("ull-matcher-server", nodeService::metricsSnapshot, clusterMetricsSupplier)
                 : null;
+        this.orchestratorShardLifecycle = createOrchestratorLifecycle(config);
     }
 
     public void start() throws IOException {
@@ -128,6 +135,28 @@ public final class MatcherServerApp implements Closeable {
         if (binaryIngressServer != null) {
             binaryIngressServer.start();
         }
+        if (orchestratorShardLifecycle != null) {
+            orchestratorShardLifecycle.registerAdvertisedEndpoints(
+                    config.httpBindHost(),
+                    httpPort(),
+                    grpcPort() > 0 ? grpcPort() : config.grpcPort(),
+                    binaryIngressPort()
+            );
+        }
+    }
+
+    private static OrchestratorShardLifecycle createOrchestratorLifecycle(MatcherServerConfig config) throws IOException {
+        OrchestratorRegistrationConfig registration = config.orchestratorRegistrationConfig();
+        if (!registration.enabled()) {
+            return null;
+        }
+        long heartbeatMillis = Math.max(1_000L, registration.etcdConfig().leaseTtlSeconds() * 1_000L / 3L);
+        return new OrchestratorShardLifecycle(
+                config,
+                new EtcdOrchestratorStore(registration.etcdConfig()),
+                registration.generation(),
+                heartbeatMillis
+        );
     }
 
     public int httpPort() {
@@ -231,6 +260,13 @@ public final class MatcherServerApp implements Closeable {
     @Override
     public void close() throws IOException {
         IOException error = null;
+        try {
+            if (orchestratorShardLifecycle != null) {
+                orchestratorShardLifecycle.close();
+            }
+        } catch (IOException e) {
+            error = e;
+        }
         try {
             httpApiServer.close();
         } catch (RuntimeException e) {
