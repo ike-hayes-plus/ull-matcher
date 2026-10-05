@@ -7,11 +7,13 @@
 
 ## [Unreleased]
 
+目标版本：**3.0.0**（跳过 2.1 独立发版线；2.0 单分片节点仍为稳定部署单元）。
+
 ### Added
 
-- WAL 冷备：`matcher.walColdArchiveDir` / `ull.matcher.wal-cold-archive-dir`，快照后删除热分段前复制到
-  `{cold}/{shardKey}/{nodeId}/`（见 [doc/operations/wal-archive-cold-backup.md](doc/operations/wal-archive-cold-backup.md)）。
-- 2.1 ADR：[doc/architecture/replication-transport-2.1.md](doc/architecture/replication-transport-2.1.md)（传输语义统一、AERON_PREVIEW 废弃路径）。
+- WAL 冷备（原 2.1）：`matcher.walColdArchiveDir` / `ull.matcher.wal-cold-archive-dir`（见 [doc/operations/wal-archive-cold-backup.md](doc/operations/wal-archive-cold-backup.md)）。
+- 3.0 ADR：[doc/architecture/shard-orchestration-3.0.md](doc/architecture/shard-orchestration-3.0.md)、[doc/MIGRATION-3.0.md](doc/MIGRATION-3.0.md)（多分片编排；**非**单进程多 symbol）。
+- 传输 ADR（后续 3.0.x）：[doc/architecture/replication-transport-2.1.md](doc/architecture/replication-transport-2.1.md)；`AERON_PREVIEW` 已 `@Deprecated`。
 
 ## [2.0.0] - 2026-10-05
 
