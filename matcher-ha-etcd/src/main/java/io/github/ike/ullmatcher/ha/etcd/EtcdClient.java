@@ -1,7 +1,8 @@
 package io.github.ike.ullmatcher.ha.etcd;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -9,6 +10,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import javax.net.ssl.SSLContext;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -22,15 +24,23 @@ final class EtcdClient implements Closeable {
     private final List<URI> endpoints;
     private final AtomicInteger preferredEndpoint = new AtomicInteger();
     private final HttpClient httpClient;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final JsonMapper objectMapper = JsonMapper.builderWithJackson2Defaults().build();
     private final Duration timeout;
 
-    EtcdClient(String endpoint, long timeoutMillis) {
-        this.endpoints = parseEndpoints(endpoint);
-        this.timeout = Duration.ofMillis(timeoutMillis);
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(this.timeout)
-                .build();
+    EtcdClient(EtcdConfig config) throws IOException {
+        Objects.requireNonNull(config, "config");
+        this.endpoints = parseEndpoints(config.endpoint());
+        this.timeout = Duration.ofMillis(config.timeoutMillis());
+        HttpClient.Builder builder = HttpClient.newBuilder().connectTimeout(this.timeout);
+        if (config.trustChainFile() != null || config.certificateChainFile() != null || config.privateKeyFile() != null) {
+            SSLContext sslContext = EtcdTlsSupport.sslContext(
+                    config.trustChainFile(),
+                    config.certificateChainFile(),
+                    config.privateKeyFile()
+            );
+            builder.sslContext(sslContext);
+        }
+        this.httpClient = builder.build();
     }
 
     KeyValue get(String key) throws IOException {
@@ -60,7 +70,7 @@ final class EtcdClient implements Closeable {
 
     long grantLease(long ttlSeconds) throws IOException {
         JsonNode response = post("/v3/lease/grant", Map.of("TTL", Long.toString(ttlSeconds)));
-        String id = response.path("ID").asText("");
+        String id = response.path("ID").asString("");
         if (id.isBlank()) {
             throw new IOException("etcd lease grant response missing ID");
         }
@@ -104,7 +114,12 @@ final class EtcdClient implements Closeable {
     }
 
     private JsonNode post(String path, Object payload) throws IOException {
-        byte[] body = objectMapper.writeValueAsBytes(payload);
+        final byte[] body;
+        try {
+            body = objectMapper.writeValueAsBytes(payload);
+        } catch (JacksonException e) {
+            throw new IOException("failed to encode etcd request path=" + path, e);
+        }
         IOException lastFailure = null;
         int start = Math.floorMod(preferredEndpoint.get(), endpoints.size());
         for (int attempt = 0; attempt < endpoints.size(); attempt++) {
@@ -123,7 +138,11 @@ final class EtcdClient implements Closeable {
                     continue;
                 }
                 preferredEndpoint.set(index);
-                return objectMapper.readTree(response.body());
+                try {
+                    return objectMapper.readTree(response.body());
+                } catch (JacksonException e) {
+                    lastFailure = new IOException("etcd response parse failed endpoint=" + endpoint + " path=" + path, e);
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new IOException("interrupted while calling etcd path " + path, e);
@@ -158,7 +177,7 @@ final class EtcdClient implements Closeable {
     }
 
     private static KeyValue toKeyValue(JsonNode node) {
-        return new KeyValue(decode(node.path("key").asText()), decode(node.path("value").asText()));
+        return new KeyValue(decode(node.path("key").asString()), decode(node.path("value").asString()));
     }
 
     static String encode(String value) {

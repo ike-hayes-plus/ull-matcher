@@ -6,6 +6,7 @@ import io.github.ike.ullmatcher.hft.WalDurabilityMode;
 import io.github.ike.ullmatcher.core.MatcherConfig;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerConfig;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerMode;
+import io.github.ike.ullmatcher.server.security.IngressAuthConfig;
 import io.github.ike.ullmatcher.server.cluster.ReplicationTransportPolicyConfig;
 import io.github.ike.ullmatcher.ha.transport.ReplicationTransportType;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -56,6 +57,8 @@ public class UllMatcherServerProperties {
     private String httpTenantWriteWeightOverrides = "";
     private String httpTenantPriorityHeader = "X-Ull-Tenant-Priority";
     private boolean allowInsecureRemoteHttp;
+    private String ingressApiKeys = "";
+    private String ingressApiKeyHeader = IngressAuthConfig.DEFAULT_API_KEY_HEADER;
     private WalDurabilityMode walDurabilityMode = MatcherServerConfig.DEFAULT_WAL_DURABILITY_MODE;
     private int walForceBatchSize = MatcherServerConfig.DEFAULT_WAL_FORCE_BATCH_SIZE;
     private long walForceMaxDelayMicros = MatcherServerConfig.DEFAULT_WAL_FORCE_MAX_DELAY_MICROS;
@@ -229,6 +232,22 @@ public class UllMatcherServerProperties {
 
     public void setAllowInsecureRemoteHttp(boolean allowInsecureRemoteHttp) {
         this.allowInsecureRemoteHttp = allowInsecureRemoteHttp;
+    }
+
+    public String getIngressApiKeys() {
+        return ingressApiKeys;
+    }
+
+    public void setIngressApiKeys(String ingressApiKeys) {
+        this.ingressApiKeys = ingressApiKeys;
+    }
+
+    public String getIngressApiKeyHeader() {
+        return ingressApiKeyHeader;
+    }
+
+    public void setIngressApiKeyHeader(String ingressApiKeyHeader) {
+        this.ingressApiKeyHeader = ingressApiKeyHeader;
     }
 
     public int getHttpWriteMaxConcurrentRequests() {
@@ -562,6 +581,9 @@ public class UllMatcherServerProperties {
         private long etcdLeaseTtlSeconds = 10L;
         private long etcdTimeoutMillis = 2_000L;
         private long etcdLocalHeldCheckCacheMillis = 25L;
+        private String etcdTlsTrustChain = "";
+        private String etcdTlsCertChain = "";
+        private String etcdTlsPrivateKey = "";
         private String advertisedHost = "127.0.0.1";
         private long coordinatorTickMillis = 250L;
         private long discoveryRpcTimeoutMillis = 1_000L;
@@ -672,6 +694,30 @@ public class UllMatcherServerProperties {
 
         public void setEtcdLocalHeldCheckCacheMillis(long etcdLocalHeldCheckCacheMillis) {
             this.etcdLocalHeldCheckCacheMillis = etcdLocalHeldCheckCacheMillis;
+        }
+
+        public String getEtcdTlsTrustChain() {
+            return etcdTlsTrustChain;
+        }
+
+        public void setEtcdTlsTrustChain(String etcdTlsTrustChain) {
+            this.etcdTlsTrustChain = etcdTlsTrustChain;
+        }
+
+        public String getEtcdTlsCertChain() {
+            return etcdTlsCertChain;
+        }
+
+        public void setEtcdTlsCertChain(String etcdTlsCertChain) {
+            this.etcdTlsCertChain = etcdTlsCertChain;
+        }
+
+        public String getEtcdTlsPrivateKey() {
+            return etcdTlsPrivateKey;
+        }
+
+        public void setEtcdTlsPrivateKey(String etcdTlsPrivateKey) {
+            this.etcdTlsPrivateKey = etcdTlsPrivateKey;
         }
 
         public String getAdvertisedHost() {

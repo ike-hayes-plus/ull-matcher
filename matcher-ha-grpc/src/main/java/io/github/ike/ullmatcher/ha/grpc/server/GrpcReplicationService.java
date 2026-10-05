@@ -31,9 +31,6 @@ import java.util.function.Supplier;
 public final class GrpcReplicationService extends ReplicationServiceGrpc.ReplicationServiceImplBase {
     private static final int SNAPSHOT_CHUNK_SIZE = 64 * 1024;
     private static final long DEFAULT_REPLICATION_INGRESS_TIMEOUT_NANOS = TimeUnit.SECONDS.toNanos(2);
-    private static final int STREAM_FLUSH_COMMAND_THRESHOLD = 128;
-    private static final long STREAM_FLUSH_MAX_DELAY_NANOS = TimeUnit.MICROSECONDS.toNanos(100);
-
     private final Supplier<StandbySyncService> standbySyncServiceSupplier;
     private final NodeControlStateSource nodeControlStateSource;
     private final SnapshotMaterialSource snapshotMaterialSource;
@@ -132,7 +129,6 @@ public final class GrpcReplicationService extends ReplicationServiceGrpc.Replica
         return new StreamObserver<>() {
             private final java.util.ArrayList<PendingStreamAck> pendingAcks = new java.util.ArrayList<>();
             private int pendingCommands;
-            private long firstPendingNanos;
 
             @Override
             public void onNext(ReplicationBatchRequest request) {
@@ -146,15 +142,9 @@ public final class GrpcReplicationService extends ReplicationServiceGrpc.Replica
                     standbySyncService.appendReplicatedBatch(commands, replicationIngressTimeoutNanos);
                     int acked = commands.size();
                     metrics.recordStreamBatch(acked);
-                    if (pendingCommands == 0) {
-                        firstPendingNanos = System.nanoTime();
-                    }
                     pendingCommands += acked;
                     pendingAcks.add(new PendingStreamAck(request.getBatchId(), acked));
-                    if (pendingCommands >= STREAM_FLUSH_COMMAND_THRESHOLD
-                            || System.nanoTime() - firstPendingNanos >= STREAM_FLUSH_MAX_DELAY_NANOS) {
-                        flushPendingAcks(standbySyncService);
-                    }
+                    flushPendingAcks(standbySyncService);
                 } catch (IOException e) {
                     metrics.recordFailure();
                     if (terminated.compareAndSet(false, true)) {
@@ -205,7 +195,6 @@ public final class GrpcReplicationService extends ReplicationServiceGrpc.Replica
                 }
                 pendingAcks.clear();
                 pendingCommands = 0;
-                firstPendingNanos = 0L;
             }
         };
     }

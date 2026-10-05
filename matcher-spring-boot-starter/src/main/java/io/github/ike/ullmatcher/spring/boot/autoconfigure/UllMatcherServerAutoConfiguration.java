@@ -13,11 +13,13 @@ import io.github.ike.ullmatcher.ha.zookeeper.ZooKeeperLeaseStore;
 import io.github.ike.ullmatcher.ha.zookeeper.ZooKeeperLeaseStoreConfig;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerApp;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerConfig;
+import io.github.ike.ullmatcher.server.bootstrap.MatcherServerMode;
 import io.github.ike.ullmatcher.server.bootstrap.WriteAdmissionPolicyConfig;
 import io.github.ike.ullmatcher.server.cluster.AeronPreviewTransportConfig;
 import io.github.ike.ullmatcher.server.cluster.MatcherClusterConfig;
 import io.github.ike.ullmatcher.server.cluster.ReplicationTransportPolicyConfig;
 import io.github.ike.ullmatcher.server.engine.TtlCancelConfig;
+import io.github.ike.ullmatcher.server.security.IngressAuthConfig;
 import io.github.ike.ullmatcher.server.security.ServerSecurityConfig;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -92,6 +94,7 @@ public class UllMatcherServerAutoConfiguration {
                         properties.getHttpTenantPriorityHeader()
                 ),
                 properties.isAllowInsecureRemoteHttp(),
+                IngressAuthConfig.fromCommaSeparated(properties.getIngressApiKeys(), properties.getIngressApiKeyHeader()),
                 properties.getGrpcPort(),
                 defaults.grpcServerConfig().withBindHost(properties.getGrpcBindHost()),
                 securityConfigProvider.getIfAvailable(ServerSecurityConfig::insecureDefaults),
@@ -134,7 +137,7 @@ public class UllMatcherServerAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnProperty(prefix = "ull.matcher.cluster", name = "enabled", havingValue = "true")
-    public LeaseStore ullMatcherLeaseStore(UllMatcherServerProperties properties) {
+    public LeaseStore ullMatcherLeaseStore(UllMatcherServerProperties properties) throws java.io.IOException {
         UllMatcherServerProperties.Cluster cluster = properties.getCluster();
         return switch (controlPlaneProvider(cluster)) {
             case "zk" -> new ZooKeeperLeaseStore(
@@ -145,7 +148,7 @@ public class UllMatcherServerAutoConfiguration {
                             cluster.getZookeeperConnectionTimeoutMillis()
                     )
             );
-            case "etcd" -> new EtcdLeaseStore(etcdConfig(cluster));
+            case "etcd" -> new EtcdLeaseStore(etcdConfig(properties));
             default -> throw new IllegalArgumentException("unsupported ull.matcher.cluster.lease-provider: "
                     + cluster.getLeaseProvider());
         };
@@ -154,7 +157,7 @@ public class UllMatcherServerAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnProperty(prefix = "ull.matcher.cluster", name = "enabled", havingValue = "true")
-    public NodeRegistry ullMatcherNodeRegistry(UllMatcherServerProperties properties) {
+    public NodeRegistry ullMatcherNodeRegistry(UllMatcherServerProperties properties) throws java.io.IOException {
         UllMatcherServerProperties.Cluster cluster = properties.getCluster();
         return switch (controlPlaneProvider(cluster)) {
             case "zk" -> new ZooKeeperNodeRegistry(
@@ -165,7 +168,7 @@ public class UllMatcherServerAutoConfiguration {
                             cluster.getZookeeperConnectionTimeoutMillis()
                     )
             );
-            case "etcd" -> new EtcdNodeRegistry(etcdConfig(cluster));
+            case "etcd" -> new EtcdNodeRegistry(etcdConfig(properties));
             default -> throw new IllegalArgumentException("unsupported ull.matcher.cluster.discovery-provider: "
                     + cluster.getDiscoveryProvider());
         };
@@ -234,14 +237,26 @@ public class UllMatcherServerAutoConfiguration {
         );
     }
 
-    private static EtcdConfig etcdConfig(UllMatcherServerProperties.Cluster cluster) {
+    private static EtcdConfig etcdConfig(UllMatcherServerProperties properties) {
+        UllMatcherServerProperties.Cluster cluster = properties.getCluster();
         return new EtcdConfig(
                 required(cluster.getEtcdEndpoint(), "ull.matcher.cluster.etcd-endpoint"),
                 cluster.getEtcdKeyPrefix().isBlank() ? "/ull-matcher/" + cluster.getName() : cluster.getEtcdKeyPrefix(),
                 cluster.getEtcdLeaseTtlSeconds(),
                 cluster.getEtcdTimeoutMillis(),
-                cluster.getEtcdLocalHeldCheckCacheMillis()
+                cluster.getEtcdLocalHeldCheckCacheMillis(),
+                blankToPath(cluster.getEtcdTlsTrustChain()),
+                blankToPath(cluster.getEtcdTlsCertChain()),
+                blankToPath(cluster.getEtcdTlsPrivateKey()),
+                properties.getServerMode() == MatcherServerMode.PROD
         );
+    }
+
+    private static java.nio.file.Path blankToPath(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return java.nio.file.Path.of(value);
     }
 
     private static String controlPlaneProvider(UllMatcherServerProperties.Cluster cluster) {

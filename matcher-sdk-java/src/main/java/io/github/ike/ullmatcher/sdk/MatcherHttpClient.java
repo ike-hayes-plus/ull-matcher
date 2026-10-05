@@ -1,9 +1,10 @@
 package io.github.ike.ullmatcher.sdk;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
 import java.net.URI;
@@ -17,7 +18,7 @@ import java.util.List;
 import java.util.Objects;
 
 public final class MatcherHttpClient {
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final JsonMapper OBJECT_MAPPER = JsonMapper.builderWithJackson2Defaults().build();
 
     private final MatcherClientConfig config;
     private final HttpClient client;
@@ -135,14 +136,18 @@ public final class MatcherHttpClient {
         }
         try {
             return OBJECT_MAPPER.readTree(response.body());
-        } catch (IOException e) {
+        } catch (JacksonException e) {
             throw new MatcherClientException("failed to parse matcher response", e);
         }
     }
 
     private HttpRequest.Builder baseRequest(String pathAndQuery) {
-        return HttpRequest.newBuilder(resolve(pathAndQuery))
+        HttpRequest.Builder builder = HttpRequest.newBuilder(resolve(pathAndQuery))
                 .timeout(config.requestTimeout());
+        if (config.ingressApiKey() != null) {
+            builder.header(config.ingressApiKeyHeader(), config.ingressApiKey());
+        }
+        return builder;
     }
 
     private URI resolve(String pathAndQuery) {

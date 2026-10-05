@@ -195,7 +195,7 @@ ALLOW_TRANSPORT_CHANGE=true TRANSPORT_CHANGE_WINDOW_ID=lab-switch-001 \
 REPLICATION_TRANSPORT=AERON ./scripts/lab/start-node.sh node-b 8081 9191 15091
 ```
 
-Java 21 下该模式需要：
+JDK 25 下该模式需要：
 
 ```bash
 --add-exports=java.base/jdk.internal.misc=ALL-UNNAMED

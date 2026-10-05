@@ -6,15 +6,19 @@
 
 ## 1. 推荐生产姿态
 
-- 高频订单流量优先使用 **binary ingress**
+- **分片：** 一 matcher 进程一 symbol；总容量 = 单 shard **replication committed** 吞吐 × shard 数（见 [shard-capacity-planning.md](../architecture/shard-capacity-planning.md)）
+- 高频订单流量优先使用 **binary ingress**（默认帧类型 `1`，本地 WAL 受理；复制水位用 health/metrics 观测）
 - **REST** 保留给：
   - 管理面
   - 订单 / 状态查询
   - 后台与普通业务接入
   - 低频策略流量
-- **GRPC** 作为保守默认复制传输
-- **AERON** 只在目标拓扑和长稳行为完成验证后启用
+- **写路径默认 ack：** HTTP `local`；需要线级 replication committed 时用 HTTP `committed`（批量优先 `POST /api/v1/orders/batch`）或 binary 帧 `3`——见 [benchmark-baseline.md](benchmark-baseline.md)
+- **容量与 SLO 规划** 一律按 **replication committed throughput**，不以 accepted alone 承诺 HA 写入上限
+- **GRPC** 作为生产默认复制传输
+- **AERON** 为开源高级选项；生产启用前须 `transport-compare` + 长稳 soak（无近期 rollout 计划时，文档与验证以 GRPC 为准）
 - REST HA 表示外部客户端通过 REST 写入 primary，主备复制仍然只走 `GRPC` 或 `AERON`，不走 HTTP
+- **客户端：** 仅 **`matcher-sdk-java` 2.0**（见 [MIGRATION-2.0.md](../MIGRATION-2.0.md)）
 
 ## 2. 文档索引
 
@@ -69,7 +73,7 @@
 ### 多备 quorum 拓扑
 
 - 起步优先使用 `GRPC`
-- 只有在你明确需要 `AERON` 的拓扑行为，并且愿意自己做 soak / chaos 验证时，再启用 `AERON`
+- `AERON` 不在默认生产路径；启用前须 `transport-compare`、长稳 soak 与回滚演练（见 [ha-sharding-lab.md](ha-sharding-lab.md)）
 
 ## 6. 脚本边界
 

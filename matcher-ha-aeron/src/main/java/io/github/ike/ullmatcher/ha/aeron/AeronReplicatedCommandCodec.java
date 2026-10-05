@@ -47,15 +47,19 @@ public final class AeronReplicatedCommandCodec {
     }
 
     public static DecodedCommand decode(DirectBuffer buffer, int offset, int length) {
+        int end = AeronFrameBounds.end(buffer, offset, length);
+        AeronFrameBounds.requireHeader(offset, end, OFFSET_CHANNEL);
         int frameKind = buffer.getInt(offset + OFFSET_FRAME_KIND);
         if (frameKind != FRAME_KIND_SINGLE) {
             throw new IllegalArgumentException("unsupported replicated command frame kind " + frameKind);
         }
         int responseStreamId = buffer.getInt(offset + OFFSET_RESPONSE_STREAM_ID);
-        int channelLength = buffer.getInt(offset + OFFSET_CHANNEL_LENGTH);
+        int channelLength = AeronFrameBounds.fitting(
+                buffer.getInt(offset + OFFSET_CHANNEL_LENGTH), offset + OFFSET_CHANNEL, end);
+        int commandOffset = offset + OFFSET_CHANNEL + channelLength;
+        AeronFrameBounds.requireHeader(commandOffset, end, AeronCommandCodec.ENCODED_LENGTH);
         byte[] channelBytes = new byte[channelLength];
         buffer.getBytes(offset + OFFSET_CHANNEL, channelBytes);
-        int commandOffset = offset + OFFSET_CHANNEL + channelLength;
         Command command = AeronCommandCodec.decode(buffer, commandOffset);
         return new DecodedCommand(command, new String(channelBytes, StandardCharsets.UTF_8), responseStreamId);
     }

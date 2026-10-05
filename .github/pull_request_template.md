@@ -11,8 +11,8 @@
 
 ## 验证
 
-- [ ] `mvn test`
-- [ ] `mvn -Pstyle-check validate`
+- [ ] `./mvnw test`
+- [ ] `./mvnw -Pstyle-check validate`
 
 ## 发布与运维说明
 

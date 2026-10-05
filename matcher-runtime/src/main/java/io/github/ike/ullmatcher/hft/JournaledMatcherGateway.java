@@ -159,7 +159,39 @@ public final class JournaledMatcherGateway {
      * @throws IOException WAL 追加失败时抛出
      */
     public SubmitResult trySubmit(Command command, long offerTimeoutNanos) throws IOException {
-        return trySubmitBatch(List.of(command), offerTimeoutNanos);
+        Objects.requireNonNull(command, "command");
+        if (!acceptingSubmissions.getAsBoolean()) {
+            failedBeforeWalCount++;
+            return record(SubmitResult.MATCHER_NOT_RUNNING);
+        }
+        try {
+            awaitRingCapacity(1, offerTimeoutNanos);
+        } catch (GatewayCapacityException e) {
+            if (e.result == SubmitResult.MATCHER_NOT_RUNNING || e.result == SubmitResult.RING_FULL_BEFORE_WAL_APPEND) {
+                failedBeforeWalCount++;
+            }
+            return record(e.result);
+        }
+        if (!acceptingSubmissions.getAsBoolean()) {
+            failedBeforeWalCount++;
+            return record(SubmitResult.MATCHER_NOT_RUNNING);
+        }
+        wal.append(command);
+        walAppendCount++;
+        appendedSinceForce++;
+        forceIfRequired(1);
+        if (!acceptingSubmissions.getAsBoolean()) {
+            failedAfterWalCount++;
+            return record(SubmitResult.MATCHER_STOPPED_AFTER_WAL_APPEND);
+        }
+        command.retain();
+        if (!ring.offer(command)) {
+            command.release();
+            failedAfterWalCount++;
+            throw new IllegalStateException("ring capacity changed after reservation");
+        }
+        acceptedCount++;
+        return record(SubmitResult.ACCEPTED);
     }
 
     /**

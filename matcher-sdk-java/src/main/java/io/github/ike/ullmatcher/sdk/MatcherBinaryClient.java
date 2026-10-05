@@ -6,6 +6,7 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -34,17 +35,24 @@ public final class MatcherBinaryClient implements Closeable {
     private static final int CANCEL_RECORD_BYTES = 16;
     /** 响应记录固定 24 字节：orderId + sequence + resultCode + reserved。 */
     private static final int RESPONSE_RECORD_BYTES = 24;
+    private static final int INGRESS_HANDSHAKE_BYTES = 32;
 
     private final String host;
     private final int port;
     private final Duration timeout;
+    private final String ingressApiKey;
     private Socket socket;
     private boolean closed;
 
     public MatcherBinaryClient(String host, int port, Duration timeout) throws IOException {
+        this(host, port, timeout, null);
+    }
+
+    public MatcherBinaryClient(String host, int port, Duration timeout, String ingressApiKey) throws IOException {
         this.host = Objects.requireNonNull(host, "host");
         this.port = port;
         this.timeout = Objects.requireNonNull(timeout, "timeout");
+        this.ingressApiKey = ingressApiKey == null || ingressApiKey.isBlank() ? null : ingressApiKey.trim();
         if (port < 1 || port > 65_535) {
             throw new IllegalArgumentException("port must be between 1 and 65535");
         }
@@ -57,12 +65,31 @@ public final class MatcherBinaryClient implements Closeable {
     private Socket connectSocket() throws IOException {
         Socket next = new Socket();
         int timeoutMillis = timeoutMillis();
-        // binary ingress 是长连接协议；连接超时和读超时都使用调用方提供的请求预算。
-        next.connect(new InetSocketAddress(host, port), timeoutMillis);
-        next.setSoTimeout(timeoutMillis);
-        // 接单路径不依赖 Nagle 合并，默认关闭以降低单批次尾延迟。
-        next.setTcpNoDelay(true);
-        return next;
+        try {
+            // binary ingress 是长连接协议；连接超时和读超时都使用调用方提供的请求预算。
+            next.connect(new InetSocketAddress(host, port), timeoutMillis);
+            next.setSoTimeout(timeoutMillis);
+            // 接单路径不依赖 Nagle 合并，默认关闭以降低单批次尾延迟。
+            next.setTcpNoDelay(true);
+            if (ingressApiKey != null) {
+                byte[] raw = ingressApiKey.getBytes(StandardCharsets.UTF_8);
+                if (raw.length > INGRESS_HANDSHAKE_BYTES) {
+                    throw new IOException("ingress api key exceeds " + INGRESS_HANDSHAKE_BYTES + " bytes");
+                }
+                byte[] padded = new byte[INGRESS_HANDSHAKE_BYTES];
+                System.arraycopy(raw, 0, padded, 0, raw.length);
+                next.getOutputStream().write(padded);
+            }
+            return next;
+        } catch (IOException | RuntimeException e) {
+            // 半开的 socket 必须在抛出前关闭，否则握手或 setsockopt 失败会泄漏文件描述符。
+            try {
+                next.close();
+            } catch (IOException suppressed) {
+                e.addSuppressed(suppressed);
+            }
+            throw e;
+        }
     }
 
     private int timeoutMillis() {

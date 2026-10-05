@@ -1,0 +1,32 @@
+{
+  "_comment": [
+    "Floors for HA/cluster benchmark reports (binary ingress, REST HA).",
+    "Validated when reports exist under target/benchmark/current/ or via",
+    "scripts/ops/check-ha-benchmark-floor.sh. Values sit well below the",
+    "reference machine in benchmark-baseline.md to tolerate lab variance."
+  ],
+  "scenarios": {
+    "grpc-1p2s-binary-frame1": {
+      "reportFile": "grpc-1p2s-binary-frame1.json",
+      "atLeast": {
+        "acceptedCommandsPerSecond": 120000.0,
+        "replicationCommittedSubmissionsPerSecond": 110000.0
+      },
+      "atMost": {
+        "latency.p99Ms": 2.0,
+        "commitCatchupSeconds": 0.05
+      }
+    },
+    "grpc-1p2s-binary-committed-frame": {
+      "reportFile": "grpc-1p2s-binary-committed-frame.json",
+      "atLeast": {
+        "acceptedCommandsPerSecond": 60000.0,
+        "replicationCommittedSubmissionsPerSecond": 60000.0
+      },
+      "atMost": {
+        "latency.p99Ms": 5.0,
+        "commitCatchupSeconds": 0.05
+      }
+    }
+  }
+}

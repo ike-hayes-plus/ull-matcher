@@ -66,6 +66,12 @@ public final class MmapCommandWal implements WalWriter, WalReader {
                 StandardOpenOption.WRITE);
         if (channel.size() < fileSizeBytes) {
             channel.truncate(fileSizeBytes);
+            // truncate() only changes the file length in the page cache. Without this the
+            // segment's data pages can be durable while its length is not, so a crash can
+            // leave a short file that drops already-acknowledged commands. The mapping is
+            // fixed size, so length is the only metadata that ever changes: one fsync per
+            // segment is enough, and the per-command force() stays a pure msync.
+            channel.force(true);
         }
         this.capacity = fileSizeBytes;
         this.buffer = channel.map(FileChannel.MapMode.READ_WRITE, 0, fileSizeBytes);
@@ -150,12 +156,12 @@ public final class MmapCommandWal implements WalWriter, WalReader {
 
     /**
      * 刷新内存映射缓冲区。
+     * <p>
+     * 段文件长度在构造时已经单独 fsync 过，之后不再变化，因此提交路径上只需要
+     * msync 脏页，不需要每条命令再做一次元数据 fsync。
      */
     @Override
     public void force() throws IOException {
-        // WAL segments are fixed-size mapped files. Submit-path durability only
-        // needs mapped content flushed; segment creation and directory metadata
-        // are synchronized by SegmentedMmapWal when opening a writer.
         buffer.force();
     }
 

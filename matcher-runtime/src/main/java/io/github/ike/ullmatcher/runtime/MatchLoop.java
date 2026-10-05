@@ -241,7 +241,9 @@ public final class MatchLoop implements Runnable {
             }
             matcher.onCommand(command);
             processedCommandCount++;
-            lastCommandNanos = System.nanoTime();
+            if ((processedCommandCount & 63L) == 0L) {
+                lastCommandNanos = System.nanoTime();
+            }
         } catch (Throwable t) {
             failure = t;
             acceptingCommands = false;

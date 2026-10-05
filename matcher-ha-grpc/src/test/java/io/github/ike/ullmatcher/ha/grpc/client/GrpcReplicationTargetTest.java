@@ -169,7 +169,7 @@ final class GrpcReplicationTargetTest {
             awaitApplied(standby, 600L);
 
             assertEquals(600, wal.appendCount);
-            assertEquals(3, wal.forceCount);
+            assertEquals(1, wal.forceCount);
             assertEquals(new ReplicationCursor(600L, 600L, 600L, 0L), target.fetchCursor(TEST_TIMEOUT_NANOS));
         } finally {
             standby.close();

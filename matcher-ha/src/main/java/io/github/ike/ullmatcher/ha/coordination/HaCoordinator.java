@@ -79,11 +79,32 @@ public final class HaCoordinator {
         if (!localNodeId.equals(decision.candidateNodeId())) {
             return new HaTickResult(decision.action(), before, runtime.role(), false, decision.reason());
         }
-        boolean acquired = leaseStore.tryAcquire(localNodeId, decision.nextToken(), nowNanos, leaseTtlNanos);
+        FencingToken nextToken = nextFencingToken(decision.nextToken());
+        boolean acquired = leaseStore.tryAcquire(localNodeId, nextToken, nowNanos, leaseTtlNanos);
         if (!acquired) {
             return new HaTickResult(FailoverAction.HOLD, before, runtime.role(), false, "failed to acquire lease for promotion");
         }
-        runtime.promote(decision.nextToken());
+        runtime.promote(nextToken);
         return new HaTickResult(FailoverAction.PROMOTE_STANDBY, before, runtime.role(), true, decision.reason());
+    }
+
+    /**
+     * Derives the epoch to promote with.
+     * <p>
+     * The failover decision only sees the discovered replica state, which can be arbitrarily stale.
+     * Promoting on that alone lets two different primaries reuse the same epoch, which silently
+     * defeats fencing. The lease store is the authority, so the new epoch must also beat whatever it
+     * currently holds.
+     *
+     * @param proposed epoch proposed by the failover controller
+     * @return token strictly greater than both the proposal and the recorded lease
+     */
+    private FencingToken nextFencingToken(FencingToken proposed) {
+        ClusterLease lease = leaseStore.currentLease();
+        long proposedEpoch = proposed.epoch();
+        if (lease == null) {
+            return proposed;
+        }
+        return new FencingToken(Math.max(proposedEpoch, lease.fencingToken().epoch() + 1L));
     }
 }

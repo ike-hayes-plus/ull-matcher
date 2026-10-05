@@ -17,6 +17,7 @@ import io.github.ike.ullmatcher.server.bootstrap.WriteAdmissionPolicyConfig;
 import io.github.ike.ullmatcher.server.engine.MatcherNodeService;
 import io.github.ike.ullmatcher.server.engine.TtlCancelConfig;
 import io.github.ike.ullmatcher.server.security.ServerSecurityConfig;
+import io.github.ike.ullmatcher.server.security.IngressAuthConfig;
 import io.github.ike.ullmatcher.server.telemetry.MatcherNodeMetricsSnapshot;
 
 import java.io.IOException;
@@ -201,6 +202,7 @@ public final class BinaryHaCrossingBenchmark {
                 8,
                 WriteAdmissionPolicyConfig.defaults(),
                 false,
+                IngressAuthConfig.disabled(),
                 0,
                 GrpcReplicationServerConfig.defaults(0),
                 ServerSecurityConfig.insecureDefaults(),

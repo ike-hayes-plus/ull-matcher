@@ -20,6 +20,9 @@ final class ZooKeeperLeaseStoreConfigTest {
     void rejectsInvalidLeaseStoreConfig() {
         assertThrows(IllegalArgumentException.class, () -> new ZooKeeperLeaseStoreConfig("", "/ull/lease", 15_000, 5_000));
         assertThrows(IllegalArgumentException.class, () -> new ZooKeeperLeaseStoreConfig("127.0.0.1:2181", "relative", 15_000, 5_000));
+        assertThrows(IllegalArgumentException.class, () -> new ZooKeeperLeaseStoreConfig("127.0.0.1:2181", "  ", 15_000, 5_000));
+        assertThrows(NullPointerException.class, () -> new ZooKeeperLeaseStoreConfig(null, "/ull/lease", 15_000, 5_000));
+        assertThrows(NullPointerException.class, () -> new ZooKeeperLeaseStoreConfig("127.0.0.1:2181", null, 15_000, 5_000));
         assertThrows(IllegalArgumentException.class, () -> new ZooKeeperLeaseStoreConfig("127.0.0.1:2181", "/ull/lease", 0, 5_000));
         assertThrows(IllegalArgumentException.class, () -> new ZooKeeperLeaseStoreConfig("127.0.0.1:2181", "/ull/lease", 15_000, 0));
     }

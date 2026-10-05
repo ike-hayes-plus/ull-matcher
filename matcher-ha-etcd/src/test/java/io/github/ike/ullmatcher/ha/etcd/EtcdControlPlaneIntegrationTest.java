@@ -1,18 +1,28 @@
 package io.github.ike.ullmatcher.ha.etcd;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import com.sun.net.httpserver.HttpsConfigurator;
+import com.sun.net.httpserver.HttpsServer;
 import io.github.ike.ullmatcher.ha.coordination.ClusterLease;
 import io.github.ike.ullmatcher.ha.coordination.FencingToken;
 import io.github.ike.ullmatcher.ha.coordination.HaRole;
 import io.github.ike.ullmatcher.ha.discovery.DiscoveredNode;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import javax.net.ssl.KeyManagerFactory;
+import javax.net.ssl.SSLContext;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.GeneralSecurityException;
+import java.security.KeyStore;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -25,6 +35,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class EtcdControlPlaneIntegrationTest {
@@ -87,18 +98,58 @@ final class EtcdControlPlaneIntegrationTest {
         }
     }
 
+    @Test
+    void leaseStoreTalksToEtcdOverTlsUsingTheConfiguredTrustChain(@TempDir Path directory) throws Exception {
+        TestPkiFixture pki = TestPkiFixture.create(directory, "RSA");
+        try (FakeEtcdServer server = new FakeEtcdServer(pki);
+             EtcdLeaseStore store = new EtcdLeaseStore(tlsConfig(server.endpoint(), pki))) {
+            long nowNanos = System.nanoTime();
+
+            assertTrue(store.tryAcquire("node-a", new FencingToken(7L), nowNanos, TTL_NANOS));
+            assertTrue(store.isHeldBy("node-a", new FencingToken(7L), nowNanos + 1L));
+            assertFalse(store.tryAcquire("node-b", new FencingToken(8L), nowNanos + 2L, TTL_NANOS));
+        }
+    }
+
+    @Test
+    void tlsHandshakeFailsWhenTheServerCertificateIsNotTrusted(@TempDir Path directory) throws Exception {
+        TestPkiFixture serverPki = TestPkiFixture.create(directory.resolve("server"), "RSA");
+        TestPkiFixture otherPki = TestPkiFixture.create(directory.resolve("other"), "RSA");
+        try (FakeEtcdServer server = new FakeEtcdServer(serverPki);
+             EtcdLeaseStore store = new EtcdLeaseStore(tlsConfig(server.endpoint(), otherPki))) {
+            // The untrusted chain must stop the request; the store surfaces it as an unchecked failure.
+            assertThrows(IllegalStateException.class, store::currentLease);
+        }
+    }
+
+    private static EtcdConfig tlsConfig(String endpoint, TestPkiFixture pki) {
+        return new EtcdConfig(endpoint, "/ull-matcher/test-etcd", 10L, 2_000L, 25L,
+                pki.certificatePem(), null, null, false);
+    }
+
     private static EtcdConfig config(String endpoint) {
-        return new EtcdConfig(endpoint, "/ull-matcher/test-etcd", 10L, 2_000L, 25L);
+        return new EtcdConfig(endpoint, "/ull-matcher/test-etcd", 10L, 2_000L, 25L, null, null, null, false);
     }
 
     private static final class FakeEtcdServer implements AutoCloseable {
-        private final ObjectMapper objectMapper = new ObjectMapper();
+        private final JsonMapper objectMapper = JsonMapper.builderWithJackson2Defaults().build();
         private final Map<String, String> values = new ConcurrentHashMap<>();
         private final AtomicLong nextLeaseId = new AtomicLong(100L);
         private final HttpServer server;
+        private final String scheme;
 
         private FakeEtcdServer() throws IOException {
-            server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+            this(null);
+        }
+
+        private FakeEtcdServer(TestPkiFixture pki) throws IOException {
+            if (pki == null) {
+                server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+                scheme = "http";
+            } else {
+                server = httpsServer(pki);
+                scheme = "https";
+            }
             server.createContext("/v3/lease/grant", this::grantLease);
             server.createContext("/v3/kv/txn", this::txn);
             server.createContext("/v3/kv/put", this::put);
@@ -108,7 +159,25 @@ final class EtcdControlPlaneIntegrationTest {
         }
 
         private String endpoint() {
-            return "http://127.0.0.1:" + server.getAddress().getPort();
+            return scheme + "://127.0.0.1:" + server.getAddress().getPort();
+        }
+
+        private static HttpsServer httpsServer(TestPkiFixture pki) throws IOException {
+            try {
+                KeyStore keyStore = KeyStore.getInstance("PKCS12");
+                try (java.io.InputStream input = Files.newInputStream(pki.keyStoreFile())) {
+                    keyStore.load(input, pki.keyStorePassword());
+                }
+                KeyManagerFactory keyManagers = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+                keyManagers.init(keyStore, pki.keyStorePassword());
+                SSLContext sslContext = SSLContext.getInstance("TLS");
+                sslContext.init(keyManagers.getKeyManagers(), null, null);
+                HttpsServer https = HttpsServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+                https.setHttpsConfigurator(new HttpsConfigurator(sslContext));
+                return https;
+            } catch (GeneralSecurityException e) {
+                throw new IOException("failed to start TLS fake etcd", e);
+            }
         }
 
         private void grantLease(HttpExchange exchange) throws IOException {
@@ -119,14 +188,14 @@ final class EtcdControlPlaneIntegrationTest {
             JsonNode request = readJson(exchange);
             boolean matched = true;
             for (JsonNode compare : request.path("compare")) {
-                String key = EtcdClient.decode(compare.path("key").asText());
-                String target = compare.path("target").asText();
+                String key = EtcdClient.decode(compare.path("key").asString());
+                String target = compare.path("target").asString();
                 if ("VERSION".equals(target)) {
                     long expectedVersion = compare.path("version").asLong();
                     long actualVersion = values.containsKey(key) ? 1L : 0L;
                     matched &= actualVersion == expectedVersion;
                 } else if ("VALUE".equals(target)) {
-                    String expected = EtcdClient.decode(compare.path("value").asText());
+                    String expected = EtcdClient.decode(compare.path("value").asString());
                     matched &= expected.equals(values.get(key));
                 } else {
                     matched = false;
@@ -135,7 +204,7 @@ final class EtcdControlPlaneIntegrationTest {
             if (matched) {
                 for (JsonNode success : request.path("success")) {
                     JsonNode put = success.path("request_put");
-                    values.put(EtcdClient.decode(put.path("key").asText()), EtcdClient.decode(put.path("value").asText()));
+                    values.put(EtcdClient.decode(put.path("key").asString()), EtcdClient.decode(put.path("value").asString()));
                 }
             }
             writeJson(exchange, Map.of("succeeded", matched));
@@ -143,20 +212,20 @@ final class EtcdControlPlaneIntegrationTest {
 
         private void put(HttpExchange exchange) throws IOException {
             JsonNode request = readJson(exchange);
-            values.put(EtcdClient.decode(request.path("key").asText()), EtcdClient.decode(request.path("value").asText()));
+            values.put(EtcdClient.decode(request.path("key").asString()), EtcdClient.decode(request.path("value").asString()));
             writeJson(exchange, Map.of());
         }
 
         private void range(HttpExchange exchange) throws IOException {
             JsonNode request = readJson(exchange);
-            String key = EtcdClient.decode(request.path("key").asText());
+            String key = EtcdClient.decode(request.path("key").asString());
             JsonNode rangeEndNode = request.path("range_end");
             List<Map<String, String>> kvs;
             if (rangeEndNode.isMissingNode()) {
                 String value = values.get(key);
                 kvs = value == null ? List.of() : List.of(kv(key, value));
             } else {
-                String rangeEnd = EtcdClient.decode(rangeEndNode.asText());
+                String rangeEnd = EtcdClient.decode(rangeEndNode.asString());
                 kvs = values.entrySet().stream()
                         .filter(entry -> entry.getKey().compareTo(key) >= 0 && entry.getKey().compareTo(rangeEnd) < 0)
                         .sorted(Comparator.comparing(Map.Entry::getKey))
@@ -168,16 +237,25 @@ final class EtcdControlPlaneIntegrationTest {
 
         private void deleteRange(HttpExchange exchange) throws IOException {
             JsonNode request = readJson(exchange);
-            values.remove(EtcdClient.decode(request.path("key").asText()));
+            values.remove(EtcdClient.decode(request.path("key").asString()));
             writeJson(exchange, Map.of());
         }
 
         private JsonNode readJson(HttpExchange exchange) throws IOException {
-            return objectMapper.readTree(exchange.getRequestBody());
+            try {
+                return objectMapper.readTree(exchange.getRequestBody());
+            } catch (JacksonException e) {
+                throw new IOException("failed to read etcd test request", e);
+            }
         }
 
         private void writeJson(HttpExchange exchange, Object body) throws IOException {
-            byte[] bytes = objectMapper.writeValueAsBytes(body);
+            final byte[] bytes;
+            try {
+                bytes = objectMapper.writeValueAsBytes(body);
+            } catch (JacksonException e) {
+                throw new IOException("failed to write etcd test response", e);
+            }
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, bytes.length);
             try (OutputStream output = exchange.getResponseBody()) {

@@ -16,6 +16,7 @@ import io.github.ike.ullmatcher.server.cluster.ReplicationTransportPolicyEnforce
 import io.github.ike.ullmatcher.ha.transport.ReplicationTransportType;
 import io.github.ike.ullmatcher.server.engine.TtlCancelConfig;
 import io.github.ike.ullmatcher.server.security.ServerSecurityConfig;
+import io.github.ike.ullmatcher.server.security.IngressAuthConfig;
 import org.junit.jupiter.api.Test;
 
 
@@ -27,26 +28,54 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class MatcherServerMainBootstrapTest {
     @Test
+    void clusterNamePrefersMatcherClusterThenLegacyAliasThenDefault() {
+        String previousCluster = System.getProperty("matcher.cluster");
+        String previousLegacy = System.getProperty("matcher.clusterName");
+        try {
+            System.clearProperty("matcher.cluster");
+            System.clearProperty("matcher.clusterName");
+            assertEquals("default", MatcherServerMain.clusterName());
+
+            System.setProperty("matcher.clusterName", "  legacy-cluster  ");
+            assertEquals("legacy-cluster", MatcherServerMain.clusterName());
+
+            System.setProperty("matcher.cluster", "   ");
+            assertEquals("legacy-cluster", MatcherServerMain.clusterName());
+
+            System.setProperty("matcher.cluster", "  preferred-cluster  ");
+            assertEquals("preferred-cluster", MatcherServerMain.clusterName());
+
+            System.clearProperty("matcher.clusterName");
+            System.setProperty("matcher.cluster", " ");
+            assertEquals("default", MatcherServerMain.clusterName());
+        } finally {
+            restoreProperty("matcher.cluster", previousCluster);
+            restoreProperty("matcher.clusterName", previousLegacy);
+        }
+    }
+
+    @Test
     void unsupportedDiscoveryProviderFailsFast() {
         ServerBootstrapException error = assertThrows(ServerBootstrapException.class,
-                () -> MatcherServerMain.nodeRegistry("unsupported", "127.0.0.1:2181", "http://127.0.0.1:2379", "cluster-a"));
+                () -> MatcherServerMain.nodeRegistry("unsupported", "127.0.0.1:2181", "http://127.0.0.1:2379", "cluster-a", false));
         assertEquals("unsupported discovery provider: unsupported", error.getMessage());
     }
 
     @Test
     void unsupportedLeaseProviderFailsFast() {
         ServerBootstrapException error = assertThrows(ServerBootstrapException.class,
-                () -> MatcherServerMain.leaseStore("unsupported", "127.0.0.1:2181", "http://127.0.0.1:2379", "cluster-a"));
+                () -> MatcherServerMain.leaseStore("unsupported", "127.0.0.1:2181", "http://127.0.0.1:2379", "cluster-a", false));
         assertEquals("unsupported lease provider: unsupported", error.getMessage());
     }
 
     @Test
     void etcdProviderRequiresEndpoint() {
         ServerBootstrapException error = assertThrows(ServerBootstrapException.class,
-                () -> MatcherServerMain.etcdConfig("", "cluster-a"));
+                () -> MatcherServerMain.etcdConfig("", "cluster-a", false));
         assertEquals("matcher.etcdEndpoint is required when using etcd provider", error.getMessage());
     }
 
@@ -61,7 +90,7 @@ final class MatcherServerMainBootstrapTest {
             System.setProperty("matcher.etcdLeaseTtlSeconds", "15");
             System.setProperty("matcher.etcdTimeoutMillis", "750");
             System.setProperty("matcher.etcdLocalHeldCheckCacheMillis", "10");
-            var config = MatcherServerMain.etcdConfig("http://127.0.0.1:2379", "cluster-a");
+            var config = MatcherServerMain.etcdConfig("http://127.0.0.1:2379", "cluster-a", false);
             assertEquals("http://127.0.0.1:2379", config.endpoint());
             assertEquals("/matcher/prod", config.keyPrefix());
             assertEquals(15L, config.leaseTtlSeconds());
@@ -87,7 +116,7 @@ final class MatcherServerMainBootstrapTest {
             restoreProperty("matcher.leaseProvider", null);
             restoreProperty("matcher.discoveryProvider", null);
 
-            MatcherClusterConfig clusterConfig = MatcherServerMain.clusterConfig("merchant:42");
+            MatcherClusterConfig clusterConfig = MatcherServerMain.clusterConfig("merchant:42", MatcherServerMode.DEV);
 
             assertEquals("EtcdLeaseStore", clusterConfig.leaseStore().getClass().getSimpleName());
             assertEquals("EtcdNodeRegistry", clusterConfig.nodeRegistry().getClass().getSimpleName());
@@ -112,7 +141,7 @@ final class MatcherServerMainBootstrapTest {
             System.setProperty("matcher.discoveryProvider", "etcd");
 
             ServerBootstrapException error = assertThrows(ServerBootstrapException.class,
-                    () -> MatcherServerMain.clusterConfig("merchant:42"));
+                    () -> MatcherServerMain.clusterConfig("merchant:42", MatcherServerMode.DEV));
 
             assertEquals("matcher.leaseProvider and matcher.discoveryProvider must match: zk != etcd",
                     error.getMessage());
@@ -127,7 +156,7 @@ final class MatcherServerMainBootstrapTest {
     @Test
     void zkDiscoveryProviderRequiresConnectString() {
         ServerBootstrapException error = assertThrows(ServerBootstrapException.class,
-                () -> MatcherServerMain.nodeRegistry("zk", "", "http://127.0.0.1:2379", "cluster-a"));
+                () -> MatcherServerMain.nodeRegistry("zk", "", "http://127.0.0.1:2379", "cluster-a", false));
         assertEquals("matcher.zkConnect is required when matcher.discoveryProvider=zk", error.getMessage());
     }
 
@@ -145,7 +174,7 @@ final class MatcherServerMainBootstrapTest {
             System.setProperty("matcher.failoverMinStandbyReplicas", "2");
             System.setProperty("matcher.replicationMode", "WAIT_FOR_QUORUM_STANDBYS");
 
-            MatcherClusterConfig clusterConfig = MatcherServerMain.clusterConfig("merchant:42");
+            MatcherClusterConfig clusterConfig = MatcherServerMain.clusterConfig("merchant:42", MatcherServerMode.DEV);
 
             assertEquals(TimeUnit.MILLISECONDS.toNanos(2_500L), clusterConfig.failoverPolicy().primaryHeartbeatTimeoutNanos());
             assertEquals(7L, clusterConfig.failoverPolicy().maxPromotionLag());
@@ -207,19 +236,58 @@ final class MatcherServerMainBootstrapTest {
     }
 
     @Test
+    void prodModeRejectsTheDefaultDataDirectory() {
+        // The shipped default is target/matcher-server, which mvn clean wipes; prod must refuse it
+        // without the operator having to opt in to anything.
+        MatcherServerConfig config = MatcherServerConfig
+                .builder("node-a", 1, Path.of("target/matcher-server"))
+                .serverMode(MatcherServerMode.PROD)
+                .build();
+
+        IllegalStateException error = assertThrows(IllegalStateException.class, config::validateDeploymentSafety);
+
+        assertTrue(error.getMessage().startsWith("prod mode requires a persistent matcher.dataDir outside build output directories"),
+                error.getMessage());
+        assertTrue(error.getMessage().contains("target/matcher-server/wal"), error.getMessage());
+    }
+
+    @Test
+    void prodModeRejectsAnyBuildOutputDirectorySegment() {
+        for (String segment : List.of("target", "build", "out")) {
+            MatcherServerConfig config = MatcherServerConfig
+                    .builder("node-a", 1, Path.of("/srv/" + segment + "/matcher"))
+                    .serverMode(MatcherServerMode.PROD)
+                    .build();
+
+            assertThrows(IllegalStateException.class, config::validateDeploymentSafety,
+                    "path segment " + segment + " must be rejected");
+        }
+    }
+
+    @Test
+    void prodModeAcceptsAPersistentDataDirectory() {
+        MatcherServerConfig config = MatcherServerConfig
+                .builder("node-a", 1, Path.of("/var/lib/ull-matcher"))
+                .serverMode(MatcherServerMode.PROD)
+                .build();
+
+        config.validateDeploymentSafety();
+    }
+
+    @Test
     void prodModeRejectsRemoteHttpWithoutExplicitOptIn() {
         MatcherServerConfig config = new MatcherServerConfig(
                 MatcherServerMode.PROD,
                 "node-a",
                 "merchant:42",
                 MatcherConfig.defaults(1),
-                Path.of("target/test-wal"),
+                Path.of("/tmp/ull-matcher-prod-http/wal"),
                 "symbol-1",
                 4L * 1024L * 1024L,
                 WalDurabilityMode.SYNC_PER_COMMAND,
                 1,
                 0L,
-                Path.of("target/test.snap"),
+                Path.of("/tmp/ull-matcher-prod-http/test.snap"),
                 1 << 10,
                 128,
                 java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(200),
@@ -242,6 +310,7 @@ final class MatcherServerMainBootstrapTest {
                 8,
                 WriteAdmissionPolicyConfig.defaults(),
                 false,
+                IngressAuthConfig.disabled(),
                 9090,
                 GrpcReplicationServerConfig.defaults(9090),
                 ServerSecurityConfig.insecureDefaults(),
@@ -252,7 +321,7 @@ final class MatcherServerMainBootstrapTest {
                 null
         );
         IllegalStateException error = assertThrows(IllegalStateException.class, config::validateDeploymentSafety);
-        assertEquals("prod mode requires matcher.allowInsecureRemoteHttp=true when matcher.httpBindHost is not loopback", error.getMessage());
+        assertEquals("prod mode requires matcher.ingressApiKeys when HTTP/binary bind to non-loopback addresses", error.getMessage());
     }
 
     @Test
@@ -262,13 +331,13 @@ final class MatcherServerMainBootstrapTest {
                 "node-a",
                 "merchant:42",
                 MatcherConfig.defaults(1),
-                Path.of("target/test-wal"),
+                Path.of("/tmp/ull-matcher-prod-grpc/wal"),
                 "symbol-1",
                 4L * 1024L * 1024L,
                 WalDurabilityMode.SYNC_PER_COMMAND,
                 1,
                 0L,
-                Path.of("target/test.snap"),
+                Path.of("/tmp/ull-matcher-prod-grpc/test.snap"),
                 1 << 10,
                 128,
                 java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(200),
@@ -291,6 +360,7 @@ final class MatcherServerMainBootstrapTest {
                 8,
                 WriteAdmissionPolicyConfig.defaults(),
                 false,
+                IngressAuthConfig.disabled(),
                 9090,
                 GrpcReplicationServerConfig.defaults(9090).withBindHost("10.0.0.10"),
                 ServerSecurityConfig.insecureDefaults(),
@@ -305,8 +375,8 @@ final class MatcherServerMainBootstrapTest {
     }
 
     @Test
-    void prodModeRejectsAeronPreviewWithoutExplicitOptIn() {
-        Path dir = Path.of("target/prod-preview-reject");
+    void prodModeRejectsAeronPreviewWithoutExplicitOptIn() throws Exception {
+        Path dir = Files.createTempDirectory("prod-preview-reject");
         MatcherServerConfig config = new MatcherServerConfig(
                 MatcherServerMode.PROD,
                 "node-a",
@@ -341,6 +411,7 @@ final class MatcherServerMainBootstrapTest {
                 8,
                 WriteAdmissionPolicyConfig.defaults(),
                 false,
+                IngressAuthConfig.disabled(),
                 9090,
                 GrpcReplicationServerConfig.defaults(9090),
                 ServerSecurityConfig.insecureDefaults(),
@@ -360,8 +431,8 @@ final class MatcherServerMainBootstrapTest {
     }
 
     @Test
-    void prodModeAllowsRemoteGrpcBindWhenAuthoritativeTransportIsAeron() {
-        Path dir = Path.of("target/prod-aeron-grpc-optional");
+    void prodModeAllowsRemoteGrpcBindWhenAuthoritativeTransportIsAeron() throws Exception {
+        Path dir = Files.createTempDirectory("prod-aeron-grpc-optional");
         MatcherServerConfig config = new MatcherServerConfig(
                 MatcherServerMode.PROD,
                 "node-a",
@@ -396,6 +467,7 @@ final class MatcherServerMainBootstrapTest {
                 8,
                 WriteAdmissionPolicyConfig.defaults(),
                 false,
+                IngressAuthConfig.disabled(),
                 9090,
                 GrpcReplicationServerConfig.defaults(9090).withBindHost("10.0.0.10"),
                 ServerSecurityConfig.insecureDefaults(),
@@ -415,8 +487,8 @@ final class MatcherServerMainBootstrapTest {
     }
 
     @Test
-    void prodModeRejectsRemoteAeronWithoutTransportSecurity() {
-        Path dir = Path.of("target/prod-aeron-security-required");
+    void prodModeRejectsRemoteAeronWithoutTransportSecurity() throws Exception {
+        Path dir = Files.createTempDirectory("prod-aeron-security-required");
         MatcherServerConfig config = new MatcherServerConfig(
                 MatcherServerMode.PROD,
                 "node-a",
@@ -451,6 +523,7 @@ final class MatcherServerMainBootstrapTest {
                 8,
                 WriteAdmissionPolicyConfig.defaults(),
                 false,
+                IngressAuthConfig.disabled(),
                 9090,
                 GrpcReplicationServerConfig.defaults(9090).withBindHost("10.0.0.10"),
                 ServerSecurityConfig.insecureDefaults(),
@@ -498,99 +571,25 @@ final class MatcherServerMainBootstrapTest {
     }
 
     private static MatcherServerConfig baseConfig(Path dir, MatcherClusterConfig clusterConfig) {
-        return new MatcherServerConfig(
-                MatcherServerMode.DEV,
-                "node-a",
-                "merchant:42",
-                MatcherConfig.defaults(1),
-                dir.resolve("wal"),
-                "symbol-1",
-                4L * 1024L * 1024L,
-                WalDurabilityMode.SYNC_PER_COMMAND,
-                1,
-                0L,
-                dir.resolve("snapshots").resolve("symbol-1.snap"),
-                1 << 10,
-                128,
-                TimeUnit.MILLISECONDS.toNanos(200),
-                8080,
-                "127.0.0.1",
-                4,
-                1 << 20,
-                256,
-                2_000L,
-                128,
-                96,
-                16,
-                2_000L,
-                1_000L,
-                5_000L,
-                96,
-                64,
-                2,
-                16,
-                8,
-                WriteAdmissionPolicyConfig.defaults(),
-                false,
-                9090,
-                GrpcReplicationServerConfig.defaults(9090),
-                ServerSecurityConfig.insecureDefaults(),
-                TtlCancelConfig.disabled(),
-                HaRole.PRIMARY,
-                io.github.ike.ullmatcher.runtime.MatchLoopConfig.defaults(),
-                io.github.ike.ullmatcher.ha.standby.StandbySyncConfig.defaults(),
-                clusterConfig
-        );
+        return baseBuilder(dir).clusterConfig(clusterConfig).build();
     }
 
     private static MatcherServerConfig baseConfigWithSizing(Path dir, int ringCapacity, int binaryIngressMaxBatchSize) {
-        return new MatcherServerConfig(
-                MatcherServerMode.DEV,
-                "node-a",
-                "merchant:42",
-                MatcherConfig.defaults(1),
-                dir.resolve("wal"),
-                "symbol-1",
-                4L * 1024L * 1024L,
-                WalDurabilityMode.SYNC_PER_COMMAND,
-                1,
-                0L,
-                dir.resolve("snapshots").resolve("symbol-1.snap"),
-                ringCapacity,
-                128,
-                TimeUnit.MILLISECONDS.toNanos(200),
-                8080,
-                "127.0.0.1",
-                4,
-                1 << 20,
-                256,
-                2_000L,
-                false,
-                10080,
-                "127.0.0.1",
-                binaryIngressMaxBatchSize,
-                128,
-                96,
-                16,
-                2_000L,
-                1_000L,
-                5_000L,
-                96,
-                64,
-                2,
-                16,
-                8,
-                WriteAdmissionPolicyConfig.defaults(),
-                false,
-                9090,
-                GrpcReplicationServerConfig.defaults(9090),
-                ServerSecurityConfig.insecureDefaults(),
-                TtlCancelConfig.disabled(),
-                HaRole.PRIMARY,
-                io.github.ike.ullmatcher.runtime.MatchLoopConfig.defaults(),
-                io.github.ike.ullmatcher.ha.standby.StandbySyncConfig.defaults(),
-                null
-        );
+        return baseBuilder(dir)
+                .ringCapacity(ringCapacity)
+                .binaryIngressMaxBatchSize(binaryIngressMaxBatchSize)
+                .build();
+    }
+
+    private static MatcherServerConfig.Builder baseBuilder(Path dir) {
+        return MatcherServerConfig.builder("node-a", 1, dir)
+                .shardKey("merchant:42")
+                .walPrefix("symbol-1")
+                .walSegmentSizeBytes(4L * 1024L * 1024L)
+                .ringCapacity(1 << 10)
+                .gatewaySpinLimit(128)
+                .gatewayOfferTimeoutNanos(TimeUnit.MILLISECONDS.toNanos(200))
+                .httpWorkerThreads(4);
     }
 
     private static final class TestLeaseStore implements LeaseStore {

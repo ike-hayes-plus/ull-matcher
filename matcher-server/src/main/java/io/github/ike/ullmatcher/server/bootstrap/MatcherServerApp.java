@@ -50,6 +50,15 @@ public final class MatcherServerApp implements Closeable {
                         0L, 0L, null, null, java.util.Map.of(), java.util.List.of(), "IDLE", "",
                         TransportMetricsSnapshot.none("NONE"))
                         : clusterSupervisorRef.get().metricsSnapshot();
+        this.binaryIngressServer = config.binaryIngressEnabled()
+                ? new BinaryOrderIngressServer(
+                config.binaryIngressBindHost(),
+                config.binaryIngressPort(),
+                config.binaryIngressMaxBatchSize(),
+                config.ingressAuthConfig(),
+                config.binaryIngressLimits(),
+                nodeService)
+                : null;
         this.httpApiServer = new HttpApiServer(
                 config.httpPort(),
                 config.httpBindHost(),
@@ -72,16 +81,14 @@ public final class MatcherServerApp implements Closeable {
                 config.writeAdmissionPolicyConfig(),
                 HttpSubmitAckMode.parse(System.getProperty("matcher.httpSubmitAckMode"), HttpSubmitAckMode.LOCAL),
                 config.serverMode(),
+                config.ingressAuthConfig(),
                 nodeService,
                 grpcMetrics,
-                clusterMetricsSupplier, this::readinessSnapshot);
-        this.binaryIngressServer = config.binaryIngressEnabled()
-                ? new BinaryOrderIngressServer(
-                config.binaryIngressBindHost(),
-                config.binaryIngressPort(),
-                config.binaryIngressMaxBatchSize(),
-                nodeService)
-                : null;
+                clusterMetricsSupplier,
+                this::readinessSnapshot,
+                this.binaryIngressServer == null
+                        ? BinaryOrderIngressServer.BinaryIngressConnectionMetrics::none
+                        : this.binaryIngressServer::connectionMetrics);
         this.grpcServer = grpcReplicationServerEnabled
                 ? new ReloadableGrpcServer(
                 config::grpcServerConfig,

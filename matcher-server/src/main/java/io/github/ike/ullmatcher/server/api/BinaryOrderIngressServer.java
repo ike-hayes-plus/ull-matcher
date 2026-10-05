@@ -5,6 +5,7 @@ import io.github.ike.ullmatcher.api.Side;
 import io.github.ike.ullmatcher.api.TimeInForce;
 import io.github.ike.ullmatcher.hft.SubmitResult;
 import io.github.ike.ullmatcher.server.engine.MatcherNodeService;
+import io.github.ike.ullmatcher.server.security.IngressAuthConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -32,6 +33,7 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 面向高频接单场景的二进制长连接入口。
@@ -50,6 +52,8 @@ public final class BinaryOrderIngressServer implements Closeable {
     private static final short PROTOCOL_VERSION = 1;
     private static final short FRAME_TYPE_NEW_ORDER_BATCH = 1;
     private static final short FRAME_TYPE_CANCEL_ORDER_BATCH = 2;
+    /** Same payload as {@link #FRAME_TYPE_NEW_ORDER_BATCH}; response waits for replication committed per record. */
+    private static final short FRAME_TYPE_NEW_ORDER_BATCH_COMMITTED = 3;
     private static final short FRAME_TYPE_BATCH_RESULT = 101;
     private static final int FRAME_HEADER_BYTES = 16;
     private static final int REQUEST_RECORD_BYTES = 48;
@@ -60,6 +64,7 @@ public final class BinaryOrderIngressServer implements Closeable {
     private static final TimeInForce[] TIME_IN_FORCES_BY_WIRE_CODE = indexTimeInForces();
 
     private final MatcherNodeService nodeService;
+    private final IngressAuthConfig ingressAuthConfig;
     private final String bindHost;
     private final int requestedPort;
     private final int maxBatchSize;
@@ -74,21 +79,45 @@ public final class BinaryOrderIngressServer implements Closeable {
     private final Set<SocketChannel> openChannels = ConcurrentHashMap.newKeySet();
     private final Thread acceptThread;
     private final int processingParallelism;
+    private final BinaryIngressLimits limits;
+    private final AtomicLong rejectedConnectionCount = new AtomicLong();
+    private final AtomicLong handshakeTimeoutCount = new AtomicLong();
+    private final AtomicLong idleTimeoutCount = new AtomicLong();
+    private final AtomicLong handshakeFailureCount = new AtomicLong();
 
     public BinaryOrderIngressServer(String bindHost, int port, int maxBatchSize, MatcherNodeService nodeService) throws IOException {
+        this(bindHost, port, maxBatchSize, IngressAuthConfig.disabled(), BinaryIngressLimits.defaults(), nodeService);
+    }
+
+    public BinaryOrderIngressServer(String bindHost,
+                                    int port,
+                                    int maxBatchSize,
+                                    IngressAuthConfig ingressAuthConfig,
+                                    MatcherNodeService nodeService) throws IOException {
+        this(bindHost, port, maxBatchSize, ingressAuthConfig, BinaryIngressLimits.defaults(), nodeService);
+    }
+
+    public BinaryOrderIngressServer(String bindHost,
+                                    int port,
+                                    int maxBatchSize,
+                                    IngressAuthConfig ingressAuthConfig,
+                                    BinaryIngressLimits limits,
+                                    MatcherNodeService nodeService) throws IOException {
         if (maxBatchSize <= 0) {
             throw new IllegalArgumentException("maxBatchSize must be positive");
         }
         this.bindHost = Objects.requireNonNull(bindHost, "bindHost");
         this.requestedPort = port;
         this.maxBatchSize = maxBatchSize;
+        this.limits = Objects.requireNonNull(limits, "limits");
+        this.ingressAuthConfig = Objects.requireNonNull(ingressAuthConfig, "ingressAuthConfig");
         this.nodeService = Objects.requireNonNull(nodeService, "nodeService");
         this.selector = Selector.open();
         this.serverChannel = ServerSocketChannel.open();
         this.serverChannel.setOption(StandardSocketOptions.SO_REUSEADDR, true);
         this.serverChannel.bind(new InetSocketAddress(bindHost, port));
         this.serverChannel.configureBlocking(false);
-        this.processingParallelism = Math.max(2, Math.min(4, Math.max(2, Runtime.getRuntime().availableProcessors() / 3)));
+        this.processingParallelism = Math.max(4, Math.min(16, Runtime.getRuntime().availableProcessors() / 2));
         this.processingExecutor = Executors.newFixedThreadPool(
                 processingParallelism,
                 Thread.ofPlatform().name("matcher-binary-worker-", 0).factory()
@@ -145,6 +174,7 @@ public final class BinaryOrderIngressServer implements Closeable {
             while (!closed.get()) {
                 selector.select(250L);
                 drainSelectorTasks();
+                reapExpiredSessions();
                 dispatchQueuedSessions();
                 Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
                 while (iterator.hasNext()) {
@@ -200,9 +230,14 @@ public final class BinaryOrderIngressServer implements Closeable {
         if (channel == null) {
             return;
         }
+        if (openChannels.size() >= limits.maxConnections()) {
+            rejectedConnectionCount.incrementAndGet();
+            channel.close();
+            return;
+        }
         configureChannel(channel);
         openChannels.add(channel);
-        Session session = new Session(channel, maxBatchSize);
+        Session session = new Session(channel, maxBatchSize, ingressAuthConfig, System.nanoTime());
         try {
             session.key = channel.register(selector, SelectionKey.OP_READ, session);
         } catch (ClosedChannelException e) {
@@ -211,10 +246,94 @@ public final class BinaryOrderIngressServer implements Closeable {
         }
     }
 
+    /**
+     * Closes connections that never completed the handshake or have been idle past their budget.
+     * Sessions currently handed to a worker are skipped so the worker keeps owning the lifecycle.
+     */
+    private void reapExpiredSessions() {
+        long nowNanos = System.nanoTime();
+        long handshakeBudgetNanos = TimeUnit.MILLISECONDS.toNanos(limits.handshakeTimeoutMillis());
+        long idleBudgetNanos = TimeUnit.MILLISECONDS.toNanos(limits.idleTimeoutMillis());
+        for (SelectionKey key : selector.keys()) {
+            if (!(key.attachment() instanceof Session session) || session.processing) {
+                continue;
+            }
+            if (!session.authenticated) {
+                if (nowNanos - session.acceptedAtNanos >= handshakeBudgetNanos) {
+                    handshakeTimeoutCount.incrementAndGet();
+                    closeSession(session);
+                }
+                continue;
+            }
+            if (limits.idleTimeoutEnabled() && nowNanos - session.lastActivityNanos >= idleBudgetNanos) {
+                idleTimeoutCount.incrementAndGet();
+                closeSession(session);
+            }
+        }
+    }
+
+    /**
+     * Returns a point-in-time view of connection admission counters.
+     *
+     * @return ingress connection metrics
+     */
+    public BinaryIngressConnectionMetrics connectionMetrics() {
+        return new BinaryIngressConnectionMetrics(
+                openChannels.size(),
+                limits.maxConnections(),
+                rejectedConnectionCount.get(),
+                handshakeFailureCount.get(),
+                handshakeTimeoutCount.get(),
+                idleTimeoutCount.get()
+        );
+    }
+
+    /**
+     * Connection-level counters for the binary ingress listener.
+     *
+     * @param openConnections currently accepted connections
+     * @param maxConnections configured connection ceiling
+     * @param rejectedConnections connections closed immediately because the ceiling was reached
+     * @param handshakeFailures connections closed because the presented api key did not match
+     * @param handshakeTimeouts connections closed because the handshake did not complete in time
+     * @param idleTimeouts authenticated connections closed because they exceeded the idle budget
+     */
+    public record BinaryIngressConnectionMetrics(
+            int openConnections,
+            int maxConnections,
+            long rejectedConnections,
+            long handshakeFailures,
+            long handshakeTimeouts,
+            long idleTimeouts
+    ) {
+        public static BinaryIngressConnectionMetrics none() {
+            return new BinaryIngressConnectionMetrics(0, 0, 0L, 0L, 0L, 0L);
+        }
+    }
+
     private void readSession(Session session) throws IOException {
         if (session.processing) {
             return;
         }
+        if (!session.authenticated) {
+            if (!readInto(session.channel, session.authHandshake)) {
+                closeSession(session);
+                return;
+            }
+            if (session.authHandshake.hasRemaining()) {
+                return;
+            }
+            session.authHandshake.flip();
+            if (!ingressAuthConfig.matchesBinaryHandshake(session.authHandshake)) {
+                handshakeFailureCount.incrementAndGet();
+                closeSession(session);
+                return;
+            }
+            session.authenticated = true;
+            session.authHandshake.clear();
+            session.allocateSessionBuffers();
+        }
+        session.lastActivityNanos = System.nanoTime();
         if (session.readingHeader) {
             if (!readInto(session.channel, session.header)) {
                 closeSession(session);
@@ -267,7 +386,7 @@ public final class BinaryOrderIngressServer implements Closeable {
         }
         session.frameType = frameType;
         session.recordCount = recordCount;
-        if (frameType == FRAME_TYPE_NEW_ORDER_BATCH) {
+        if (frameType == FRAME_TYPE_NEW_ORDER_BATCH || frameType == FRAME_TYPE_NEW_ORDER_BATCH_COMMITTED) {
             if (payloadBytes != recordCount * REQUEST_RECORD_BYTES) {
                 throw new IOException("binary ingress payload size mismatch");
             }
@@ -306,7 +425,7 @@ public final class BinaryOrderIngressServer implements Closeable {
     private void processSessionFrame(Session session) {
         try {
             ByteBuffer response;
-            if (session.frameType == FRAME_TYPE_NEW_ORDER_BATCH) {
+            if (session.frameType == FRAME_TYPE_NEW_ORDER_BATCH || session.frameType == FRAME_TYPE_NEW_ORDER_BATCH_COMMITTED) {
                 for (int i = 0; i < session.recordCount; i++) {
                     session.userIds[i] = session.requestBody.getLong();
                     session.orderIds[i] = session.requestBody.getLong();
@@ -318,7 +437,9 @@ public final class BinaryOrderIngressServer implements Closeable {
                     session.timeInForces[i] = decodeTimeInForce(session.requestBody.get());
                     session.requestBody.position(session.requestBody.position() + 5);
                 }
-                response = buildNewOrderResponse(session);
+                response = session.frameType == FRAME_TYPE_NEW_ORDER_BATCH_COMMITTED
+                        ? buildNewOrderCommittedResponse(session)
+                        : buildNewOrderResponse(session);
             } else if (session.frameType == FRAME_TYPE_CANCEL_ORDER_BATCH) {
                 for (int i = 0; i < session.recordCount; i++) {
                     session.orderIds[i] = session.cancelBody.getLong();
@@ -412,6 +533,18 @@ public final class BinaryOrderIngressServer implements Closeable {
             body.putLong(sequence);
             body.putInt(statusCode(result));
             body.putInt(0);
+        });
+        return wrapResponseFrame(session, body, session.recordCount);
+    }
+
+    private ByteBuffer buildNewOrderCommittedResponse(Session session) throws IOException {
+        ByteBuffer body = session.responseBody;
+        body.clear();
+        nodeService.submitNewOrderBatchReplicationCommitted(session.newOrderSource, (receipt, index) -> {
+            body.putLong(session.orderIds[index]);
+            body.putLong(receipt.sequence());
+            body.putInt(statusCode(receipt.localResult()));
+            body.putInt(receipt.replicationCommitted() ? 1 : 0);
         });
         return wrapResponseFrame(session, body, session.recordCount);
     }
@@ -513,19 +646,21 @@ public final class BinaryOrderIngressServer implements Closeable {
 
     private static final class Session {
         private final SocketChannel channel;
+        private final int maxBatchSize;
+        private final long acceptedAtNanos;
         private final ByteBuffer header = ByteBuffer.allocateDirect(FRAME_HEADER_BYTES).order(ByteOrder.BIG_ENDIAN);
-        private final ByteBuffer requestBody;
-        private final ByteBuffer cancelBody;
-        private final ByteBuffer responseBody;
-        private final ByteBuffer responseFrame;
-        private final long[] userIds;
-        private final long[] orderIds;
-        private final long[] prices;
-        private final long[] quantities;
-        private final long[] ttlMillis;
-        private final Side[] sides;
-        private final OrderType[] orderTypes;
-        private final TimeInForce[] timeInForces;
+        private ByteBuffer requestBody;
+        private ByteBuffer cancelBody;
+        private ByteBuffer responseBody;
+        private ByteBuffer responseFrame;
+        private long[] userIds;
+        private long[] orderIds;
+        private long[] prices;
+        private long[] quantities;
+        private long[] ttlMillis;
+        private Side[] sides;
+        private OrderType[] orderTypes;
+        private TimeInForce[] timeInForces;
         private final MatcherNodeService.NewOrderBatchSource newOrderSource;
         private final MatcherNodeService.CancelOrderBatchSource cancelOrderSource;
         private SelectionKey key;
@@ -534,23 +669,24 @@ public final class BinaryOrderIngressServer implements Closeable {
         private boolean readingHeader = true;
         private boolean processing;
         private boolean dispatchQueued;
+        private boolean authenticated;
         private short frameType;
         private int recordCount;
+        private long lastActivityNanos;
+        private final ByteBuffer authHandshake;
 
-        private Session(SocketChannel channel, int maxBatchSize) {
+        private Session(SocketChannel channel, int maxBatchSize, IngressAuthConfig ingressAuthConfig, long acceptedAtNanos) {
             this.channel = channel;
-            this.requestBody = ByteBuffer.allocateDirect(maxBatchSize * REQUEST_RECORD_BYTES).order(ByteOrder.BIG_ENDIAN);
-            this.cancelBody = ByteBuffer.allocateDirect(maxBatchSize * CANCEL_RECORD_BYTES).order(ByteOrder.BIG_ENDIAN);
-            this.responseBody = ByteBuffer.allocateDirect(maxBatchSize * RESPONSE_RECORD_BYTES).order(ByteOrder.BIG_ENDIAN);
-            this.responseFrame = ByteBuffer.allocateDirect(FRAME_HEADER_BYTES + (maxBatchSize * RESPONSE_RECORD_BYTES)).order(ByteOrder.BIG_ENDIAN);
-            this.userIds = new long[maxBatchSize];
-            this.orderIds = new long[maxBatchSize];
-            this.prices = new long[maxBatchSize];
-            this.quantities = new long[maxBatchSize];
-            this.ttlMillis = new long[maxBatchSize];
-            this.sides = new Side[maxBatchSize];
-            this.orderTypes = new OrderType[maxBatchSize];
-            this.timeInForces = new TimeInForce[maxBatchSize];
+            this.maxBatchSize = maxBatchSize;
+            this.acceptedAtNanos = acceptedAtNanos;
+            this.lastActivityNanos = acceptedAtNanos;
+            this.authenticated = !ingressAuthConfig.enabled();
+            this.authHandshake = ingressAuthConfig.enabled()
+                    ? ByteBuffer.allocateDirect(IngressAuthConfig.BINARY_HANDSHAKE_BYTES)
+                    : null;
+            if (this.authenticated) {
+                allocateSessionBuffers();
+            }
             this.newOrderSource = new MatcherNodeService.NewOrderBatchSource() {
                 @Override
                 public int size() {
@@ -608,6 +744,27 @@ public final class BinaryOrderIngressServer implements Closeable {
                     return orderIds[index];
                 }
             };
+        }
+
+        /**
+         * Allocates the per-session batch buffers. Deferred until the handshake succeeds so an
+         * unauthenticated peer cannot pin direct memory by merely opening a connection.
+         */
+        private void allocateSessionBuffers() {
+            requestBody = ByteBuffer.allocateDirect(maxBatchSize * REQUEST_RECORD_BYTES).order(ByteOrder.BIG_ENDIAN);
+            cancelBody = ByteBuffer.allocateDirect(maxBatchSize * CANCEL_RECORD_BYTES).order(ByteOrder.BIG_ENDIAN);
+            responseBody = ByteBuffer.allocateDirect(maxBatchSize * RESPONSE_RECORD_BYTES).order(ByteOrder.BIG_ENDIAN);
+            responseFrame = ByteBuffer
+                    .allocateDirect(FRAME_HEADER_BYTES + (maxBatchSize * RESPONSE_RECORD_BYTES))
+                    .order(ByteOrder.BIG_ENDIAN);
+            userIds = new long[maxBatchSize];
+            orderIds = new long[maxBatchSize];
+            prices = new long[maxBatchSize];
+            quantities = new long[maxBatchSize];
+            ttlMillis = new long[maxBatchSize];
+            sides = new Side[maxBatchSize];
+            orderTypes = new OrderType[maxBatchSize];
+            timeInForces = new TimeInForce[maxBatchSize];
         }
 
         private void resetReadState() {

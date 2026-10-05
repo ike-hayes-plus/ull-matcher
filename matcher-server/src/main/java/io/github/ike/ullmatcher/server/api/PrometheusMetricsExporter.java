@@ -17,7 +17,8 @@ final class PrometheusMetricsExporter {
                          GrpcTransportMetrics.Snapshot grpc,
                          ClusterSupervisorMetricsSnapshot cluster,
                          ReadinessSnapshot readiness,
-                         HttpMetrics http) {
+                         HttpMetrics http,
+                         BinaryOrderIngressServer.BinaryIngressConnectionMetrics binary) {
         StringBuilder builder = new StringBuilder(HttpApiServer.METRICS_BUFFER_INITIAL_CAPACITY)
                 .append("# TYPE ull_matcher_grpc_unary_replications_total counter\n")
                 .append("ull_matcher_grpc_unary_replications_total ").append(grpc.unaryReplications()).append('\n')
@@ -150,6 +151,7 @@ final class PrometheusMetricsExporter {
 
         appendClusterMetrics(builder, cluster);
         appendHttpMetrics(builder, http);
+        appendBinaryIngressMetrics(builder, binary);
 
         return builder.append("# TYPE ull_matcher_ttl_active_tracked_orders gauge\n")
                 .append("ull_matcher_ttl_active_tracked_orders ").append(nodeMetrics.ttlMetrics().activeTrackedOrders()).append('\n')
@@ -310,6 +312,24 @@ final class PrometheusMetricsExporter {
                 .append("# TYPE ull_matcher_http_endpoint_duration_ms_max gauge\n")
                 .append("# TYPE ull_matcher_http_endpoint_duration_bucket counter\n");
         http.endpointStats().forEach((endpoint, stats) -> appendEndpointMetrics(builder, endpoint, stats));
+    }
+
+    private static void appendBinaryIngressMetrics(
+            StringBuilder builder, BinaryOrderIngressServer.BinaryIngressConnectionMetrics binary) {
+        BinaryOrderIngressServer.BinaryIngressConnectionMetrics metrics =
+                binary == null ? BinaryOrderIngressServer.BinaryIngressConnectionMetrics.none() : binary;
+        builder.append("# TYPE ull_matcher_binary_open_connections gauge\n")
+                .append("ull_matcher_binary_open_connections ").append(metrics.openConnections()).append('\n')
+                .append("# TYPE ull_matcher_binary_max_connections gauge\n")
+                .append("ull_matcher_binary_max_connections ").append(metrics.maxConnections()).append('\n')
+                .append("# TYPE ull_matcher_binary_rejected_connections_total counter\n")
+                .append("ull_matcher_binary_rejected_connections_total ").append(metrics.rejectedConnections()).append('\n')
+                .append("# TYPE ull_matcher_binary_handshake_failures_total counter\n")
+                .append("ull_matcher_binary_handshake_failures_total ").append(metrics.handshakeFailures()).append('\n')
+                .append("# TYPE ull_matcher_binary_handshake_timeouts_total counter\n")
+                .append("ull_matcher_binary_handshake_timeouts_total ").append(metrics.handshakeTimeouts()).append('\n')
+                .append("# TYPE ull_matcher_binary_idle_timeouts_total counter\n")
+                .append("ull_matcher_binary_idle_timeouts_total ").append(metrics.idleTimeouts()).append('\n');
     }
 
     private static void appendRouteMetrics(StringBuilder builder, RouteBudget routeBudget) {

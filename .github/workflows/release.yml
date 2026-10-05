@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag, for example v1.1.0
+        description: Release tag, for example v2.0.0
         required: true
         type: string
       release_name:
@@ -39,15 +39,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Set up JDK 21
+      - name: Set up JDK 25
         uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
           cache: maven
 
       - name: Resolve release metadata
@@ -84,7 +84,7 @@ jobs:
           git push origin "${TAG}"
 
       - name: Build and verify release artifacts
-        run: mvn --batch-mode --no-transfer-progress -Pstyle-check test package
+        run: ./mvnw --batch-mode --no-transfer-progress -Pstyle-check package
 
       - name: Collect artifacts
         run: |
@@ -96,14 +96,14 @@ jobs:
 
       - name: Upload dry-run artifacts
         if: ${{ steps.meta.outputs.dry_run == 'true' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-dry-run-${{ steps.meta.outputs.release_tag }}
           path: release-artifacts/*
 
       - name: Publish GitHub release
         if: ${{ steps.meta.outputs.dry_run != 'true' }}
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.meta.outputs.release_tag }}
           name: ${{ inputs.release_name != '' && inputs.release_name || steps.meta.outputs.release_tag }}
@@ -118,15 +118,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
 
-      - name: Set up JDK 21 for GitHub Packages
+      - name: Set up JDK 25 for GitHub Packages
         uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
           cache: maven
           server-id: github
           server-username: GITHUB_ACTOR
@@ -136,7 +136,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: >
-          mvn --batch-mode --no-transfer-progress deploy
+          ./mvnw --batch-mode --no-transfer-progress -Pstyle-check deploy
           -DaltDeploymentRepository=github::default::https://maven.pkg.github.com/ike-hayes-plus/ull-matcher
 
   publish-maven-central:
@@ -147,15 +147,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
 
-      - name: Set up JDK 21 for Maven Central
+      - name: Set up JDK 25 for Maven Central
         uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
           cache: maven
           server-id: central
           server-username: MAVEN_CENTRAL_USERNAME
@@ -169,5 +169,5 @@ jobs:
           MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
         run: >
-          mvn --batch-mode --no-transfer-progress
+          ./mvnw --batch-mode --no-transfer-progress
           -Pstyle-check,release-signing,central-publish deploy

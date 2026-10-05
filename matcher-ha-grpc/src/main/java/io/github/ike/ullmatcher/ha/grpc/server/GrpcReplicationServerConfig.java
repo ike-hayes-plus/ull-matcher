@@ -47,4 +47,16 @@ public record GrpcReplicationServerConfig(
                 tls
         );
     }
+
+    public GrpcReplicationServerConfig withTls(GrpcServerTlsConfig tls) {
+        return new GrpcReplicationServerConfig(
+                bindHost,
+                port,
+                maxInboundMessageSize,
+                permitKeepAliveTimeSeconds,
+                replicationIngressTimeoutMillis,
+                compressionCodec,
+                tls
+        );
+    }
 }
