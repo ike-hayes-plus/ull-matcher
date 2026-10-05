@@ -64,9 +64,9 @@
   导致这两个模块的覆盖率门槛实际从未执行过。
 - etcd mTLS 只配置证书链或只配置私钥时不再静默降级为单向 TLS，改为构造期报错。
 
-## [1.1.0.0] - 2025-xx-xx
+## [1.1.0.0] - 2026-07-02
 
-首个公开版本。
+首个公开版本（`b3015cc`，Initial public release）。
 
 [Unreleased]: https://github.com/ike-hayes-plus/ull-matcher/compare/v2.0.0...HEAD
 [2.0.0]: https://github.com/ike-hayes-plus/ull-matcher/compare/v1.1.0.0...v2.0.0
