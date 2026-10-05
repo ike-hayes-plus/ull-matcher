@@ -9,26 +9,12 @@
         <version>2.0.0</version>
     </parent>
 
-    <artifactId>ull-matcher-ha-etcd</artifactId>
+    <artifactId>ull-matcher-orchestrator</artifactId>
     <packaging>jar</packaging>
-    <name>ULL Matcher HA etcd</name>
-    <description>etcd-backed LeaseStore and NodeRegistry implementations for matcher HA deployments.</description>
+    <name>ULL Matcher Orchestrator</name>
+    <description>3.0 multi-shard routing and registration contracts (no transport coupling).</description>
 
     <dependencies>
-        <dependency>
-            <groupId>io.github.ike</groupId>
-            <artifactId>ull-matcher-ha</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>io.github.ike</groupId>
-            <artifactId>ull-matcher-orchestrator</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>tools.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-        </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>

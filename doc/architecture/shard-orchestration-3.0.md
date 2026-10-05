@@ -50,9 +50,11 @@
 
 ### Phase B — `matcher-orchestrator` 模块（3.0.0-beta）
 
-- [ ] 只读路由：`symbolId → ShardRoute`（缓存 + watch 控制面）
-- [ ] 写路径：注册 shard、heartbeat、draining 标记
-- [ ] 集成测试：三 shard lab（复用 [ha-sharding-lab.md](../operations/ha-sharding-lab.md) 脚本扩展）
+- [x] 模块 `matcher-orchestrator`：`OrchestratorStore`、`RoutingTable`、内存实现
+- [x] etcd 写路径：`EtcdOrchestratorStore`（register / bind / drain / lookup）
+- [x] 单测 + fake etcd 集成测
+- [ ] 只读 watch 推送（当前为 `RoutingTable.refresh()` 拉取）
+- [ ] 三 shard lab 脚本扩展
 
 ### Phase C — SDK / 运维（3.0.0）
 

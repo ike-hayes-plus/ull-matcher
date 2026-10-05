@@ -11,6 +11,10 @@ import io.github.ike.ullmatcher.ha.coordination.ClusterLease;
 import io.github.ike.ullmatcher.ha.coordination.FencingToken;
 import io.github.ike.ullmatcher.ha.coordination.HaRole;
 import io.github.ike.ullmatcher.ha.discovery.DiscoveredNode;
+import io.github.ike.ullmatcher.orchestrator.RegisteredShard;
+import io.github.ike.ullmatcher.orchestrator.ShardEndpoints;
+import io.github.ike.ullmatcher.orchestrator.ShardLifecycleState;
+import io.github.ike.ullmatcher.orchestrator.SymbolRoute;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -60,6 +64,47 @@ final class EtcdControlPlaneIntegrationTest {
             assertTrue(store.tryExtend("node-a", new FencingToken(1L), nowNanos + 3L, TTL_NANOS));
             assertFalse(store.tryExtend("node-a", new FencingToken(2L), nowNanos + 4L, TTL_NANOS));
             assertFalse(store.tryExtend("node-b", new FencingToken(1L), nowNanos + 5L, TTL_NANOS));
+        }
+    }
+
+    @Test
+    void orchestratorStoreRegistersShardBindsSymbolAndResolvesRoute() throws Exception {
+        try (FakeEtcdServer server = new FakeEtcdServer();
+             EtcdOrchestratorStore store = new EtcdOrchestratorStore(config(server.endpoint()))) {
+            RegisteredShard shard = new RegisteredShard(
+                    "merchant:42",
+                    7,
+                    "node-a",
+                    new ShardEndpoints("127.0.0.1", 8080, 9090, 10080),
+                    ShardLifecycleState.ACTIVE,
+                    1L,
+                    System.currentTimeMillis()
+            );
+            store.registerShard(shard);
+            store.bindSymbol(7, "merchant:42", 3L);
+
+            SymbolRoute route = store.lookupRoute(7).orElseThrow();
+            assertEquals("merchant:42", route.shardKey());
+            assertEquals(3L, route.generation());
+            assertTrue(route.activeShard().isPresent());
+
+            store.markDraining("merchant:42");
+            SymbolRoute drained = store.lookupRoute(7).orElseThrow();
+            assertFalse(drained.activeShard().isPresent());
+
+            assertEquals(1, store.listShards().size());
+            store.unregisterShard("merchant:42");
+            assertTrue(store.listShards().isEmpty());
+            assertTrue(store.lookupRoute(7).isEmpty());
+            assertTrue(store.getShard("merchant:42").isEmpty());
+        }
+    }
+
+    @Test
+    void orchestratorStoreRejectsSymbolBindForMissingShard() throws Exception {
+        try (FakeEtcdServer server = new FakeEtcdServer();
+             EtcdOrchestratorStore store = new EtcdOrchestratorStore(config(server.endpoint()))) {
+            assertThrows(IOException.class, () -> store.bindSymbol(1, "missing", 1L));
         }
     }
 

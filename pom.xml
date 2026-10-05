@@ -40,6 +40,7 @@
         <module>matcher-storage</module>
         <module>matcher-runtime</module>
         <module>matcher-ha</module>
+        <module>matcher-orchestrator</module>
         <module>matcher-ha-zookeeper</module>
         <module>matcher-ha-etcd</module>
         <module>matcher-discovery-zookeeper</module>

@@ -13,6 +13,7 @@
 
 - WAL 冷备（原 2.1）：`matcher.walColdArchiveDir` / `ull.matcher.wal-cold-archive-dir`（见 [doc/operations/wal-archive-cold-backup.md](doc/operations/wal-archive-cold-backup.md)）。
 - 3.0 ADR：[doc/architecture/shard-orchestration-3.0.md](doc/architecture/shard-orchestration-3.0.md)、[doc/MIGRATION-3.0.md](doc/MIGRATION-3.0.md)（多分片编排；**非**单进程多 symbol）。
+- 3.0 Phase B：`matcher-orchestrator` + `EtcdOrchestratorStore`（symbol 路由与 shard 注册/drain）。
 - 传输 ADR（后续 3.0.x）：[doc/architecture/replication-transport-2.1.md](doc/architecture/replication-transport-2.1.md)；`AERON_PREVIEW` 已 `@Deprecated`。
 
 ## [2.0.0] - 2026-10-05
