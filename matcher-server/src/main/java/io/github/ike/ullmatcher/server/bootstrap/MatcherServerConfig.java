@@ -12,6 +12,7 @@ import io.github.ike.ullmatcher.ha.transport.ReplicationTransportType;
 import io.github.ike.ullmatcher.server.engine.TtlCancelConfig;
 import io.github.ike.ullmatcher.server.security.IngressAuthConfig;
 import io.github.ike.ullmatcher.server.security.ServerSecurityConfig;
+import io.github.ike.ullmatcher.storage.wal.WalArchiveConfig;
 
 
 import java.nio.file.Path;
@@ -29,6 +30,7 @@ public record MatcherServerConfig(
         WalDurabilityMode walDurabilityMode,
         int walForceBatchSize,
         long walForceMaxDelayMicros,
+        WalArchiveConfig walArchiveConfig,
         Path snapshotFile,
         int ringCapacity,
         int gatewaySpinLimit,
@@ -89,6 +91,9 @@ public record MatcherServerConfig(
         if (binaryIngressLimits == null) {
             binaryIngressLimits = BinaryIngressLimits.defaults();
         }
+        if (walArchiveConfig == null) {
+            walArchiveConfig = WalArchiveConfig.disabled();
+        }
         Objects.requireNonNull(initialRole, "initialRole");
         Objects.requireNonNull(grpcServerConfig, "grpcServerConfig");
         Objects.requireNonNull(securityConfig, "securityConfig");
@@ -135,6 +140,7 @@ public record MatcherServerConfig(
                 DEFAULT_WAL_DURABILITY_MODE,
                 DEFAULT_WAL_FORCE_BATCH_SIZE,
                 DEFAULT_WAL_FORCE_MAX_DELAY_MICROS,
+                WalArchiveConfig.disabled(),
                 normalized.resolve("snapshots").resolve("symbol-" + symbolId + ".snap"),
                 1 << 16,
                 10_000,
@@ -230,6 +236,7 @@ public record MatcherServerConfig(
                 walDurabilityMode,
                 walForceBatchSize,
                 walForceMaxDelayMicros,
+                WalArchiveConfig.disabled(),
                 snapshotFile,
                 ringCapacity,
                 gatewaySpinLimit,
@@ -312,6 +319,7 @@ public record MatcherServerConfig(
         private WalDurabilityMode walDurabilityMode;
         private int walForceBatchSize;
         private long walForceMaxDelayMicros;
+        private WalArchiveConfig walArchiveConfig;
         private Path snapshotFile;
         private int ringCapacity;
         private int gatewaySpinLimit;
@@ -361,6 +369,7 @@ public record MatcherServerConfig(
             this.walDurabilityMode = source.walDurabilityMode;
             this.walForceBatchSize = source.walForceBatchSize;
             this.walForceMaxDelayMicros = source.walForceMaxDelayMicros;
+            this.walArchiveConfig = source.walArchiveConfig;
             this.snapshotFile = source.snapshotFile;
             this.ringCapacity = source.ringCapacity;
             this.gatewaySpinLimit = source.gatewaySpinLimit;
@@ -447,6 +456,11 @@ public record MatcherServerConfig(
 
         public Builder walForceMaxDelayMicros(long value) {
             this.walForceMaxDelayMicros = value;
+            return this;
+        }
+
+        public Builder walArchiveConfig(WalArchiveConfig value) {
+            this.walArchiveConfig = value;
             return this;
         }
 
@@ -647,6 +661,7 @@ public record MatcherServerConfig(
                     walDurabilityMode,
                     walForceBatchSize,
                     walForceMaxDelayMicros,
+                    walArchiveConfig,
                     snapshotFile,
                     ringCapacity,
                     gatewaySpinLimit,
@@ -710,6 +725,16 @@ public record MatcherServerConfig(
         if (isEphemeralBuildOutputDirectory(walDirectory)) {
             throw new IllegalStateException("prod mode requires a persistent matcher.dataDir outside build output directories; resolved wal directory="
                     + walDirectory.toAbsolutePath().normalize());
+        }
+        if (walArchiveConfig.enabled()) {
+            Path coldDir = walArchiveConfig.coldArchiveDirectory();
+            if (isEphemeralBuildOutputDirectory(coldDir)) {
+                throw new IllegalStateException("prod mode requires a persistent matcher.walColdArchiveDir outside build output directories; resolved="
+                        + coldDir);
+            }
+            if (coldDir.equals(walDirectory.toAbsolutePath().normalize())) {
+                throw new IllegalStateException("matcher.walColdArchiveDir must not equal the hot WAL directory");
+            }
         }
         boolean remoteHttp = !isLoopbackHost(httpBindHost);
         boolean remoteBinary = binaryIngressEnabled && !isLoopbackHost(binaryIngressBindHost);

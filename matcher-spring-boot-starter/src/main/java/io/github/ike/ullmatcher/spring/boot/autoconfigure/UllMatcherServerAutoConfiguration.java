@@ -21,6 +21,7 @@ import io.github.ike.ullmatcher.server.cluster.ReplicationTransportPolicyConfig;
 import io.github.ike.ullmatcher.server.engine.TtlCancelConfig;
 import io.github.ike.ullmatcher.server.security.IngressAuthConfig;
 import io.github.ike.ullmatcher.server.security.ServerSecurityConfig;
+import io.github.ike.ullmatcher.storage.wal.WalArchiveConfig;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -49,7 +50,7 @@ public class UllMatcherServerAutoConfiguration {
                 properties.getSymbolId(),
                 Path.of(properties.getDataDir())
         );
-        return new MatcherServerConfig(
+        MatcherServerConfig config = new MatcherServerConfig(
                 properties.getServerMode(),
                 defaults.nodeId(),
                 properties.getShardKey(),
@@ -104,6 +105,9 @@ public class UllMatcherServerAutoConfiguration {
                 defaults.standbySyncConfig(),
                 clusterConfigProvider.getIfAvailable()
         );
+        return config.toBuilder()
+                .walArchiveConfig(WalArchiveConfig.fromProperty(properties.getWalColdArchiveDir()))
+                .build();
     }
 
     @Bean

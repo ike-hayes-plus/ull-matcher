@@ -13,6 +13,7 @@ import io.github.ike.ullmatcher.runtime.MatchLoop;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerConfig;
 import io.github.ike.ullmatcher.storage.replay.ReplayService;
 import io.github.ike.ullmatcher.storage.wal.SegmentedMmapWal;
+import io.github.ike.ullmatcher.storage.wal.WalSegmentArchiver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,7 +41,12 @@ final class EngineLifecycleManager {
     }
 
     EngineStartResult createEngine(HaRole role, FencingToken token) throws IOException {
-        SegmentedMmapWal wal = new SegmentedMmapWal(config.walDirectory(), config.walPrefix(), config.walSegmentSizeBytes());
+        WalSegmentArchiver archiver = config.walArchiveConfig().archiver(config.nodeId(), config.shardKey());
+        SegmentedMmapWal wal = new SegmentedMmapWal(
+                config.walDirectory(),
+                config.walPrefix(),
+                config.walSegmentSizeBytes(),
+                archiver);
         MatchEventHandler eventHandler = new CompositeMatchEventHandler(noopHandler(), ttlCancelGuard, orderStateTracker);
         ttlCancelGuard.bindEventSink(eventHandler);
         SnapshotCoordinator.RestoredSnapshot restored = snapshotCoordinator.restore(eventHandler);

@@ -62,6 +62,7 @@ public class UllMatcherServerProperties {
     private WalDurabilityMode walDurabilityMode = MatcherServerConfig.DEFAULT_WAL_DURABILITY_MODE;
     private int walForceBatchSize = MatcherServerConfig.DEFAULT_WAL_FORCE_BATCH_SIZE;
     private long walForceMaxDelayMicros = MatcherServerConfig.DEFAULT_WAL_FORCE_MAX_DELAY_MICROS;
+    private String walColdArchiveDir = "";
     private final Ttl ttl = new Ttl();
     private final Tls tls = new Tls();
     private final Cluster cluster = new Cluster();
@@ -440,6 +441,14 @@ public class UllMatcherServerProperties {
 
     public void setWalForceMaxDelayMicros(long walForceMaxDelayMicros) {
         this.walForceMaxDelayMicros = walForceMaxDelayMicros;
+    }
+
+    public String getWalColdArchiveDir() {
+        return walColdArchiveDir;
+    }
+
+    public void setWalColdArchiveDir(String walColdArchiveDir) {
+        this.walColdArchiveDir = walColdArchiveDir;
     }
 
     public Ttl getTtl() {
