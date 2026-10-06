@@ -10,43 +10,29 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from benchmark_metadata import benchmark_metadata
+from http_keepalive import KeepAliveHttp, get_json
 
 
 def fetch_json(url: str):
-    with urllib.request.urlopen(url, timeout=5) as response:
-        return json.loads(response.read().decode("utf-8"))
+    return get_json(url)
 
 
 def post_order(base_url: str, payload: dict):
-    request = urllib.request.Request(
-        f"{base_url}/api/v1/orders",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
     started = time.perf_counter_ns()
-    try:
-        with urllib.request.urlopen(request, timeout=10) as response:
-            body = json.loads(response.read().decode("utf-8"))
-            latency_ms = (time.perf_counter_ns() - started) / 1_000_000.0
-            return {
-                "status": response.status,
-                "result": body.get("result"),
-                "latencyMs": latency_ms,
-            }
-    except urllib.error.HTTPError as exc:
-        body = {}
-        try:
-            body = json.loads(exc.read().decode("utf-8"))
-        except Exception:
-            body = {}
-        latency_ms = (time.perf_counter_ns() - started) / 1_000_000.0
+    status, body = KeepAliveHttp(base_url).request_json("POST", "/api/v1/orders", payload)
+    latency_ms = (time.perf_counter_ns() - started) / 1_000_000.0
+    if status >= 400:
         return {
-            "status": exc.code,
-            "result": body.get("result") or f"HTTP_{exc.code}",
+            "status": status,
+            "result": body.get("result") or f"HTTP_{status}",
             "detail": body.get("detail", ""),
             "latencyMs": latency_ms,
         }
+    return {
+        "status": status,
+        "result": body.get("result"),
+        "latencyMs": latency_ms,
+    }
 
 
 def percentile(values, ratio: float):

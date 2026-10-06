@@ -54,6 +54,13 @@ final class StorageBranchCoverageTest {
             out.writeInt(99);
         }
         assertThrows(IOException.class, () -> SnapshotStore.restore(badVersion, cfg, new NoopHandler()));
+
+        Path legacyVersion = directory.resolve("legacy-v3.snap");
+        try (DataOutputStream out = new DataOutputStream(Files.newOutputStream(legacyVersion))) {
+            out.writeInt(0x534E4150);
+            out.writeInt(3);
+        }
+        assertThrows(IOException.class, () -> SnapshotStore.restore(legacyVersion, cfg, new NoopHandler()));
     }
 
     @Test
@@ -142,7 +149,7 @@ final class StorageBranchCoverageTest {
         Files.createDirectories(file.toAbsolutePath().getParent());
         try (DataOutputStream out = new DataOutputStream(Files.newOutputStream(file))) {
             out.writeInt(0x534E4150);
-            out.writeInt(3);
+            out.writeInt(4);
             out.writeLong(snapshotSequence);
             out.writeLong(tradeId);
             out.writeLong(1L);
@@ -150,6 +157,7 @@ final class StorageBranchCoverageTest {
             out.writeLong(1L);
             out.writeInt(SYMBOL);
             out.writeByte(Side.SELL.code);
+            out.writeByte(OrderType.LIMIT.code);
             out.writeByte(tif);
             out.writeLong(100L);
             out.writeLong(quantity);

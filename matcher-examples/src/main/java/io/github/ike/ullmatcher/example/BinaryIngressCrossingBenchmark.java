@@ -3,18 +3,10 @@ package io.github.ike.ullmatcher.example;
 import io.github.ike.ullmatcher.api.OrderType;
 import io.github.ike.ullmatcher.api.Side;
 import io.github.ike.ullmatcher.api.TimeInForce;
-import io.github.ike.ullmatcher.core.MatcherConfig;
-import io.github.ike.ullmatcher.ha.coordination.HaRole;
-import io.github.ike.ullmatcher.ha.grpc.server.GrpcReplicationServerConfig;
 import io.github.ike.ullmatcher.hft.WalDurabilityMode;
 import io.github.ike.ullmatcher.server.api.BinaryOrderIngressServer;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerConfig;
-import io.github.ike.ullmatcher.server.bootstrap.MatcherServerMode;
-import io.github.ike.ullmatcher.server.bootstrap.WriteAdmissionPolicyConfig;
 import io.github.ike.ullmatcher.server.engine.MatcherNodeService;
-import io.github.ike.ullmatcher.server.engine.TtlCancelConfig;
-import io.github.ike.ullmatcher.server.security.ServerSecurityConfig;
-import io.github.ike.ullmatcher.server.security.IngressAuthConfig;
 import io.github.ike.ullmatcher.server.telemetry.MatcherNodeMetricsSnapshot;
 
 import java.io.IOException;
@@ -59,51 +51,13 @@ public final class BinaryIngressCrossingBenchmark {
         Arguments parsed = Arguments.parse(args);
         Files.createDirectories(parsed.dataRoot());
 
-        MatcherServerConfig config = new MatcherServerConfig(
-                MatcherServerMode.DEV,
-                "node-a",
-                "symbol-1",
-                MatcherConfig.defaults(1),
-                parsed.dataRoot().resolve("wal"),
-                "symbol-1",
-                parsed.walSegmentBytes(),
-                parsed.durabilityMode(),
-                parsed.forceBatchSize(),
-                parsed.forceMaxDelayMicros(),
-                parsed.dataRoot().resolve("snapshots").resolve("symbol-1.snap"),
-                1 << 16,
-                10_000,
-                TimeUnit.MILLISECONDS.toNanos(500),
-                0,
-                "127.0.0.1",
-                Math.max(4, Runtime.getRuntime().availableProcessors()),
-                1 << 20,
-                512,
-                2_000L,
-                128,
-                96,
-                16,
-                2_000L,
-                1_000L,
-                5_000L,
-                96,
-                64,
-                2,
-                16,
-                8,
-                WriteAdmissionPolicyConfig.defaults(),
-                false,
-                IngressAuthConfig.disabled(),
-                0,
-                GrpcReplicationServerConfig.defaults(0),
-                ServerSecurityConfig.insecureDefaults(),
-                TtlCancelConfig.disabled(),
-                HaRole.PRIMARY,
-                io.github.ike.ullmatcher.runtime.MatchLoopConfig.defaults(),
-                io.github.ike.ullmatcher.ha.standby.StandbySyncConfig.defaults(),
-                io.github.ike.ullmatcher.server.orchestrator.OrchestratorRegistrationConfig.disabled(),
-                null
-        );
+        MatcherServerConfig config = MatcherServerConfig.defaults("node-a", 1, parsed.dataRoot()).toBuilder()
+                .walSegmentSizeBytes(parsed.walSegmentBytes())
+                .walDurabilityMode(parsed.durabilityMode())
+                .walForceBatchSize(parsed.forceBatchSize())
+                .walForceMaxDelayMicros(parsed.forceMaxDelayMicros())
+                .snapshotIntervalMillis(parsed.snapshotIntervalMillis())
+                .build();
 
         try (MatcherNodeService nodeService = new MatcherNodeService(config);
              BinaryOrderIngressServer ingressServer = new BinaryOrderIngressServer("127.0.0.1", 0, parsed.batchSize(), nodeService)) {
@@ -276,6 +230,7 @@ public final class BinaryIngressCrossingBenchmark {
                              WalDurabilityMode durabilityMode,
                              int forceBatchSize,
                              long forceMaxDelayMicros,
+                             long snapshotIntervalMillis,
                              Path dataRoot) {
         private static Arguments parse(String[] args) {
             int restingOrders = 2_048;
@@ -286,6 +241,7 @@ public final class BinaryIngressCrossingBenchmark {
             WalDurabilityMode durabilityMode = WalDurabilityMode.SYNC_PER_BATCH;
             int forceBatchSize = 32;
             long forceMaxDelayMicros = 500L;
+            long snapshotIntervalMillis = 0L;
             Path dataRoot = Path.of("target", "binary-ingress-bench");
             List<String> tokens = new ArrayList<>(List.of(args));
             for (int i = 0; i < tokens.size(); i += 2) {
@@ -300,6 +256,7 @@ public final class BinaryIngressCrossingBenchmark {
                     case "--durability-mode" -> durabilityMode = WalDurabilityMode.valueOf(value);
                     case "--force-batch-size" -> forceBatchSize = Integer.parseInt(value);
                     case "--force-max-delay-micros" -> forceMaxDelayMicros = Long.parseLong(value);
+                    case "--snapshot-interval-millis" -> snapshotIntervalMillis = Long.parseLong(value);
                     case "--data-root" -> dataRoot = Path.of(value);
                     default -> throw new IllegalArgumentException("unknown argument: " + key);
                 }
@@ -313,6 +270,7 @@ public final class BinaryIngressCrossingBenchmark {
                     durabilityMode,
                     forceBatchSize,
                     forceMaxDelayMicros,
+                    snapshotIntervalMillis,
                     dataRoot
             );
         }

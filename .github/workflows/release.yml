@@ -84,14 +84,12 @@ jobs:
           git push origin "${TAG}"
 
       - name: Build and verify release artifacts
-        run: ./mvnw --batch-mode --no-transfer-progress -Pstyle-check package
+        run: ./mvnw --batch-mode --no-transfer-progress -Pstyle-check verify
 
       - name: Collect artifacts
         run: |
           mkdir -p release-artifacts
-          find . -path "*/target/*.jar" \
-            ! -name "original-*.jar" \
-            -exec cp {} release-artifacts/ \;
+          cp matcher-server-dist/target/ull-matcher-server-dist-*.jar release-artifacts/
           ls -la release-artifacts
 
       - name: Upload dry-run artifacts

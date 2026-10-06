@@ -39,7 +39,7 @@ gRPC 与 Aeron 各自维护 codec、peer client 与 metrics；长期方向是 **
 ## 验证清单
 
 - [ ] 共享复制语义单测对 GRPC + AERON 双跑
-- [ ] `scripts/ops/run-ha-benchmark-suite.sh` floor 不回归
+- [x] HA 报告 floor：`scripts/ops/check-ha-benchmark-floor.sh`（suite 只产出 JSON）
 - [x] PREVIEW PROD 闸门与文档
 
 ## 关联

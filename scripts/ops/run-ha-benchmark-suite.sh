@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
-OUT_DIR="${OUT_DIR:-$ROOT_DIR/target/benchmark/current}"
+OUT_DIR="${OUT_DIR:-$ROOT_DIR/target/benchmark/3.0-full}"
 COOLDOWN_SECONDS="${COOLDOWN_SECONDS:-45}"
 LOG="$OUT_DIR/run.log"
 
@@ -15,7 +15,7 @@ Usage:
   COOLDOWN_SECONDS=45 scripts/ops/run-ha-benchmark-suite.sh
 
 Environment:
-  OUT_DIR             JSON reports and run.log (default: target/benchmark/current)
+  OUT_DIR             JSON reports and run.log (default: target/benchmark/3.0-full)
   COOLDOWN_SECONDS    Pause between binary scenarios (default: 45)
 
 Requires JDK 25+ (see .sdkmanrc). Matcher nodes and benchmarks use JAVA_HOME from use-project-java.sh.
@@ -73,6 +73,9 @@ export DATA_ROOT="$ROOT_DIR/target/rest-bench-lab"
 export LOG_ROOT="$ROOT_DIR/target/rest-bench-logs"
 export REPLICATION_MODE=WAIT_FOR_ANY_STANDBY REPLICATION_TRANSPORT=GRPC
 export LEASE_PROVIDER=zk DISCOVERY_PROVIDER=zk
+# BENCH 1s force delay makes REST single-order preload wait ~1s/order.
+export WAL_FORCE_MAX_DELAY_MICROS=500
+export WAL_FORCE_BATCH_SIZE=32
 
 cleanup_rest() {
   export LOG_ROOT
@@ -140,7 +143,7 @@ run_rest() {
     --base-url "$PRIMARY" \
     --standby-base-url "$STANDBY" \
     --resting-orders 2048 \
-    --concurrency 24 \
+    --concurrency 64 \
     --ack-mode "$ack" \
     --http-submit-mode single \
     --report "$OUT_DIR/${name}.json"

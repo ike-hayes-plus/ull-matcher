@@ -41,6 +41,7 @@ final class EngineLifecycleManager {
     }
 
     EngineStartResult createEngine(HaRole role, FencingToken token) throws IOException {
+        FencedRejoinStore.completeIfNeeded(config.snapshotFile(), config.walDirectory());
         WalSegmentArchiver archiver = config.walArchiveConfig().archiver(config.nodeId(), config.shardKey());
         SegmentedMmapWal wal = new SegmentedMmapWal(
                 config.walDirectory(),
@@ -52,6 +53,7 @@ final class EngineLifecycleManager {
         SnapshotCoordinator.RestoredSnapshot restored = snapshotCoordinator.restore(eventHandler);
         long snapshotSequence = restored.snapshotSequence();
         var matcher = restored.matcher();
+        wal.validateManifestForRestore(config.snapshotFile(), snapshotSequence, matcher.lastTradeId());
         wal.resetReader();
         ReplayService.replay(wal, matcher, snapshotSequence);
         SpscRingBuffer<Command> ring = new SpscRingBuffer<>(config.ringCapacity());
@@ -75,16 +77,7 @@ final class EngineLifecycleManager {
             standbySyncService.markSnapshot(snapshotSequence);
         }
         MatcherEngine engine = new MatcherEngine(wal, ring, matcher, loop, runtime, thread, gateway, standbySyncService);
-        clusterRoleCoordinator.onEngineStarted(engine);
         return new EngineStartResult(engine, restored.snapshotMaterial());
-    }
-
-    RestartResult restartFromSnapshot(MatcherEngine current) throws IOException {
-        HaRole role = current.runtime().role();
-        FencingToken token = current.runtime().fencingToken();
-        current.close();
-        EngineStartResult restarted = createEngine(role, token);
-        return new RestartResult(restarted.engine(), restarted.snapshotMaterial(), role);
     }
 
     private static MatchEventHandler noopHandler() {
@@ -100,8 +93,5 @@ final class EngineLifecycleManager {
     }
 
     record EngineStartResult(MatcherEngine engine, SnapshotMaterial snapshotMaterial) {
-    }
-
-    record RestartResult(MatcherEngine engine, SnapshotMaterial snapshotMaterial, HaRole role) {
     }
 }

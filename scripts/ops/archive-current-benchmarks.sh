@@ -104,7 +104,7 @@ cat > "${DEST_DIR}/README.md" <<EOF
 Archive created at: ${STAMP}
 
 This directory contains a copy of the repository's current benchmark fact sources at the time of archival.
-Use these files for historical comparison only. The open-source README should continue to point to the active \`current\` files under \`target/current/\`.
+Use these files for historical comparison only. Published capacity numbers live in doc/operations/benchmark-baseline.md and target/benchmark/3.0-full/.
 EOF
 
 echo "${DEST_DIR}"

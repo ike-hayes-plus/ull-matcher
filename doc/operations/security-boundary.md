@@ -43,9 +43,11 @@ ull-matcher 设计为**内网撮合节点**，不替代统一 API 网关。
 | --- | --- | --- |
 | `GET /api/v1/runtime/live` | 否 | 仅 `{"status":"UP"}` |
 | `GET /api/v1/runtime/health` | 是 | 节点角色、WAL 水位、复制状态 |
-| `GET /api/v1/runtime/state` | 是 | 同上 |
 | `GET /api/v1/runtime/readiness` | 是 | 追赶进度、standby 数量 |
+| `GET /metrics` | 是 | Prometheus 指标 |
 | 其余业务端点 | 是 | — |
+
+上表「是」表示路由标记了 `requireIngressAuth`。**只有配置了 `matcher.ingressApiKeys` 时鉴权才生效**；未配置时这些路由会放行。PROD 绑定非 loopback 时必须配置密钥，否则进程拒启。
 
 只有 `live` 免鉴权，因为它不泄露任何集群拓扑。LB 和 k8s livenessProbe 用它；
 readinessProbe 若要打 `/runtime/readiness`，需要在 probe 上配置 API key 请求头。

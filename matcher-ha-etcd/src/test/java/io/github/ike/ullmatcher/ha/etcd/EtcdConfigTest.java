@@ -11,44 +11,50 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class EtcdConfigTest {
     @Test
-    void defaultsUseClusterScopedPrefixAndHotPathCache() {
+    void leaseGrantTtlRoundsNanosUpToWholeSeconds() {
+        assertEquals(5L, EtcdLeaseStore.grantTtlSeconds(5_000_000_000L));
+        assertEquals(1L, EtcdLeaseStore.grantTtlSeconds(1L));
+        assertEquals(2L, EtcdLeaseStore.grantTtlSeconds(1_000_000_001L));
+        assertThrows(IllegalArgumentException.class, () -> EtcdLeaseStore.grantTtlSeconds(0L));
+    }
+
+    @Test
+    void defaultsUseClusterScopedPrefix() {
         EtcdConfig config = EtcdConfig.defaults("http://127.0.0.1:2379", "cluster-a");
 
         assertEquals("http://127.0.0.1:2379", config.endpoint());
         assertEquals("/ull-matcher/cluster-a", config.keyPrefix());
         assertEquals(10L, config.leaseTtlSeconds());
         assertEquals(2_000L, config.timeoutMillis());
-        assertEquals(25L, config.localHeldCheckCacheMillis());
         assertFalse(config.enforceProductionSafety());
     }
 
     @Test
     void rejectsInvalidControlPlaneConfig() {
-        assertThrows(IllegalArgumentException.class, () -> config("", "/ull", 10L, 1_000L, 0L));
-        assertThrows(IllegalArgumentException.class, () -> config("http://127.0.0.1:2379", "relative", 10L, 1_000L, 0L));
-        assertThrows(IllegalArgumentException.class, () -> config("http://127.0.0.1:2379", "/ull", 0L, 1_000L, 0L));
-        assertThrows(IllegalArgumentException.class, () -> config("http://127.0.0.1:2379", "/ull", 10L, 0L, 0L));
-        assertThrows(IllegalArgumentException.class, () -> config("http://127.0.0.1:2379", "/ull", 10L, 1_000L, -1L));
+        assertThrows(IllegalArgumentException.class, () -> config("", "/ull", 10L, 1_000L));
+        assertThrows(IllegalArgumentException.class, () -> config("http://127.0.0.1:2379", "relative", 10L, 1_000L));
+        assertThrows(IllegalArgumentException.class, () -> config("http://127.0.0.1:2379", "/ull", 0L, 1_000L));
+        assertThrows(IllegalArgumentException.class, () -> config("http://127.0.0.1:2379", "/ull", 10L, 0L));
     }
 
     @Test
     void rejectsHalfConfiguredMutualTls() {
         assertThrows(IllegalArgumentException.class, () -> new EtcdConfig(
-                "http://127.0.0.1:2379", "/ull", 10L, 1_000L, 0L, null, Path.of("cert.pem"), null, false));
+                "http://127.0.0.1:2379", "/ull", 10L, 1_000L, null, Path.of("cert.pem"), null, false));
         assertThrows(IllegalArgumentException.class, () -> new EtcdConfig(
-                "http://127.0.0.1:2379", "/ull", 10L, 1_000L, 0L, null, null, Path.of("key.pem"), false));
+                "http://127.0.0.1:2379", "/ull", 10L, 1_000L, null, null, Path.of("key.pem"), false));
     }
 
     @Test
     void prodSafetyRejectsPlainHttpRemoteEndpoint() {
-        EtcdConfig config = config("http://10.0.0.10:2379", "/ull-matcher/test", 10L, 1_000L, 0L);
+        EtcdConfig config = config("http://10.0.0.10:2379", "/ull-matcher/test", 10L, 1_000L);
         assertThrows(IllegalStateException.class, config::validateProductionSafety);
     }
 
     @Test
     void prodSafetyIsEnforcedAtConstructionTime() {
         IllegalStateException error = assertThrows(IllegalStateException.class, () -> new EtcdConfig(
-                "http://10.0.0.10:2379", "/ull-matcher/test", 10L, 1_000L, 0L, null, null, null, true));
+                "http://10.0.0.10:2379", "/ull-matcher/test", 10L, 1_000L, null, null, null, true));
 
         assertTrue(error.getMessage().contains("https"), error.getMessage());
     }
@@ -56,25 +62,25 @@ final class EtcdConfigTest {
     @Test
     void prodSafetyRejectsPlainHttpInAnyEndpointOfTheList() {
         assertThrows(IllegalStateException.class, () -> new EtcdConfig(
-                "https://10.0.0.10:2379,http://10.0.0.11:2379", "/ull", 10L, 1_000L, 0L, null, null, null, true));
+                "https://10.0.0.10:2379,http://10.0.0.11:2379", "/ull", 10L, 1_000L, null, null, null, true));
     }
 
     @Test
     void prodSafetyAllowsLoopbackAndHttps() {
-        assertTrue(new EtcdConfig("http://127.0.0.1:2379", "/ull", 10L, 1_000L, 0L, null, null, null, true)
+        assertTrue(new EtcdConfig("http://127.0.0.1:2379", "/ull", 10L, 1_000L, null, null, null, true)
                 .enforceProductionSafety());
-        assertTrue(new EtcdConfig("http://localhost:2379", "/ull", 10L, 1_000L, 0L, null, null, null, true)
+        assertTrue(new EtcdConfig("http://localhost:2379", "/ull", 10L, 1_000L, null, null, null, true)
                 .enforceProductionSafety());
-        assertTrue(new EtcdConfig("https://etcd.internal:2379", "/ull", 10L, 1_000L, 0L, null, null, null, true)
+        assertTrue(new EtcdConfig("https://etcd.internal:2379", "/ull", 10L, 1_000L, null, null, null, true)
                 .enforceProductionSafety());
     }
 
     @Test
     void withProductionSafetyValidatesLazilyAndIsIdempotent() {
-        EtcdConfig insecure = config("http://10.0.0.10:2379", "/ull", 10L, 1_000L, 0L);
+        EtcdConfig insecure = config("http://10.0.0.10:2379", "/ull", 10L, 1_000L);
         assertThrows(IllegalStateException.class, insecure::withProductionSafety);
 
-        EtcdConfig secure = config("https://etcd.internal:2379", "/ull", 10L, 1_000L, 0L).withProductionSafety();
+        EtcdConfig secure = config("https://etcd.internal:2379", "/ull", 10L, 1_000L).withProductionSafety();
         assertTrue(secure.enforceProductionSafety());
         assertEquals(secure, secure.withProductionSafety());
     }
@@ -86,7 +92,7 @@ final class EtcdConfigTest {
         assertEquals(value, EtcdClient.decode(EtcdClient.encode(value)));
     }
 
-    private static EtcdConfig config(String endpoint, String prefix, long ttl, long timeout, long cache) {
-        return new EtcdConfig(endpoint, prefix, ttl, timeout, cache, null, null, null, false);
+    private static EtcdConfig config(String endpoint, String prefix, long ttl, long timeout) {
+        return new EtcdConfig(endpoint, prefix, ttl, timeout, null, null, null, false);
     }
 }

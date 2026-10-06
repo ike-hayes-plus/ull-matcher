@@ -35,6 +35,14 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class MatcherServerConfigBuilderTest {
+    private static MatcherServerConfig.Builder prodBuilder(Path dir) {
+        return MatcherServerConfig.builder("node-a", 1, dir)
+                .serverMode(MatcherServerMode.PROD)
+                .persistenceProfile(PersistenceProfile.PROD)
+                .snapshotIntervalMillis(PersistenceProfile.PROD_SNAPSHOT_INTERVAL_MILLIS)
+                .walArchiveConfig(WalArchiveConfig.ofDirectory(dir.resolve("wal-cold")));
+    }
+
     @Test
     void builderAppliesEveryComponentOverride() throws Exception {
         Path dir = Files.createTempDirectory("config-builder-overrides");
@@ -216,6 +224,9 @@ final class MatcherServerConfigBuilderTest {
         assertEquals("nodeId, shardKey, walPrefix, httpBindHost and binaryIngressBindHost must not be blank",
                 assertThrows(IllegalArgumentException.class,
                         () -> MatcherServerConfig.builder("node-a", 1, dir).nodeId(" ").build()).getMessage());
+        assertEquals("nodeId must not contain '|'",
+                assertThrows(IllegalArgumentException.class,
+                        () -> MatcherServerConfig.builder("node|a", 1, dir).build()).getMessage());
         assertEquals("nodeId, shardKey, walPrefix, httpBindHost and binaryIngressBindHost must not be blank",
                 assertThrows(IllegalArgumentException.class,
                         () -> MatcherServerConfig.builder("node-a", 1, dir).binaryIngressBindHost("").build()).getMessage());
@@ -311,8 +322,7 @@ final class MatcherServerConfigBuilderTest {
     @Test
     void prodModeRejectsOsBufferedWalDurability() throws Exception {
         Path dir = Files.createTempDirectory("config-builder-prod-durability");
-        MatcherServerConfig config = MatcherServerConfig.builder("node-a", 1, dir)
-                .serverMode(MatcherServerMode.PROD)
+        MatcherServerConfig config = prodBuilder(dir)
                 .walDurabilityMode(WalDurabilityMode.OS_BUFFERED)
                 .build();
 
@@ -323,8 +333,7 @@ final class MatcherServerConfigBuilderTest {
     @Test
     void prodModeRequiresExplicitOptInForRemoteHttpAndBinaryIngress() throws Exception {
         Path dir = Files.createTempDirectory("config-builder-prod-remote");
-        MatcherServerConfig.Builder builder = MatcherServerConfig.builder("node-a", 1, dir)
-                .serverMode(MatcherServerMode.PROD)
+        MatcherServerConfig.Builder builder = prodBuilder(dir)
                 .ingressAuthConfig(IngressAuthConfig.fromCommaSeparated("key", IngressAuthConfig.DEFAULT_API_KEY_HEADER));
 
         assertEquals("prod mode requires matcher.allowInsecureRemoteHttp=true when matcher.httpBindHost is not loopback",
@@ -345,27 +354,38 @@ final class MatcherServerConfigBuilderTest {
     void prodModeRejectsEphemeralWalRemoteKeysMissingGrpcTlsAndInsecureAeron() throws Exception {
         Path ephemeral = Files.createTempDirectory("config-builder-prod-ephemeral").resolve("target").resolve("data");
         Files.createDirectories(ephemeral);
-        MatcherServerConfig ephemeralConfig = MatcherServerConfig.builder("node-a", 1, ephemeral)
-                .serverMode(MatcherServerMode.PROD)
-                .build();
+        MatcherServerConfig ephemeralConfig = prodBuilder(ephemeral).build();
         assertTrue(assertThrows(IllegalStateException.class, ephemeralConfig::validateDeploymentSafety)
                 .getMessage().contains("persistent matcher.dataDir"));
 
         Path dir = Files.createTempDirectory("config-builder-prod-remote-keys");
         assertEquals("prod mode requires matcher.ingressApiKeys when HTTP/binary bind to non-loopback addresses",
-                assertThrows(IllegalStateException.class, () -> MatcherServerConfig.builder("node-a", 1, dir)
-                        .serverMode(MatcherServerMode.PROD)
+                assertThrows(IllegalStateException.class, () -> prodBuilder(dir)
                         .httpBindHost("10.0.0.10")
                         .allowInsecureRemoteHttp(true)
                         .build()
                         .validateDeploymentSafety()).getMessage());
 
-        assertEquals("prod mode requires gRPC TLS when matcher.grpcBindHost is not loopback",
-                assertThrows(IllegalStateException.class, () -> MatcherServerConfig.builder("node-a", 1, dir)
-                        .serverMode(MatcherServerMode.PROD)
+        assertEquals("prod mode requires gRPC mTLS when matcher.grpcBindHost is not loopback",
+                assertThrows(IllegalStateException.class, () -> prodBuilder(dir)
                         .grpcServerConfig(GrpcReplicationServerConfig.defaults(9_090).withBindHost("10.0.0.10"))
                         .build()
                         .validateDeploymentSafety()).getMessage());
+
+        Path cert = dir.resolve("tls.crt");
+        Path key = dir.resolve("tls.key");
+        Path ca = dir.resolve("ca.crt");
+        assertEquals("prod mode requires gRPC mTLS when matcher.grpcBindHost is not loopback",
+                assertThrows(IllegalStateException.class, () -> prodBuilder(dir)
+                        .grpcServerConfig(GrpcReplicationServerConfig.defaults(9_090).withBindHost("10.0.0.10"))
+                        .securityConfig(ServerSecurityConfig.fromPaths(cert, key, ca, false, 0L, false))
+                        .build()
+                        .validateDeploymentSafety()).getMessage());
+        prodBuilder(dir)
+                .grpcServerConfig(GrpcReplicationServerConfig.defaults(9_090).withBindHost("10.0.0.10"))
+                .securityConfig(ServerSecurityConfig.fromPaths(cert, key, ca, true, 0L, false))
+                .build()
+                .validateDeploymentSafety();
 
         MatcherClusterConfig aeron = MatcherClusterConfig
                 .defaults(new StubLeaseStore(), new StubNodeRegistry(), "10.0.0.10", "symbol-1")
@@ -374,8 +394,7 @@ final class MatcherServerConfigBuilderTest {
                         new AeronPreviewTransportConfig(dir.resolve("aeron"), 15_090, 11_001),
                         ReplicationTransportPolicyConfig.defaults());
         assertEquals("prod mode requires transport security when matcher.replicationTransport=AERON and matcher.advertisedHost is not loopback",
-                assertThrows(IllegalStateException.class, () -> MatcherServerConfig.builder("node-a", 1, dir)
-                        .serverMode(MatcherServerMode.PROD)
+                assertThrows(IllegalStateException.class, () -> prodBuilder(dir)
                         .clusterConfig(aeron)
                         .build()
                         .validateDeploymentSafety()).getMessage());
@@ -391,8 +410,7 @@ final class MatcherServerConfigBuilderTest {
                         new AeronPreviewTransportConfig(dir.resolve("aeron"), 15_090, 11_001),
                         new ReplicationTransportPolicyConfig(false, "", true));
 
-        MatcherServerConfig.builder("node-a", 1, dir)
-                .serverMode(MatcherServerMode.PROD)
+        prodBuilder(dir)
                 .clusterConfig(clusterConfig)
                 .build()
                 .validateDeploymentSafety();
@@ -424,27 +442,60 @@ final class MatcherServerConfigBuilderTest {
         Path dir = Files.createTempDirectory("config-builder-wal-cold");
         Path cold = dir.resolve("target").resolve("cold");
         Files.createDirectories(cold);
-        MatcherServerConfig ephemeralCold = MatcherServerConfig.builder("node-a", 1, dir)
-                .serverMode(MatcherServerMode.PROD)
+        MatcherServerConfig ephemeralCold = prodBuilder(dir)
                 .walArchiveConfig(WalArchiveConfig.ofDirectory(cold))
                 .build();
         assertTrue(assertThrows(IllegalStateException.class, ephemeralCold::validateDeploymentSafety)
                 .getMessage().contains("matcher.walColdArchiveDir"));
 
         Path persistentCold = dir.resolve("cold");
-        MatcherServerConfig sameAsWal = MatcherServerConfig.builder("node-a", 1, dir)
-                .serverMode(MatcherServerMode.PROD)
+        MatcherServerConfig sameAsWal = prodBuilder(dir)
                 .walDirectory(dir.resolve("wal"))
                 .walArchiveConfig(WalArchiveConfig.ofDirectory(dir.resolve("wal")))
                 .build();
         assertEquals("matcher.walColdArchiveDir must not equal the hot WAL directory",
                 assertThrows(IllegalStateException.class, sameAsWal::validateDeploymentSafety).getMessage());
 
-        MatcherServerConfig valid = MatcherServerConfig.builder("node-a", 1, dir)
-                .serverMode(MatcherServerMode.PROD)
+        MatcherServerConfig valid = prodBuilder(dir)
                 .walArchiveConfig(WalArchiveConfig.ofDirectory(persistentCold))
                 .build();
         valid.validateDeploymentSafety();
+    }
+
+    @Test
+    void prodModeRequiresColdArchiveAndPeriodicSnapshot() throws Exception {
+        Path dir = Files.createTempDirectory("config-builder-prod-persistence");
+        MatcherServerConfig missingCold = MatcherServerConfig.builder("node-a", 1, dir)
+                .serverMode(MatcherServerMode.PROD)
+                .persistenceProfile(PersistenceProfile.PROD)
+                .snapshotIntervalMillis(PersistenceProfile.PROD_SNAPSHOT_INTERVAL_MILLIS)
+                .build();
+        assertTrue(assertThrows(IllegalStateException.class, missingCold::validateDeploymentSafety)
+                .getMessage().contains("matcher.walColdArchiveDir"));
+
+        MatcherServerConfig missingSnapshot = prodBuilder(dir)
+                .snapshotIntervalMillis(0L)
+                .build();
+        assertTrue(assertThrows(IllegalStateException.class, missingSnapshot::validateDeploymentSafety)
+                .getMessage().contains("matcher.snapshotIntervalMillis"));
+
+        MatcherServerConfig labInProd = prodBuilder(dir)
+                .persistenceProfile(PersistenceProfile.LAB)
+                .build();
+        assertEquals("prod mode forbids matcher.persistenceProfile=LAB",
+                assertThrows(IllegalStateException.class, labInProd::validateDeploymentSafety).getMessage());
+
+        MatcherServerConfig benchInProd = prodBuilder(dir)
+                .persistenceProfile(PersistenceProfile.BENCH)
+                .build();
+        assertEquals("prod mode forbids matcher.persistenceProfile=BENCH",
+                assertThrows(IllegalStateException.class, benchInProd::validateDeploymentSafety).getMessage());
+
+        MatcherServerConfig batchedWalInProd = prodBuilder(dir)
+                .walDurabilityMode(WalDurabilityMode.SYNC_PER_BATCH)
+                .build();
+        assertEquals("prod mode forbids matcher.walDurabilityMode=SYNC_PER_BATCH",
+                assertThrows(IllegalStateException.class, batchedWalInProd::validateDeploymentSafety).getMessage());
     }
 
     private static final class StubLeaseStore implements LeaseStore {

@@ -276,7 +276,9 @@ final class AeronAuthoritativeClusterPeerClient implements ClusterPeerClient, As
                         Thread.onSpinWait();
                     }
                 }
+                io.github.ike.ullmatcher.storage.wal.StorageSync.forceFile(tmp);
                 Files.move(tmp, targetFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+                io.github.ike.ullmatcher.storage.wal.StorageSync.forceDirectory(targetFile.toAbsolutePath().getParent());
                 return state.toResult(targetFile);
             } catch (SnapshotDownloadException e) {
                 Files.deleteIfExists(tmp);

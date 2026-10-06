@@ -19,7 +19,7 @@
 
 - 同一个 shard 同时存在两个接写 primary
 - 同一个 shard 按流量百分比分写到两个不同节点组
-- WAL / snapshot / replication 协议不兼容的迁移场景
+- 旧 snapshot / WAL / replication 协议的升级迁移（本仓库不提供向下兼容读取）
 
 ## 2. 发布原则
 
@@ -104,7 +104,7 @@
 
 发布前至少确认：
 
-1. 目标构建与 WAL、snapshot、replication 协议兼容
+1. 目标构建与运行中节点使用同一 WAL / snapshot / replication 协议版本
 2. 目标构建已经通过基线 benchmark
 3. 已经完成 `soak`、`failover smoke`、`chaos` 基本验证
 4. 目标拓扑只有一个 `PRIMARY`
@@ -264,7 +264,7 @@ REST 只作为：
 
 - 回滚节点仍可启动
 - 回滚 standby 仍可追平
-- 数据目录和协议仍兼容
+- 回滚节点与当前节点使用同一协议版本
 
 ### 回滚流程
 
@@ -317,7 +317,7 @@ REST 只作为：
 ## 11. Shard 发布清单
 
 ```text
-1. 先验证基线 benchmark 和兼容性
+1. 先验证基线 benchmark 和协议版本一致
 2. 先切查询与控制面
 3. 目标节点先做 standby
 4. standby 追平后切主

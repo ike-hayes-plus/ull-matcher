@@ -12,8 +12,8 @@ public enum HttpSubmitAckMode {
         }
         String normalized = raw.trim().toUpperCase(Locale.ROOT).replace('-', '_');
         return switch (normalized) {
-            case "LOCAL", "LOCAL_ACCEPTED" -> LOCAL;
-            case "COMMITTED", "REPLICATION_COMMITTED", "REPLICATED" -> COMMITTED;
+            case "LOCAL" -> LOCAL;
+            case "COMMITTED" -> COMMITTED;
             default -> throw new BadRequestException("invalid ack mode: " + raw);
         };
     }

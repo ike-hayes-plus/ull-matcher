@@ -57,6 +57,9 @@ public final class InMemoryOrchestratorStore implements OrchestratorStore {
             return Optional.empty();
         }
         RegisteredShard shard = shards.get(header.shardKey());
+        if (shard == null) {
+            return Optional.empty();
+        }
         return Optional.of(new SymbolRoute(
                 header.symbolId(),
                 header.shardKey(),

@@ -10,7 +10,7 @@ public record NewOrderRequest(long userId,
                               Long ttlMillis,
                               String idempotencyKey) {
     public NewOrderRequest {
-        if (userId <= 0L || orderId <= 0L || price < 0L || quantity <= 0L) {
+        if (userId <= 0L || orderId <= 0L || price <= 0L || quantity <= 0L) {
             throw new IllegalArgumentException("userId, orderId, price and quantity are invalid");
         }
         if (side == null || side.isBlank() || orderType == null || orderType.isBlank()

@@ -17,7 +17,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 进程启动后在编排面注册 shard + symbol 路由，并周期性刷新 lease；关闭时标记 drain。
+ * 进程启动后在编排面注册 shard + symbol 路由，并周期性刷新 lease；关闭时删除 shard 与 symbol 路由。
  */
 public final class OrchestratorShardLifecycle implements AutoCloseable {
     private static final Logger LOG = LoggerFactory.getLogger(OrchestratorShardLifecycle.class);
@@ -109,11 +109,11 @@ public final class OrchestratorShardLifecycle implements AutoCloseable {
             heartbeatExecutor = null;
         }
         try {
-            store.markDraining(serverConfig.shardKey());
-            LOG.info("orchestrator marked draining shardKey={} nodeId={}",
+            store.unregisterShard(serverConfig.shardKey());
+            LOG.info("orchestrator unregistered shardKey={} nodeId={}",
                     serverConfig.shardKey(), serverConfig.nodeId());
         } catch (IOException e) {
-            LOG.warn("orchestrator drain failed shardKey={}", serverConfig.shardKey(), e);
+            LOG.warn("orchestrator unregister failed shardKey={}", serverConfig.shardKey(), e);
         }
         store.close();
     }

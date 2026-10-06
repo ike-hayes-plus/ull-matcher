@@ -4,7 +4,7 @@
 
 ## 1. 切换前
 
-- [ ] 已确认目标构建与生产数据格式兼容
+- [ ] 已确认目标构建与运行中节点是同一协议版本；本仓库不提供旧 snapshot / WAL 格式迁移
 - [ ] 基线 benchmark 验证通过
 - [ ] `soak / failover smoke / chaos` 验证通过
 - [ ] 已明确发布 shard 范围

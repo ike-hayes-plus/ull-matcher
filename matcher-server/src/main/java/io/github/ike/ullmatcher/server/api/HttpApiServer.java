@@ -21,6 +21,7 @@ import io.github.ike.ullmatcher.server.telemetry.ReadinessSnapshot;
 import io.github.ike.ullmatcher.orchestrator.SymbolRoute;
 import io.undertow.Handlers;
 import io.undertow.Undertow;
+import io.undertow.UndertowOptions;
 import io.undertow.server.HttpServerExchange;
 import io.undertow.server.RoutingHandler;
 import io.undertow.util.Headers;
@@ -52,7 +53,6 @@ public final class HttpApiServer implements Closeable {
     private static final String ROUTE_SNAPSHOT = "/api/v1/admin/snapshot";
     private static final String ROUTE_LIVE = "/api/v1/runtime/live";
     private static final String ROUTE_HEALTH = "/api/v1/runtime/health";
-    private static final String ROUTE_STATE = "/api/v1/runtime/state";
     private static final String ROUTE_READINESS = "/api/v1/runtime/readiness";
     private static final String ROUTE_METRICS = "/metrics";
     private static final String ROUTE_ORCHESTRATOR_SYMBOL =
@@ -72,7 +72,6 @@ public final class HttpApiServer implements Closeable {
     private final IngressAuthConfig ingressAuthConfig;
     private final int maxBodyBytes;
     private final int maxConcurrentRequests;
-    private final long requestTimeoutMillis;
     private final String bindHost;
     private final int requestedPort;
     private final RouteBudget writeBudget;
@@ -222,13 +221,14 @@ public final class HttpApiServer implements Closeable {
         this.submitBatchMaxOrders = Math.max(1, Integer.getInteger("matcher.httpSubmitBatchMaxOrders", MAX_HTTP_ORDER_BATCH_SIZE));
         this.maxBodyBytes = maxBodyBytes;
         this.maxConcurrentRequests = maxConcurrentRequests;
-        this.requestTimeoutMillis = requestTimeoutMillis;
         this.bindHost = Objects.requireNonNull(bindHost, "bindHost");
         this.requestedPort = port;
-        int requestThreads = Math.max(2, workerThreads);
-        this.writeBudget = RouteBudget.create("write", writeMaxConcurrentRequests, writeTimeoutMillis);
-        this.readBudget = RouteBudget.create("read", readMaxConcurrentRequests, readTimeoutMillis);
-        this.adminBudget = RouteBudget.create("admin", adminMaxConcurrentRequests, adminTimeoutMillis);
+        this.writeBudget = RouteBudget.create("write", writeMaxConcurrentRequests,
+                cappedTimeout(writeTimeoutMillis, requestTimeoutMillis));
+        this.readBudget = RouteBudget.create("read", readMaxConcurrentRequests,
+                cappedTimeout(readTimeoutMillis, requestTimeoutMillis));
+        this.adminBudget = RouteBudget.create("admin", adminMaxConcurrentRequests,
+                cappedTimeout(adminTimeoutMillis, requestTimeoutMillis));
         this.writeAdmissionController = new WriteAdmissionController(shardKey, writeAdmissionPolicyConfig);
         this.submitBudget = HttpEndpointBudget.create("submit_order", submitEndpointMaxConcurrentRequests);
         this.cancelBudget = HttpEndpointBudget.create("cancel_order", cancelEndpointMaxConcurrentRequests);
@@ -252,7 +252,6 @@ public final class HttpApiServer implements Closeable {
                 .post(ROUTE_SNAPSHOT, requestPipeline.blocking("create_snapshot", "create snapshot", adminBudget, snapshotBudget, true, this::handleCreateSnapshot))
                 .get(ROUTE_LIVE, requestPipeline.blocking("runtime_live", "runtime liveness", readBudget, null, false, this::handleLiveness))
                 .get(ROUTE_HEALTH, requestPipeline.blocking("runtime_health", "runtime health", readBudget, null, true, this::handleHealth))
-                .get(ROUTE_STATE, requestPipeline.blocking("runtime_state", "runtime state", readBudget, null, true, this::handleHealth))
                 .get(ROUTE_READINESS, requestPipeline.blocking("runtime_readiness", "runtime readiness", readBudget, readinessBudget, true, this::handleReadiness));
         if (orchestratorRouteLookup != null) {
             routes = routes.get(ROUTE_ORCHESTRATOR_SYMBOL,
@@ -271,6 +270,7 @@ public final class HttpApiServer implements Closeable {
         this.server = Undertow.builder()
                 .setIoThreads(ioThreads)
                 .setWorkerThreads(undertowWorkers)
+                .setServerOption(UndertowOptions.ENABLE_HTTP2, true)
                 .addHttpListener(port, bindHost)
                 .setHandler(routes)
                 .build();
@@ -779,7 +779,7 @@ public final class HttpApiServer implements Closeable {
     private int statusCode(SubmitResult result) {
         return switch (result) {
             case ACCEPTED -> 202;
-            case MATCHER_NOT_RUNNING, RING_FULL_BEFORE_WAL_APPEND, COMMAND_POOL_EXHAUSTED, MATCHER_STOPPED_AFTER_WAL_APPEND, RING_FULL_AFTER_WAL_APPEND -> 503;
+            case MATCHER_NOT_RUNNING, RING_FULL_BEFORE_WAL_APPEND, COMMAND_POOL_EXHAUSTED, MATCHER_STOPPED_AFTER_WAL_APPEND -> 503;
         };
     }
 
@@ -863,22 +863,15 @@ public final class HttpApiServer implements Closeable {
         }
     }
 
+    private static long cappedTimeout(long routeTimeoutMillis, long requestTimeoutMillis) {
+        return Math.min(routeTimeoutMillis, requestTimeoutMillis);
+    }
+
     private <T> T readRequest(HttpServerExchange exchange, ObjectReader reader) throws IOException {
         try {
             return reader.readValue(readBodyBytes(exchange));
         } catch (JacksonException e) {
             throw new BadRequestException("invalid request body", e);
-        }
-    }
-
-    private <T extends Enum<T>> T parseEnum(String raw, Class<T> type, String fieldName) {
-        if (raw == null || raw.isBlank()) {
-            throw new BadRequestException("missing " + fieldName);
-        }
-        try {
-            return Enum.valueOf(type, raw.trim().toUpperCase());
-        } catch (IllegalArgumentException e) {
-            throw new BadRequestException("invalid " + fieldName + ": " + raw, e);
         }
     }
 

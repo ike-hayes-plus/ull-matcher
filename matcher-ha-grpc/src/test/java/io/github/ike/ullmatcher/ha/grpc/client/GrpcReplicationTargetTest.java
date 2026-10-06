@@ -29,6 +29,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -210,6 +211,73 @@ final class GrpcReplicationTargetTest {
         } finally {
             channel.shutdownNow();
             server.shutdownNow();
+        }
+    }
+
+    @Test
+    void primaryExportsSnapshotAndStandbyIsRejected() throws Exception {
+        Path snapshotFile = Files.createTempFile("primary-snapshot", ".snap");
+        Files.writeString(snapshotFile, "primary-rdb");
+        String primaryName = InProcessServerBuilder.generateName();
+        Server primaryServer = InProcessServerBuilder.forName(primaryName)
+                .directExecutor()
+                .addService(new GrpcReplicationService(
+                        () -> {
+                            throw new IllegalStateException("primary does not accept standby replication ingress");
+                        },
+                        () -> new NodeControlState(
+                                "primary-a",
+                                HaRole.PRIMARY,
+                                new FencingToken(1L),
+                                true,
+                                MatchLoopState.RUNNING,
+                                1L,
+                                new ReplicationCursor(1L, 1L, 1L, 1L)
+                        ),
+                        () -> new io.github.ike.ullmatcher.ha.snapshot.SnapshotMaterial(snapshotFile, 1L, 0L, 0L),
+                        new GrpcTransportMetrics()
+                ))
+                .build()
+                .start();
+        String standbyName = InProcessServerBuilder.generateName();
+        Server standbyServer = InProcessServerBuilder.forName(standbyName)
+                .directExecutor()
+                .addService(new GrpcReplicationService(
+                        () -> {
+                            throw new IllegalStateException("unused");
+                        },
+                        () -> new NodeControlState(
+                                "standby-a",
+                                HaRole.STANDBY,
+                                new FencingToken(1L),
+                                false,
+                                MatchLoopState.RUNNING,
+                                0L,
+                                new ReplicationCursor(0L, 0L, 0L, 0L)
+                        ),
+                        GrpcReplicationTargetTest::emptySnapshot,
+                        new GrpcTransportMetrics()
+                ))
+                .build()
+                .start();
+        ManagedChannel primaryChannel = InProcessChannelBuilder.forName(primaryName).directExecutor().build();
+        ManagedChannel standbyChannel = InProcessChannelBuilder.forName(standbyName).directExecutor().build();
+        try (GrpcReplicationTarget primary = new GrpcReplicationTarget("primary-a", primaryChannel);
+             GrpcReplicationTarget standby = new GrpcReplicationTarget("standby-a", standbyChannel)) {
+            Path downloaded = Files.createTempFile("downloaded-snapshot", ".snap");
+            var result = primary.downloadLatestSnapshot(downloaded, TEST_TIMEOUT_NANOS);
+            assertEquals("primary-rdb", Files.readString(downloaded));
+            assertEquals(1L, result.lastSequence());
+
+            IOException error = assertThrows(IOException.class,
+                    () -> standby.downloadLatestSnapshot(Files.createTempFile("rejected-snapshot", ".snap"), TEST_TIMEOUT_NANOS));
+            assertTrue(error.getMessage().contains("FAILED_PRECONDITION"));
+            assertTrue(error.getMessage().contains("only primary can export an authoritative snapshot"));
+        } finally {
+            primaryChannel.shutdownNow();
+            standbyChannel.shutdownNow();
+            primaryServer.shutdownNow();
+            standbyServer.shutdownNow();
         }
     }
 

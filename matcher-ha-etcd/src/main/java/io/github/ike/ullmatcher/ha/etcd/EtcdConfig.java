@@ -11,7 +11,6 @@ import java.util.Objects;
  * @param keyPrefix key prefix used by this matcher deployment
  * @param leaseTtlSeconds etcd lease TTL in seconds
  * @param timeoutMillis HTTP request timeout in milliseconds
- * @param localHeldCheckCacheMillis positive local cache duration for hot-path ownership checks
  * @param trustChainFile optional PEM trust bundle for private CAs
  * @param certificateChainFile optional client certificate chain for mTLS
  * @param privateKeyFile optional client private key for mTLS
@@ -22,7 +21,6 @@ public record EtcdConfig(
         String keyPrefix,
         long leaseTtlSeconds,
         long timeoutMillis,
-        long localHeldCheckCacheMillis,
         Path trustChainFile,
         Path certificateChainFile,
         Path privateKeyFile,
@@ -34,8 +32,8 @@ public record EtcdConfig(
         if (endpoint.isBlank() || keyPrefix.isBlank() || !keyPrefix.startsWith("/")) {
             throw new IllegalArgumentException("endpoint must not be blank and keyPrefix must be an absolute path");
         }
-        if (leaseTtlSeconds <= 0L || timeoutMillis <= 0L || localHeldCheckCacheMillis < 0L) {
-            throw new IllegalArgumentException("leaseTtlSeconds and timeoutMillis must be positive; localHeldCheckCacheMillis must be non-negative");
+        if (leaseTtlSeconds <= 0L || timeoutMillis <= 0L) {
+            throw new IllegalArgumentException("leaseTtlSeconds and timeoutMillis must be positive");
         }
         if (certificateChainFile == null ^ privateKeyFile == null) {
             throw new IllegalArgumentException("etcd mTLS requires both certificateChainFile and privateKeyFile, or neither");
@@ -46,7 +44,7 @@ public record EtcdConfig(
     }
 
     public static EtcdConfig defaults(String endpoint, String clusterName) {
-        return new EtcdConfig(endpoint, "/ull-matcher/" + clusterName, 10L, 2_000L, 25L, null, null, null, false);
+        return new EtcdConfig(endpoint, "/ull-matcher/" + clusterName, 10L, 2_000L, null, null, null, false);
     }
 
     /**
@@ -56,7 +54,7 @@ public record EtcdConfig(
      */
     public EtcdConfig withProductionSafety() {
         return enforceProductionSafety ? this : new EtcdConfig(
-                endpoint, keyPrefix, leaseTtlSeconds, timeoutMillis, localHeldCheckCacheMillis,
+                endpoint, keyPrefix, leaseTtlSeconds, timeoutMillis,
                 trustChainFile, certificateChainFile, privateKeyFile, true);
     }
 

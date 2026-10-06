@@ -1,6 +1,7 @@
 package io.github.ike.ullmatcher.ha.grpc.server;
 
 import io.github.ike.ullmatcher.api.Command;
+import io.github.ike.ullmatcher.ha.coordination.HaRole;
 import io.github.ike.ullmatcher.ha.grpc.codec.ProtoAdapters;
 import io.github.ike.ullmatcher.ha.grpc.telemetry.GrpcTransportMetrics;
 import io.github.ike.ullmatcher.ha.state.NodeControlStateSource;
@@ -211,6 +212,7 @@ public final class GrpcReplicationService extends ReplicationServiceGrpc.Replica
     @Override
     public void downloadLatestSnapshot(SnapshotRequest ignored, StreamObserver<SnapshotChunkEnvelope> observer) {
         try {
+            ensureAuthoritativeSnapshotExportAllowed();
             SnapshotMaterial snapshot = snapshotMaterialSource.latestSnapshot();
             long totalBytes = Files.size(snapshot.file());
             byte[] buffer = new byte[SNAPSHOT_CHUNK_SIZE];
@@ -251,9 +253,18 @@ public final class GrpcReplicationService extends ReplicationServiceGrpc.Replica
                 ));
             }
             observer.onCompleted();
+        } catch (IllegalStateException e) {
+            metrics.recordFailure();
+            observer.onError(Status.FAILED_PRECONDITION.withDescription(e.getMessage()).withCause(e).asRuntimeException());
         } catch (IOException e) {
             metrics.recordFailure();
             observer.onError(Status.INTERNAL.withDescription("snapshot streaming failed").withCause(e).asRuntimeException());
+        }
+    }
+
+    private void ensureAuthoritativeSnapshotExportAllowed() {
+        if (nodeControlStateSource.currentState().role() != HaRole.PRIMARY) {
+            throw new IllegalStateException("only primary can export an authoritative snapshot");
         }
     }
 

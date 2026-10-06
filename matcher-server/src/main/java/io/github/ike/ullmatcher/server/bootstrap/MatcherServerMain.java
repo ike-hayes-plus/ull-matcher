@@ -14,7 +14,6 @@ import io.github.ike.ullmatcher.ha.grpc.server.GrpcReplicationServerConfig;
 import io.github.ike.ullmatcher.ha.replication.ReplicationMode;
 import io.github.ike.ullmatcher.ha.zookeeper.ZooKeeperLeaseStore;
 import io.github.ike.ullmatcher.ha.zookeeper.ZooKeeperLeaseStoreConfig;
-import io.github.ike.ullmatcher.hft.WalDurabilityMode;
 import io.github.ike.ullmatcher.server.cluster.AeronPreviewTransportConfig;
 import io.github.ike.ullmatcher.server.cluster.MatcherClusterConfig;
 import io.github.ike.ullmatcher.server.cluster.ReplicationTransportPolicyConfig;
@@ -45,13 +44,10 @@ public final class MatcherServerMain {
         MatcherServerMode serverMode = serverMode(defaults.serverMode());
         MatcherClusterConfig clusterConfig =
                 clusterConfig(System.getProperty("matcher.shardKey", defaults.shardKey()), serverMode);
-        MatcherServerConfig config = defaults.toBuilder()
+        MatcherServerConfig.Builder builder = defaults.toBuilder()
                 .serverMode(serverMode)
                 .shardKey(System.getProperty("matcher.shardKey", defaults.shardKey()))
                 .matcherConfig(matcherConfig(defaults.matcherConfig()))
-                .walDurabilityMode(walDurabilityMode(defaults.walDurabilityMode()))
-                .walForceBatchSize(Integer.getInteger("matcher.walForceBatchSize", defaults.walForceBatchSize()))
-                .walForceMaxDelayMicros(Long.getLong("matcher.walForceMaxDelayMicros", defaults.walForceMaxDelayMicros()))
                 .walArchiveConfig(WalArchiveConfig.fromProperty(System.getProperty("matcher.walColdArchiveDir")))
                 .httpPort(Integer.getInteger("matcher.httpPort", defaults.httpPort()))
                 .httpBindHost(System.getProperty("matcher.httpBindHost", defaults.httpBindHost()))
@@ -84,8 +80,9 @@ public final class MatcherServerMain {
                 .ttlCancelConfig(ttlCancelConfig())
                 .initialRole(initialRole(defaults.initialRole(), clusterConfig))
                 .orchestratorRegistrationConfig(orchestratorRegistrationConfig(serverMode, clusterConfig))
-                .clusterConfig(clusterConfig)
-                .build();
+                .clusterConfig(clusterConfig);
+        PersistenceSettings.apply(builder, serverMode, defaults);
+        MatcherServerConfig config = builder.build();
         MatcherServerApp app = new MatcherServerApp(config);
         app.start();
         Runtime.getRuntime().addShutdownHook(Thread.ofPlatform().unstarted(() -> {
@@ -107,10 +104,6 @@ public final class MatcherServerMain {
 
     private static MatcherServerMode serverMode(MatcherServerMode defaultMode) {
         return MatcherServerMode.valueOf(System.getProperty("matcher.serverMode", defaultMode.name()).trim().toUpperCase());
-    }
-
-    private static WalDurabilityMode walDurabilityMode(WalDurabilityMode defaultMode) {
-        return WalDurabilityMode.valueOf(System.getProperty("matcher.walDurabilityMode", defaultMode.name()).trim().toUpperCase());
     }
 
     static MatcherConfig matcherConfig(MatcherConfig defaults) {
@@ -261,7 +254,7 @@ public final class MatcherServerMain {
                     "matcher.orchestratorEnabled requires HA cluster mode (etcd control plane)");
         }
         String etcdEndpoint = System.getProperty("matcher.etcdEndpoint", "");
-        String provider = controlPlaneProvider(System.getProperty("matcher.zookeeperConnect", ""), etcdEndpoint);
+        String provider = controlPlaneProvider(System.getProperty("matcher.zkConnect", ""), etcdEndpoint);
         if (!"etcd".equals(provider)) {
             throw new ServerBootstrapException("matcher.orchestratorEnabled requires matcher control plane provider etcd");
         }
@@ -280,7 +273,6 @@ public final class MatcherServerMain {
                 System.getProperty("matcher.etcdKeyPrefix", defaults.keyPrefix()),
                 Long.getLong("matcher.etcdLeaseTtlSeconds", defaults.leaseTtlSeconds()),
                 Long.getLong("matcher.etcdTimeoutMillis", defaults.timeoutMillis()),
-                Long.getLong("matcher.etcdLocalHeldCheckCacheMillis", defaults.localHeldCheckCacheMillis()),
                 pathProperty("matcher.etcdTlsTrustChain"),
                 pathProperty("matcher.etcdTlsCertChain"),
                 pathProperty("matcher.etcdTlsPrivateKey"),

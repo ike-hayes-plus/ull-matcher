@@ -6,7 +6,7 @@ TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ull-baseline-test.XXXXXX")"
 trap 'rm -rf "${TMP_DIR}"' EXIT
 
 DOC_FILE="${TMP_DIR}/benchmark-baseline.md"
-REPORT_ROOT="${TMP_DIR}/current"
+REPORT_ROOT="${TMP_DIR}/3.0-full"
 
 python3 - <<'PY' "${DOC_FILE}" "${REPORT_ROOT}"
 import json
@@ -17,27 +17,26 @@ doc = Path(sys.argv[1])
 root = Path(sys.argv[2])
 
 rows = [
-    ("Core-only matcher", "core-only/report-clean.json", "acceptedOrdersPerSecond", None, None, None, "p99LatencyMicros", 1000.0, None, None, None, 1.0),
-    ("本地持久化服务路径", "embed-journaled-core/report-clean.json", "acceptedOrdersPerSecond", "tradeEventsPerSecond", None, None, None, 1000.0, 1000.0, None, None, None),
-    ("Single-node HTTP", "single-node-http/report-clean.json", "acceptedOrdersPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", None, "p99LatencyMs", 1000.0, 1000.0, 1000.0, None, 1.0),
-    ("Single-node binary", "single-node-binary/report-clean.json", "acceptedOrdersPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", None, "p99LatencyMs", 1000.0, 1000.0, 1000.0, None, 1.0),
-    ("External `1P1S` REST + `GRPC` local ack", "http-commit/grpc-1p1s-local-current.json", "acceptedOrdersPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", "commitCatchupSeconds", "latency.p99Ms", 1000.0, 1000.0, 1000.0, 1.0, 1.0),
-    ("External `1P1S` REST + `GRPC` committed ack", "http-commit/grpc-1p1s-committed-current.json", "acceptedOrdersPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", "commitCatchupSeconds", "latency.p99Ms", 1000.0, 1000.0, 1000.0, 1.0, 1.0),
-    ("REST committed single", "http-ha/rest-single-1024-current.json", "acceptedOrdersPerSecond", None, "replicationCommittedSubmissionsPerSecond", "commitCatchupSeconds", "latency.p99Ms", 1000.0, None, 1000.0, 1.0, 1.0),
-    ("REST committed batch", "http-ha/rest-batch-1024-current.json", "acceptedOrdersPerSecond", None, "replicationCommittedSubmissionsPerSecond", "commitCatchupSeconds", "latency.p99Ms", 1000.0, None, 1000.0, 1.0, 1.0),
-    ("External `1P1S` binary + `GRPC` any", "full-bench-binary-32768-final-code/grpc-1p1s-any.json", "acceptedCommandsPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", "commitCatchupSeconds", "latency.p99Ms", 1000.0, 1000.0, 1000.0, 1.0, 1.0),
-    ("External `1P1S` binary + `AERON` any", "full-bench-binary-32768-final-code/aeron-1p1s-any.json", "acceptedCommandsPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", "commitCatchupSeconds", "latency.p99Ms", 1000.0, 1000.0, 1000.0, 1.0, 1.0),
-    ("External `1P2S` binary + `GRPC` quorum", "full-bench-binary-32768-final-code/grpc-1p2s-quorum.json", "acceptedCommandsPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", "commitCatchupSeconds", "latency.p99Ms", 1000.0, 1000.0, 1000.0, 1.0, 1.0),
-    ("External `1P2S` binary + `AERON` quorum", "full-bench-binary-32768-final-code/aeron-1p2s-quorum.json", "acceptedCommandsPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", "commitCatchupSeconds", "latency.p99Ms", 1000.0, 1000.0, 1000.0, 1.0, 1.0),
-    ("External `1P3S` binary + `GRPC` quorum", "full-bench-binary-32768-final-code/grpc-1p3s-quorum.json", "acceptedCommandsPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", "commitCatchupSeconds", "latency.p99Ms", 1000.0, 1000.0, 1000.0, 1.0, 1.0),
-    ("External `1P3S` binary + `AERON` quorum", "full-bench-binary-32768-final-code/aeron-1p3s-quorum.json", "acceptedCommandsPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", "commitCatchupSeconds", "latency.p99Ms", 1000.0, 1000.0, 1000.0, 1.0, 1.0),
+    ("Core-only matcher", "core-only.json", "acceptedOrdersPerSecond", None, None, None, "p99LatencyMicros", 1000.0, None, None, None, 1.0),
+    ("本地持久化服务路径", "embed-journaled-core.json", "acceptedOrdersPerSecond", "tradeEventsPerSecond", None, None, None, 1000.0, 1000.0, None, None, None),
+    ("Single-node HTTP", "single-node-http.json", "acceptedOrdersPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", None, "p99LatencyMs", 1000.0, 1000.0, 1000.0, None, 1.0),
+    ("Single-node binary", "single-node-binary.json", "acceptedOrdersPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", None, "p99LatencyMs", 1000.0, 1000.0, 1000.0, None, 1.0),
+    ("External `1P1S` REST + `GRPC` local ack", "rest-1p1s-local.json", "acceptedOrdersPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", "commitCatchupSeconds", "latency.p99Ms", 1000.0, 1000.0, 1000.0, 1.0, 1.0),
+    ("External `1P1S` REST + `GRPC` committed ack", "rest-1p1s-committed.json", "acceptedOrdersPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", "commitCatchupSeconds", "latency.p99Ms", 1000.0, 1000.0, 1000.0, 1.0, 1.0),
+    ("External `1P1S` binary + `GRPC` any", "grpc-1p1s.json", "acceptedCommandsPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", "commitCatchupSeconds", "latency.p99Ms", 1000.0, 1000.0, 1000.0, 1.0, 1.0),
+    ("External `1P1S` binary + `AERON` any", "aeron-1p1s.json", "acceptedCommandsPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", "commitCatchupSeconds", "latency.p99Ms", 1000.0, 1000.0, 1000.0, 1.0, 1.0),
+    ("External `1P2S` binary + `GRPC` quorum", "grpc-1p2s.json", "acceptedCommandsPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", "commitCatchupSeconds", "latency.p99Ms", 1000.0, 1000.0, 1000.0, 1.0, 1.0),
+    ("External `1P2S` binary + `AERON` quorum", "aeron-1p2s.json", "acceptedCommandsPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", "commitCatchupSeconds", "latency.p99Ms", 1000.0, 1000.0, 1000.0, 1.0, 1.0),
+    ("External `1P3S` binary + `GRPC` quorum", "grpc-1p3s.json", "acceptedCommandsPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", "commitCatchupSeconds", "latency.p99Ms", 1000.0, 1000.0, 1000.0, 1.0, 1.0),
+    ("External `1P3S` binary + `AERON` quorum", "aeron-1p3s.json", "acceptedCommandsPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond", "commitCatchupSeconds", "latency.p99Ms", 1000.0, 1000.0, 1000.0, 1.0, 1.0),
 ]
 
 doc.write_text(
-    "| 场景 | 入口 | 复制 | 口径 | Accepted orders/s | Trade events/s | Committed submissions/s | Catch-up | p99 延迟 |\n"
-    "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |\n" +
+    "## 压测结果\n\n"
+    "| 场景 | 入口 | 复制 | 口径 | Result | Accepted orders/s | Trade events/s | Committed submissions/s | Catch-up | p99 延迟 |\n"
+    "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |\n" +
     "\n".join(
-        f"| {name} | x | x | x | `{accepted:,.2f}` | "
+        f"| {name} | x | x | x | PASS | `{accepted:,.2f}` | "
         f"{'`' + format(trade, ',.2f') + '`' if trade is not None else '`N/A`'} | "
         f"{'`' + format(committed, ',.2f') + '`' if committed is not None else '`N/A`'} | "
         f"{'`' + format(catch_up, '.4f') + ' s`' if catch_up is not None else '`N/A`'} | "
@@ -73,7 +72,7 @@ PY
   --doc "${DOC_FILE}" \
   --report-root "${REPORT_ROOT}" >/dev/null
 
-python3 - <<'PY' "${REPORT_ROOT}/single-node-http/report-clean.json"
+python3 - <<'PY' "${REPORT_ROOT}/single-node-http.json"
 import json
 import sys
 from pathlib import Path

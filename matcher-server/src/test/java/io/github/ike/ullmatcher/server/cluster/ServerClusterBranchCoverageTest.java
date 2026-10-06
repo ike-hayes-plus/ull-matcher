@@ -16,6 +16,8 @@ import io.github.ike.ullmatcher.ha.transport.ReplicationTransportType;
 import io.github.ike.ullmatcher.ha.transport.TransportMetricsSnapshot;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerConfig;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerMode;
+import io.github.ike.ullmatcher.server.bootstrap.PersistenceProfile;
+import io.github.ike.ullmatcher.storage.wal.WalArchiveConfig;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -140,6 +142,9 @@ final class ServerClusterBranchCoverageTest {
 
         MatcherServerConfig previewForbidden = MatcherServerConfig.builder("node-a", 1, dir)
                 .serverMode(MatcherServerMode.PROD)
+                .persistenceProfile(PersistenceProfile.PROD)
+                .snapshotIntervalMillis(PersistenceProfile.PROD_SNAPSHOT_INTERVAL_MILLIS)
+                .walArchiveConfig(WalArchiveConfig.ofDirectory(dir.resolve("wal-cold")))
                 .clusterConfig(grpc.withReplicationTransport(
                         ReplicationTransportType.AERON_PREVIEW,
                         grpc.aeronPreviewTransportConfig(),

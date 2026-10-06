@@ -30,9 +30,6 @@ final class ClusterRoleCoordinator {
         this.replicationCoordinator = new ReplicationCoordinator(config.nodeId());
     }
 
-    void onEngineStarted(MatcherEngine engine) {
-    }
-
     NodeControlState currentState(MatcherEngine current, boolean replicationIngressPaused, long snapshotSequence) {
         if (current == null) {
             return new NodeControlState(

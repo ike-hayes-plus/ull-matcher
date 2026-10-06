@@ -28,9 +28,16 @@ public enum OrderType {
      * 解码字节形式的订单类型。
      *
      * @param code 订单类型紧凑编码
-     * @return 匹配时返回 {@link #MARKET_WITH_PROTECTION}，否则返回 {@link #LIMIT}
+     * @return 匹配的订单类型
+     * @throws IllegalArgumentException 编码不是已声明的订单类型
      */
     public static OrderType from(byte code) {
-        return code == MARKET_WITH_PROTECTION.code ? MARKET_WITH_PROTECTION : LIMIT;
+        if (code == LIMIT.code) {
+            return LIMIT;
+        }
+        if (code == MARKET_WITH_PROTECTION.code) {
+            return MARKET_WITH_PROTECTION;
+        }
+        throw new IllegalArgumentException("unknown orderType code: " + code);
     }
 }

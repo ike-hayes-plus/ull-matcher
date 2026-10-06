@@ -23,6 +23,17 @@ final class InMemoryOrchestratorStoreTest {
     }
 
     @Test
+    void lookupReturnsEmptyWhenShardIsGone() throws Exception {
+        try (InMemoryOrchestratorStore store = new InMemoryOrchestratorStore()) {
+            store.registerShard(sampleShard("merchant:42", 7, ShardLifecycleState.ACTIVE));
+            store.bindSymbol(7, "merchant:42", 1L);
+            store.unregisterShard("merchant:42");
+
+            assertTrue(store.lookupRoute(7).isEmpty());
+        }
+    }
+
+    @Test
     void drainingShardIsExcludedFromActiveRoute() throws Exception {
         try (InMemoryOrchestratorStore store = new InMemoryOrchestratorStore()) {
             store.registerShard(sampleShard("merchant:42", 7, ShardLifecycleState.ACTIVE));

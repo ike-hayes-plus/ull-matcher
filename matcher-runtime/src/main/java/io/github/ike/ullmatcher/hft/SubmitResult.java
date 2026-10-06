@@ -17,10 +17,7 @@ public enum SubmitResult {
     COMMAND_POOL_EXHAUSTED(false),
 
     /** 命令已写入 WAL，但投递前撮合循环变为不可用。 */
-    MATCHER_STOPPED_AFTER_WAL_APPEND(true),
-
-    /** 命令已写入 WAL，但环形缓冲区在超时时间内仍然满。 */
-    RING_FULL_AFTER_WAL_APPEND(true);
+    MATCHER_STOPPED_AFTER_WAL_APPEND(true);
 
     /** 返回时命令是否已经进入本地 WAL。 */
     private final boolean walAppended;

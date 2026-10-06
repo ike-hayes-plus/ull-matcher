@@ -13,5 +13,7 @@ if [[ "${#PYTHON_SCRIPTS[@]}" -eq 0 ]]; then
 fi
 
 PYTHONPYCACHEPREFIX="${TMP_DIR}/pycache" python3 -m py_compile "${PYTHON_SCRIPTS[@]}"
+PYTHONPATH="${ROOT_DIR}/scripts/bench${PYTHONPATH:+:$PYTHONPATH}" \
+  PYTHONPYCACHEPREFIX="${TMP_DIR}/pycache" python3 "${ROOT_DIR}/scripts/bench/test_http_keepalive.py"
 
 echo "python script compile self-test passed (${#PYTHON_SCRIPTS[@]} files)"

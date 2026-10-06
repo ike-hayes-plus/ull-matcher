@@ -10,7 +10,7 @@
 - 本地 SSD
 - **JDK Temurin 25.0.3**（与本文「压测结果」口径一致）
 
-正式 JSON 报告目录：`target/benchmark/current/`（`scripts/ops/run-ha-benchmark-suite.sh`，Temurin 25 / `.sdkmanrc`）。
+正式 JSON 报告目录：`target/benchmark/3.0-full/`（2026-10-06 参考机复现，Temurin 25 / `.sdkmanrc`）。一键复现见下文「复现」。
 
 ## 标准场景
 
@@ -18,8 +18,9 @@
 
 - `restingOrders = 2048`
 - `crossingOrders = 2048`
-- `concurrency = 24`
+- `concurrency = 24`（REST HA 1P1S 为 **64** + 线程内 HTTP keep-alive）
 - binary ingress 场景使用 `batchSize = 64`
+- Lab REST 节点覆盖 `WAL_FORCE_MAX_DELAY_MICROS=500`（避免 BENCH 预设 1s delay 拖死单笔预热）
 
 `restingOrders = 2048` 不是容量上限。它用于形成固定且可完全成交的盘口：先放入 2048 笔 resting sell orders，再用 2048 笔 crossing buy orders 吃掉盘口。2048 是 2 的幂，便于固定批次、重复运行和观察队列、WAL force、复制水位。
 
@@ -29,39 +30,32 @@ Binary HA committed 基线使用更长的 `restingOrders = 32768`、`crossingOrd
 
 ## 压测结果
 
-下表数值与 `target/benchmark/current/` 中最新 `success=true` 报告一致。HA 主矩阵复现：
-
-```bash
-COOLDOWN_SECONDS=45 scripts/ops/run-ha-benchmark-suite.sh
-```
+下表数值与 `target/benchmark/3.0-full/` 中 `success=true` 报告一致（`scripts/ops/run-3.0-full-benchmark-matrix.sh`）。
 
 | 场景 | 入口 | 复制 | 口径 | Result | Accepted orders/s | Trade events/s | Committed submissions/s | Catch-up | p99 延迟 |
 | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| Core-only matcher | 直接内存调用 | 无 | 只测 `UltraLowLatencyMatcher.onCommand(...)`，不含 HTTP、WAL、HA、IPC | PASS | `32,464,634` | `N/A` | `N/A` | `N/A` | `0.08 us` |
-| 本地持久化服务路径 | JVM 内服务调用 | 无 | 撮合主链 + 本地 WAL + 事件分发 | PASS | `123,770` | `123,770` | `N/A` | `N/A` | `N/A` |
-| Single-node HTTP | REST | 无 | REST 下单入口 + 本地 WAL | PASS | `5,722` | `5,722` | `5,722` | `N/A` | `100.03 ms` |
-| Single-node binary | Binary ingress | 无 | Binary ingress + 本地 WAL | PASS | `77,143` | `77,143` | `77,143` | `N/A` | `0.30 ms` |
-| External `1P1S` REST + `GRPC` local ack | REST | `GRPC` | 外部 REST 写入 + 单备复制，写响应按本地 WAL 返回 | PASS | `3,375` | `3,375` | `3,369` | `0.001 s` | `14.81 ms` |
-| External `1P1S` REST + `GRPC` committed ack | REST | `GRPC` | 外部 REST 写入 + 单备复制，写响应等待 replication committed | PASS | `3,403` | `3,403` | `3,397` | `0.001 s` | `19.50 ms` |
-| External `1P1S` binary + `GRPC` any | Binary ingress | `GRPC` | 外部 binary 写入 + 单备复制，`zk/zk` 控制面，`32768/32768` 订单窗口 | PASS | `302,069` | `302,069` | `264,048` | `0.016 s` | `0.15 ms` |
-| External `1P1S` binary + `AERON` any | Binary ingress | `AERON` | 外部 binary 写入 + 单备复制，`zk/zk` 控制面，`32768/32768` 订单窗口 | PASS | `270,880` | `270,880` | `210,889` | `0.034 s` | `0.16 ms` |
-| External `1P2S` binary + `GRPC` quorum | Binary ingress | `GRPC` | 外部 binary 写入 + 两备 quorum，`zk/zk` 控制面，`32768/32768` 订单窗口，frame `1` | PASS | `210,000` | `210,000` | `199,000` | `0.009 s` | `0.24 ms` |
-| External `1P2S` binary + `GRPC` quorum committed frame | Binary ingress | `GRPC` | 同上，frame `3` 回包前等待 replication committed | PASS | `93,000` | `93,000` | `92,000` | `0.002 s` | `0.64 ms` |
-| External `1P2S` binary + `AERON` quorum | Binary ingress | `AERON` | 外部 binary 写入 + 两备 quorum，`zk/zk` 控制面，`32768/32768` 订单窗口 | PASS | `324,817` | `324,817` | `78,769` | `0.315 s` | `0.18 ms` |
-| External `1P3S` binary + `GRPC` quorum | Binary ingress | `GRPC` | 外部 binary 写入 + 三备 quorum，`zk/zk` 控制面，`32768/32768` 订单窗口 | PASS | `194,859` | `194,859` | `182,880` | `0.011 s` | `0.26 ms` |
-| External `1P3S` binary + `AERON` quorum | Binary ingress | `AERON` | 外部 binary 写入 + 三备 quorum，`zk/zk` 控制面，`32768/32768` 订单窗口 | PASS | `297,155` | `297,155` | `43,807` | `0.638 s` | `0.16 ms` |
+| Core-only matcher | 直接内存调用 | 无 | 只测 `UltraLowLatencyMatcher.onCommand(...)`，不含 HTTP、WAL、HA、IPC | PASS | `30,771,085` | `N/A` | `N/A` | `N/A` | `0.08 us` |
+| 本地持久化服务路径 | JVM 内服务调用 | 无 | 撮合主链 + 本地 WAL + 事件分发 | PASS | `121,318` | `121,318` | `N/A` | `N/A` | `N/A` |
+| Single-node HTTP | REST | 无 | REST 下单入口 + 本地 WAL | PASS | `5,607` | `5,607` | `5,607` | `N/A` | `96.53 ms` |
+| Single-node binary | Binary ingress | 无 | Binary ingress + 本地 WAL | PASS | `149,049` | `149,049` | `149,049` | `N/A` | `0.29 ms` |
+| External `1P1S` REST + `GRPC` local ack | REST | `GRPC` | 外部 REST 写入 + 单备复制，写响应按本地 WAL 返回 | PASS | `4,241` | `4,241` | `4,229` | `0.001 s` | `41.70 ms` |
+| External `1P1S` REST + `GRPC` committed ack | REST | `GRPC` | 外部 REST 写入 + 单备复制，写响应等待 replication committed | PASS | `5,400` | `5,400` | `5,386` | `0.001 s` | `29.81 ms` |
+| External `1P1S` binary + `GRPC` any | Binary ingress | `GRPC` | 外部 binary 写入 + 单备复制，`zk/zk` 控制面，`32768/32768` 订单窗口 | PASS | `314,760` | `314,760` | `287,943` | `0.010 s` | `0.20 ms` |
+| External `1P1S` binary + `AERON` any | Binary ingress | `AERON` | 外部 binary 写入 + 单备复制，`zk/zk` 控制面，`32768/32768` 订单窗口 | PASS | `205,802` | `205,802` | `167,102` | `0.037 s` | `0.40 ms` |
+| External `1P2S` binary + `GRPC` quorum | Binary ingress | `GRPC` | 外部 binary 写入 + 两备 quorum，`zk/zk` 控制面，`32768/32768` 订单窗口，frame `1` | PASS | `188,907` | `188,907` | `179,250` | `0.009 s` | `0.27 ms` |
+| External `1P2S` binary + `AERON` quorum | Binary ingress | `AERON` | 外部 binary 写入 + 两备 quorum，`zk/zk` 控制面，`32768/32768` 订单窗口 | PASS | `300,943` | `300,943` | `91,237` | `0.250 s` | `0.28 ms` |
+| External `1P3S` binary + `GRPC` quorum | Binary ingress | `GRPC` | 外部 binary 写入 + 三备 quorum，`zk/zk` 控制面，`32768/32768` 订单窗口 | PASS | `189,413` | `189,413` | `179,508` | `0.010 s` | `0.41 ms` |
+| External `1P3S` binary + `AERON` quorum | Binary ingress | `AERON` | 外部 binary 写入 + 三备 quorum，`zk/zk` 控制面，`32768/32768` 订单窗口 | PASS | `317,276` | `317,276` | `47,183` | `0.591 s` | `0.17 ms` |
 
 Core-only matcher 是纯内存撮合基线，用来证明核心数据结构、价格队列和撮合逻辑的上限。它不经过服务入口、WAL、复制或提交确认，因此不参与 committed 容量规划。
 
-REST HA 的 REST 只表示外部调用撮合服务的方式。主备复制不走 HTTP，只走配置的复制传输。
+REST HA 的 REST 只表示外部调用撮合服务的方式。主备复制不走 HTTP，只走配置的复制传输。容量规划应使用 `Committed submissions/s`。
 
-容量规划应使用 `Committed submissions/s`，不要只看 `Accepted orders/s`。
-
-`1P3S` 的 quorum 只需 3 个备库中的 2 个确认。本次 `GRPC` `1P3S` 窗口内 `allStandbysDurableCommands=0`（quorum committed 仍可达 `182,880/s`），不能当作三备都已追上的容量。`AERON` `1P3S` 全备 durable 约 `39,615/s`，与 quorum committed `43,807/s` 仍有差距。
+`1P3S` 的 quorum 只需 3 个备库中的 2 个确认。主表 `GRPC` `1P3S` quorum committed 为 `179,508/s`。本次 JSON 里 `allStandbysDurableCommands=13,760`（最慢备 `lastDurableSequence=46,784`，另两备 `65,792`），不能当作三备都已追上。`AERON` `1P3S` 的 committed/s 低是 catch-up 0.591s 进了分母，窗口内仍是 32768 笔 committed。
 
 ## 百万级窗口验证
 
-该验证在同一参考机器上执行（Temurin 25，报告 `target/benchmark/current/retest/grpc-1p1s-1m.json`）：
+该验证在同一参考机器上执行（Temurin 25，报告 `target/benchmark/binary-commit/grpc-1p1s-1m-current.json`）：
 
 ```bash
 scripts/lab/run-binary-ingress-benchmark.sh \
@@ -86,11 +80,7 @@ scripts/lab/run-binary-ingress-benchmark.sh \
 
 ## HTTP 性能边界
 
-HTTP 入口定位为管理面、查询、补单和普通业务接入。高频撮合入口应使用 binary ingress。
-
-单节点 HTTP / binary 与本地持久化路径的 Temurin 25 数字见上表。REST HA 的 catch-up 与 committed/s 见 `target/benchmark/current/` 中 REST 报告；REST 主成本在 HTTP/JSON/同步请求模型，而不是撮合核心。
-
-HTTP/2 多路复用和 HTTP keep-alive 能降低连接层开销，但不会消除服务端每个 request exchange 的业务执行成本。`POST /api/v1/orders/batch` 通过一个 HTTP 请求承载多笔新单，减少请求数、worker 调度次数和响应序列化次数，适合普通业务批量写入，单次请求默认最多 `1024` 笔，可通过 `matcher.httpSubmitBatchMaxOrders` 调整。要把入口吞吐推近服务内核上限，应使用批量 REST、长连接专用客户端或 binary ingress。
+HTTP 入口定位为管理面、查询、补单和普通业务接入。高频入口用 binary。单笔 REST 主成本在 HTTP/JSON/同步模型；`POST /api/v1/orders/batch` 适合普通业务批量写（默认最多 1024 笔）。
 
 REST committed 对比基线使用本地 `1P2S`、`GRPC`、`1024` 笔 crossing 订单、`concurrency=16`：
 
@@ -99,31 +89,29 @@ REST committed 对比基线使用本地 `1P2S`、`GRPC`、`1024` 笔 crossing �
 | REST committed single | `1` | `2,876` | `2,863` | `11.81 ms` | `0.001 s` |
 | REST committed batch | `32` | `33,447` | `32,149` | `0.48 ms` | `0.001 s` |
 
-REST `1P2S` 报告见 `target/benchmark/current/rest-1p2s-single.json` 与 `rest-1p2s-batch32.json`。GRPC 复制路径使用每备库有序长连接流、零 accumulation 微等待；`POST /api/v1/orders/batch` 在 `ack=committed` 时先将整批命令入队再统一等待复制确认，使复制与 JSON/HTTP 解析重叠；单笔仍走 JSON 快路径与零 Map 回执。
+REST `1P2S` 对比报告见 `target/benchmark/current/rest-1p2s-single.json` 与 `rest-1p2s-batch32.json`（主表 HA 数字以 `3.0-full/` 为准）。GRPC 复制路径使用每备库有序长连接流、零 accumulation 微等待；`POST /api/v1/orders/batch` 在 `ack=committed` 时先将整批命令入队再统一等待复制确认，使复制与 JSON/HTTP 解析重叠；单笔仍走 JSON 快路径与零 Map 回执。
 
 该数据说明 REST 单笔链路仍受每请求同步模型限制；批量 REST 在 committed 模式下可接近复制/WAL 带宽上限，面向普通业务批量写入，不替代高频 binary ingress。
 
 Binary ingress 默认帧类型 `1` 在响应中只确认本地 WAL 受理；复制 committed 由客户端或基准脚本通过 health/watermark 观测。帧类型 `3`（`NEW_ORDER_BATCH_COMMITTED`）与 REST `ack=committed` batch 同形：整帧先入队，再统一等待 replication committed 后回包（第四字段 `reserved=1` 表示已 committed）。
 
-`1P2S` + `GRPC` + quorum + `32768/32768` 复测（frame `1`，报告 `target/benchmark/current/grpc-1p2s-binary-frame1.json`）：accepted **~210k/s**，committed **~199k/s**，p99 **~0.24 ms**。同场景 frame `3`（`--committed-frame`，报告 `grpc-1p2s-binary-committed-frame.json`）：accepted **~93k/s**，committed **~92k/s**，p99 **~0.64 ms**——吞吐计入回包前等待复制，catch-up 近 0；同批内顺序 await（共享 deadline），避免 frame-3 热路径上 per-batch 虚拟线程池开销。
+`1P2S` + `GRPC` quorum frame `1` 见主表。frame `3`（`--committed-frame`）单独复现：
 
 ```bash
 scripts/lab/run-binary-ingress-benchmark.sh \
   --mode replication-commit --transport GRPC --standbys 2 --standby-commit-mode quorum \
   --resting-orders 32768 --crossing-orders 32768 --concurrency 24 --batch-size 64 \
-  --report target/benchmark/current/grpc-1p2s-binary-frame1.json
-# wire-level committed ack:
-#   ... --committed-frame --report target/benchmark/current/grpc-1p2s-binary-committed-frame.json
+  --committed-frame --report target/benchmark/3.0-full/grpc-1p2s-committed-frame.json
 ```
 
 HA 报告 floor（非 CI 每跑 cluster，但 lab 产出报告后可 gate）：
 
 ```bash
 scripts/ops/check-ha-benchmark-floor.sh
-# 或 REPORT_DIR=target/benchmark/current scripts/ops/check-ha-benchmark-floor.sh --require-all
+# 或 REPORT_DIR=target/benchmark/3.0-full scripts/ops/check-ha-benchmark-floor.sh --require-all
 ```
 
-阈值见 `doc/operations/benchmark-ha-ci-floor.json`（frame `1` accepted ≥ 120k/s，committed ≥ 110k/s）。
+阈值见 `doc/operations/benchmark-ha-ci-floor.json`（binary frame `1` accepted ≥ 120k/s、committed ≥ 110k/s；REST committed p99 ≤ 50 ms）。`--require-all` 只要求 floor 文件里列出的报告（与 3.0-full matrix 对齐，不含 frame `3` 扩展项）。
 
 ## 指标口径
 
@@ -155,12 +143,12 @@ REST benchmark 支持两种提交模式：
 
 | 场景 | 控制面 | Result | Accepted orders/s | Committed submissions/s | Catch-up | p99 延迟 |
 | --- | --- | --- | ---: | ---: | ---: | ---: |
-| `1P1S` binary + `GRPC` any | ZooKeeper lease + ZooKeeper discovery | PASS | `302,069` | `264,048` | `0.016 s` | `0.15 ms` |
-| `1P2S` binary + `GRPC` quorum | ZooKeeper lease + ZooKeeper discovery | PASS | `210,000` | `199,000` | `0.009 s` | `0.24 ms` |
-| `1P3S` binary + `GRPC` quorum | ZooKeeper lease + ZooKeeper discovery | PASS | `194,859` | `182,880` | `0.011 s` | `0.26 ms` |
-| `1P1S` binary + `AERON` any | ZooKeeper lease + ZooKeeper discovery | PASS | `270,880` | `210,889` | `0.034 s` | `0.16 ms` |
-| `1P2S` binary + `AERON` quorum | ZooKeeper lease + ZooKeeper discovery | PASS | `324,817` | `78,769` | `0.315 s` | `0.18 ms` |
-| `1P3S` binary + `AERON` quorum | ZooKeeper lease + ZooKeeper discovery | PASS | `297,155` | `43,807` | `0.638 s` | `0.16 ms` |
+| `1P1S` binary + `GRPC` any | ZooKeeper lease + ZooKeeper discovery | PASS | 见主表 | 见主表 | 见主表 | 见主表 |
+| `1P2S` binary + `GRPC` quorum | ZooKeeper lease + ZooKeeper discovery | PASS | 见主表 | 见主表 | 见主表 | 见主表 |
+| `1P3S` binary + `GRPC` quorum | ZooKeeper lease + ZooKeeper discovery | PASS | 见主表 | 见主表 | 见主表 | 见主表 |
+| `1P1S` binary + `AERON` any | ZooKeeper lease + ZooKeeper discovery | PASS | 见主表 | 见主表 | 见主表 | 见主表 |
+| `1P2S` binary + `AERON` quorum | ZooKeeper lease + ZooKeeper discovery | PASS | 见主表 | 见主表 | 见主表 | 见主表 |
+| `1P3S` binary + `AERON` quorum | ZooKeeper lease + ZooKeeper discovery | PASS | 见主表 | 见主表 | 见主表 | 见主表 |
 | `1P1S` binary + `GRPC` any | etcd lease + etcd discovery | PASS | `352,798` | `232,741` | `0.048 s` | `0.17 ms` |
 | `1P2S` binary + `GRPC` quorum | etcd lease + etcd discovery | PASS | `359,075` | `186,704` | `0.084 s` | `0.16 ms` |
 | `1P3S` binary + `GRPC` quorum | etcd lease + etcd discovery | PASS | `452,565` | `195,617` | `0.095 s` | `0.13 ms` |
@@ -206,16 +194,41 @@ SOAK_SECONDS=60 CONTROL_PLANE=zk \
 
 ## 复现
 
-生成 benchmark 报告：
+生成与主表一致的完整 3.0 矩阵（core + embed + 单节点 HTTP/binary + HA 六场景 + REST 1P1S）：
 
 ```bash
-./mvnw --batch-mode --no-transfer-progress -DskipTests install
+COOLDOWN_SECONDS=45 OUT_DIR=target/benchmark/3.0-full \
+  scripts/ops/run-3.0-full-benchmark-matrix.sh
+```
+
+主表 JSON 与文档数字对齐检查（参考机全量报告就绪后）：
+
+```bash
+scripts/ops/validate-benchmark-baseline.py --report-root target/benchmark/3.0-full
+# CI：只校验主表行是否齐全；有 JSON 才比数字（不在 CI 跑全量 matrix）
+scripts/ops/validate-benchmark-baseline.py --skip-missing-reports
+```
+
+Lab 节点默认 `scripts/deploy/lab-bench.defaults.sh`（`BENCH` WAL、关闭周期 RDB），与绿田基线口径一致；生产部署仍用 `default.conf` 的 `PROD` 预设。
+
+仅 HA binary 子集（不含 core/embed/单节点）：
+
+```bash
+COOLDOWN_SECONDS=45 OUT_DIR=target/benchmark/3.0-full \
+  scripts/ops/run-ha-benchmark-suite.sh
+```
+
+单项 binary HA 示例：
+
+```bash
 scripts/lab/run-binary-ingress-benchmark.sh \
   --mode replication-commit \
   --transport GRPC \
   --standbys 1 \
   --standby-commit-mode any \
-  --report target/benchmark/binary-commit/grpc-1p1s.json
+  --resting-orders 32768 --crossing-orders 32768 \
+  --concurrency 24 --batch-size 64 \
+  --report target/benchmark/3.0-full/grpc-1p1s.json
 ```
 
 REST batch benchmark 示例：
@@ -229,7 +242,7 @@ python3 scripts/bench/replication-commit-benchmark.py \
   --batch-size 32
 ```
 
-连接已有集群时使用封装入口：
+连接已有集群时使用封装入口（节点须已覆盖 `WAL_FORCE_MAX_DELAY_MICROS=500`；HA suite 会设）。主表校验只认 `target/benchmark/3.0-full/rest-1p1s-*.json`。
 
 ```bash
 scripts/lab/run-rest-commit-benchmark.sh \
@@ -237,7 +250,7 @@ scripts/lab/run-rest-commit-benchmark.sh \
   --standby-base-url http://127.0.0.1:8081 \
   --wait-for-ready-seconds 30 \
   --http-submit-mode single \
-  --report target/benchmark/http-ha/rest-single-1024.json
+  --report target/benchmark/http-ha/rest-single.json
 
 scripts/lab/run-rest-commit-benchmark.sh \
   --base-url http://127.0.0.1:8080 \
@@ -245,10 +258,10 @@ scripts/lab/run-rest-commit-benchmark.sh \
   --wait-for-ready-seconds 30 \
   --http-submit-mode batch \
   --batch-size 32 \
-  --report target/benchmark/http-ha/rest-batch-1024.json
+  --report target/benchmark/http-ha/rest-batch.json
 ```
 
-校验生成报告不低于本文档基线：
+校验主表 JSON：
 
 ```bash
 scripts/ops/validate-benchmark-baseline.py

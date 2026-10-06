@@ -12,12 +12,12 @@
 | **高频写** | Binary ingress | 定长帧 + DirectBuffer，才是零拷贝与万级 QPS 方向；JSON REST 必然有序列化拷贝 |
 | **响应体** | `ResponseSender.send(ByteBuffer)` | metrics / receipt 等尽量 `byte[]`→`ByteBuffer` 一次发送，避免中间 `String` |
 
-客户端版本：`-Dmatcher.httpClientVersion=HTTP_1_1`（压测对照 HTTP/1.1 时使用）。服务端仍用 Undertow HTTP/1.1 keep-alive；客户端 HTTP/2 对单 host 多并发读 API 更省连接。
+客户端版本：`-Dmatcher.httpClientVersion=HTTP_1_1`（压测对照 HTTP/1.1 时使用）。服务端 Undertow 开启 **HTTP/2**（同时保留 HTTP/1.1 keep-alive）。HA REST 压测客户端用线程内 **HTTP/1.1 keep-alive**（不再每笔新建 TCP），默认并发 **64**。
 
 ## 1. 写流量：Binary ingress（首选）
 
 - 高频下单、撤单、committed ack 走 **binary**（定长帧 + DirectBuffer），不要指望 REST 过万 QPS。
-- 基线对比见 [benchmark-baseline.md](benchmark-baseline.md)（单节点 REST ~5.7k orders/s vs binary ~7.7万+ orders/s 量级）。
+- 基线对比见 [benchmark-baseline.md](benchmark-baseline.md)。
 - 部署：每个节点在 `NODES` 中保留 **非 `-` 的 binaryPort**（见 [cluster.conf.example](../../scripts/deploy/cluster.conf.example)）。
 
 可调 JVM / 环境：
@@ -47,15 +47,7 @@
 
 拐点扫频：`scripts/lab/run-http-concurrency-sweep.sh`（`SingleNodeServerCrossingBenchmark`，默认 **单笔** `POST /orders`）。
 
-### 单节点 HTTP 破万（本机 M4 Pro，2048 crossing，2026-10-06）
-
-| 模式 | 客户端并发 | 拐点/配置 | accepted orders/s | 说明 |
-| --- | ---: | --- | ---: | --- |
-| 单笔 REST | 16 | 扫频拐点 **~16**（再上去回落） | **~5.9k** | 每请求 1 单；受 JSON + 同步 handler + submit 端点 budget(512) 约束 |
-| 批量 REST | 16 | `--batch-size 32`，submit budget **2048** | **~16.8k** | `POST /api/v1/orders/batch`；64 个 HTTP 请求承载 2048 单 |
-| Binary ingress | — | 见 benchmark-baseline | **~77k+** | 高频写首选 |
-
-**结论：** 「HTTP 并发破万」若指 **订单受理条数/s**，用 **batch REST + 放宽 submit 端点 budget（与写 budget 对齐）** 即可在本机远超 10k；若坚持 **单笔 POST /orders** 且要 **>10k orders/s**，在当前架构下 **不现实**，应改 batch 或 binary。
+单笔 REST 过万不现实；要订单条数过万用 batch REST 或 binary。数字见 [benchmark-baseline.md](benchmark-baseline.md)。
 
 批量压测示例：
 
@@ -65,7 +57,7 @@
 java -cp ... SingleNodeServerCrossingBenchmark --batch-size 32 --http-submit-endpoint-budget 2048 --concurrency 16
 ```
 
-REST **写**与读一样经虚拟线程 dispatch，但在 handler 内仍会阻塞等待撮合/WAL；极限吞吐见上表与 §1。
+REST **写**与读一样经虚拟线程 dispatch，但在 handler 内仍会阻塞等待撮合/WAL；极限吞吐见基线与 §1。
 
 ## 3. 容量与观测
 

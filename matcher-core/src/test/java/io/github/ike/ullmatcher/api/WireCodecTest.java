@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * Wire-code round trips for the enums that cross the binary ingress and WAL boundaries.
- * An unmapped code must fall back to the documented default rather than throwing on the hot path.
+ * An unmapped code must be rejected; this tree does not decode unknown wire values.
  */
 final class WireCodecTest {
     @Test
@@ -20,10 +20,11 @@ final class WireCodecTest {
     }
 
     @Test
-    void unknownTimeInForceCodeFallsBackToGtc() {
-        assertEquals(TimeInForce.GTC, TimeInForce.from((byte) 0));
-        assertEquals(TimeInForce.GTC, TimeInForce.from((byte) 99));
-        assertEquals(TimeInForce.GTC, TimeInForce.from((byte) -1));
+    void unknownWireCodesAreRejected() {
+        assertThrows(IllegalArgumentException.class, () -> TimeInForce.from((byte) 0));
+        assertThrows(IllegalArgumentException.class, () -> TimeInForce.from((byte) 99));
+        assertThrows(IllegalArgumentException.class, () -> Side.from((byte) 0));
+        assertThrows(IllegalArgumentException.class, () -> OrderType.from((byte) 0));
     }
 
     @Test
@@ -38,6 +39,15 @@ final class WireCodecTest {
         for (OrderType value : OrderType.values()) {
             assertEquals(value, OrderType.from(value.code));
         }
+    }
+
+    @Test
+    void commandTypeOrdinalsAreTheWalWireCodes() {
+        assertEquals(0, CommandType.NEW_ORDER.ordinal());
+        assertEquals(1, CommandType.CANCEL_ORDER.ordinal());
+        assertEquals(2, CommandType.SNAPSHOT_MARKER.ordinal());
+        assertEquals(3, CommandType.SHUTDOWN.ordinal());
+        assertEquals(4, CommandType.values().length);
     }
 
     @Test

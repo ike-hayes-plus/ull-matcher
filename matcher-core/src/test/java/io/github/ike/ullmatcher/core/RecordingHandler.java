@@ -40,7 +40,7 @@ final class RecordingHandler implements MatchEventHandler {
     @Override
     public void onOrder(OrderEvent e) {
         orders.add(new OrderSnapshot(e.sequence, e.symbolId, e.orderId, e.status.name(),
-                e.rejectReason.name(), e.remaining));
+                e.rejectReason.name(), e.remaining, e.side, e.orderType, e.timeInForce, e.price, e.quantity));
     }
 
     @Override
@@ -82,8 +82,14 @@ final class RecordingHandler implements MatchEventHandler {
      * @param status 订单状态名称
      * @param rejectReason 拒绝原因名称
      * @param remaining 剩余数量
+     * @param side 方向编码
+     * @param orderType 订单类型编码
+     * @param timeInForce 有效期编码
+     * @param price 价格
+     * @param quantity 原始数量
      */
-    record OrderSnapshot(long sequence, int symbolId, long orderId, String status, String rejectReason, long remaining) {}
+    record OrderSnapshot(long sequence, int symbolId, long orderId, String status, String rejectReason,
+                         long remaining, byte side, byte orderType, byte timeInForce, long price, long quantity) {}
 
     record TtlSnapshot(long eventTimeEpochMillis, int symbolId, long orderId, String action,
                        String source, String detail, long expireAtEpochMillis) {}

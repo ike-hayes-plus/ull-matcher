@@ -72,7 +72,14 @@ class UltraLowLatencyMatcherTest {
 
         assertEquals(0, h.trades.size());
         assertEquals(1, m.liveOrderCount(), "buy order rests because cancelled sell order is gone");
-        assertTrue(h.orders.stream().anyMatch(o -> o.orderId() == 101 && o.status().equals("CANCELLED")));
+        RecordingHandler.OrderSnapshot cancelled = h.orders.stream()
+                .filter(o -> o.orderId() == 101 && o.status().equals("CANCELLED"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(Side.SELL.code, cancelled.side());
+        assertEquals(100L, cancelled.price());
+        assertEquals(5L, cancelled.quantity());
+        assertEquals(5L, cancelled.remaining());
     }
 
     /**
@@ -89,7 +96,7 @@ class UltraLowLatencyMatcherTest {
         assertEquals(1, h.trades.size());
         assertEquals(5, h.trades.getFirst().quantity());
         assertEquals(0, m.liveOrderCount());
-        assertTrue(h.orders.stream().anyMatch(o -> o.orderId() == 201 && o.status().equals("PARTIALLY_FILLED") && o.remaining() == 4));
+        assertTrue(h.orders.stream().anyMatch(o -> o.orderId() == 201 && o.status().equals("CANCELLED") && o.remaining() == 4));
     }
 
     /**
@@ -111,7 +118,7 @@ class UltraLowLatencyMatcherTest {
                 .findFirst()
                 .orElseThrow()
                 .remaining());
-        assertTrue(h.orders.stream().anyMatch(o -> o.orderId() == 202 && o.status().equals("CANCELLED")
+        assertTrue(h.orders.stream().anyMatch(o -> o.orderId() == 202 && o.status().equals("REJECTED")
                 && o.rejectReason().equals("FOK_NOT_FILLABLE")));
     }
 
@@ -168,7 +175,7 @@ class UltraLowLatencyMatcherTest {
         assertEquals(101, h.trades.getFirst().sellOrderId());
         assertEquals(5, h.trades.getFirst().quantity());
         assertEquals(1, m.liveOrderCount(), "FOK should fill only the first resting order");
-        assertFalse(h.orders.stream().anyMatch(o -> o.orderId() == 201 && o.status().equals("CANCELLED")
+        assertFalse(h.orders.stream().anyMatch(o -> o.orderId() == 201 && o.status().equals("REJECTED")
                 && o.rejectReason().equals("FOK_NOT_FILLABLE")));
         assertFalse(h.orders.stream().anyMatch(o -> o.orderId() == 201 && o.status().equals("REJECTED")
                 && o.rejectReason().equals("SELF_TRADE_PREVENTED")));
@@ -206,7 +213,9 @@ class UltraLowLatencyMatcherTest {
 
         assertEquals(0, h.trades.size());
         assertEquals(1, m.liveOrderCount(), "resting sell order must remain after failed FOK");
-        assertTrue(h.orders.stream().anyMatch(o -> o.orderId() == 201 && o.status().equals("CANCELLED") && o.remaining() == 9));
+        assertTrue(h.orders.stream().anyMatch(o -> o.orderId() == 201 && o.status().equals("REJECTED")
+                && o.rejectReason().equals("FOK_NOT_FILLABLE") && o.remaining() == 9));
+        assertEquals(1, m.stats().rejectedCommandCount());
     }
 
     /**
@@ -225,7 +234,7 @@ class UltraLowLatencyMatcherTest {
         assertEquals(101, h.trades.get(0).sellOrderId());
         assertEquals(102, h.trades.get(1).sellOrderId());
         assertEquals(0, m.liveOrderCount());
-        assertFalse(h.orders.stream().anyMatch(o -> o.orderId() == 201 && o.status().equals("CANCELLED")
+        assertFalse(h.orders.stream().anyMatch(o -> o.orderId() == 201 && o.status().equals("REJECTED")
                 && o.rejectReason().equals("FOK_NOT_FILLABLE")));
     }
 
@@ -331,6 +340,106 @@ class UltraLowLatencyMatcherTest {
         assertEquals(1, m.stats().orderPoolExhaustedCount());
         assertTrue(h.orders.stream().anyMatch(o -> o.orderId() == 201 && o.status().equals("REJECTED")
                 && o.rejectReason().equals("CAPACITY_EXCEEDED")));
+    }
+
+    @Test
+    void zeroPriceIsRejectedWithoutThrowing() {
+        RecordingHandler h = new RecordingHandler();
+        UltraLowLatencyMatcher m = matcher(h);
+
+        assertDoesNotThrow(() -> m.onCommand(
+                Command.newOrder(1, 101, 11, SYMBOL, Side.SELL, OrderType.LIMIT, TimeInForce.GTC, 0, 5)));
+
+        assertEquals(0, m.liveOrderCount());
+        assertTrue(h.orders.stream().anyMatch(o -> o.orderId() == 101 && o.status().equals("REJECTED")
+                && o.rejectReason().equals("INVALID_ORDER")));
+    }
+
+    @Test
+    void marketableGtcIsNotRejectedByRestingCapacityPrecheck() {
+        RecordingHandler h = new RecordingHandler();
+        UltraLowLatencyMatcher m = new UltraLowLatencyMatcher(
+                new MatcherConfig(SYMBOL, 8, 2, 8, 100_000_000L, true), h);
+
+        m.onCommand(limit(1, 101, 11, Side.SELL, 100, 5));
+        m.onCommand(limit(2, 102, 12, Side.SELL, 101, 5));
+        m.onCommand(limit(3, 201, 21, Side.BUY, 101, 10));
+
+        assertEquals(2, h.trades.size());
+        assertEquals(0, m.liveOrderCount());
+        assertTrue(h.orders.stream().anyMatch(o -> o.orderId() == 201 && o.status().equals("FILLED")));
+    }
+
+    @Test
+    void marketWithProtectionEmitsItsOrderType() {
+        RecordingHandler h = new RecordingHandler();
+        UltraLowLatencyMatcher m = matcher(h);
+
+        m.onCommand(Command.newOrder(1, 101, 11, SYMBOL, Side.SELL, OrderType.MARKET_WITH_PROTECTION,
+                TimeInForce.GTC, 100, 5));
+
+        assertEquals(1, m.liveOrderCount());
+        assertTrue(h.orders.stream().anyMatch(o -> o.orderId() == 101
+                && o.status().equals("NEW")
+                && o.orderType() == OrderType.MARKET_WITH_PROTECTION.code));
+    }
+
+    @Test
+    void unknownOrderTypeAndTimeInForceAreRejected() {
+        RecordingHandler h = new RecordingHandler();
+        UltraLowLatencyMatcher m = matcher(h);
+
+        Command unknownType = Command.newOrder(1, 101, 11, SYMBOL, Side.SELL, OrderType.LIMIT, TimeInForce.GTC, 100, 5);
+        unknownType.orderType = 9;
+        m.onCommand(unknownType);
+        assertTrue(h.orders.stream().anyMatch(o -> o.orderId() == 101 && o.rejectReason().equals("INVALID_ORDER")));
+
+        Command unknownTif = Command.newOrder(2, 102, 12, SYMBOL, Side.SELL, OrderType.LIMIT, TimeInForce.GTC, 100, 5);
+        unknownTif.timeInForce = 9;
+        m.onCommand(unknownTif);
+        assertTrue(h.orders.stream().anyMatch(o -> o.orderId() == 102 && o.rejectReason().equals("INVALID_ORDER")));
+        assertEquals(0, m.liveOrderCount());
+    }
+
+    @Test
+    void snapshotMarkerDoesNotEmitAnOrderEvent() {
+        RecordingHandler h = new RecordingHandler();
+        UltraLowLatencyMatcher m = matcher(h);
+
+        m.onCommand(Command.snapshotMarker(1, SYMBOL));
+
+        assertEquals(1, m.lastSequence());
+        assertEquals(0, m.liveOrderCount());
+        assertTrue(h.orders.isEmpty());
+    }
+
+    @Test
+    void restoreLiveOrderRejectsNonPositiveIds() {
+        RecordingHandler h = new RecordingHandler();
+        UltraLowLatencyMatcher m = matcher(h);
+
+        assertThrows(IllegalArgumentException.class, () -> m.restoreLiveOrder(
+                0L, 11L, SYMBOL, Side.SELL.code, OrderType.LIMIT.code, TimeInForce.GTC.code,
+                100L, 5L, 5L, 1L, 0L));
+        assertThrows(IllegalArgumentException.class, () -> m.restoreLiveOrder(
+                101L, 0L, SYMBOL, Side.SELL.code, OrderType.LIMIT.code, TimeInForce.GTC.code,
+                100L, 5L, 5L, 1L, 0L));
+        assertEquals(0, m.liveOrderCount());
+    }
+
+    @Test
+    void restoreLiveOrderAcceptsValidRestingOrder() {
+        RecordingHandler h = new RecordingHandler();
+        UltraLowLatencyMatcher m = matcher(h);
+
+        m.restoreLiveOrder(101L, 11L, SYMBOL, Side.SELL.code, OrderType.LIMIT.code, TimeInForce.GTC.code,
+                100L, 5L, 5L, 1L, 0L);
+        m.restoreSequenceState(1L, 0L);
+
+        assertEquals(1, m.liveOrderCount());
+        m.onCommand(limit(2, 201, 21, Side.BUY, 100, 5));
+        assertEquals(1, h.trades.size());
+        assertEquals(0, m.liveOrderCount());
     }
 
 }

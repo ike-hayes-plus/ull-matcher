@@ -26,6 +26,7 @@ public final class MatcherBinaryClient implements Closeable {
     private static final short PROTOCOL_VERSION = 1;
     private static final short FRAME_TYPE_NEW_ORDER_BATCH = 1;
     private static final short FRAME_TYPE_CANCEL_ORDER_BATCH = 2;
+    private static final short FRAME_TYPE_NEW_ORDER_BATCH_COMMITTED = 3;
     private static final short FRAME_TYPE_BATCH_RESULT = 101;
     /** 固定帧头：magic/version/type/count/payloadBytes。 */
     private static final int FRAME_HEADER_BYTES = 16;
@@ -175,6 +176,32 @@ public final class MatcherBinaryClient implements Closeable {
             payload.put(new byte[5]);
         }
         return sendFrame(FRAME_TYPE_NEW_ORDER_BATCH, orders.size(), payload);
+    }
+
+    /**
+     * 批量提交新单，并等待复制确认。
+     *
+     * @param orders 新单记录，按列表顺序编码为一个 committed batch frame
+     * @return 服务端逐条返回的本地提交结果；{@link BinaryCommandResult#replicationCommitted()} 表示复制已确认
+     * @throws IOException 网络或协议错误
+     */
+    public synchronized List<BinaryCommandResult> submitOrdersCommitted(List<BinaryNewOrder> orders) throws IOException {
+        if (orders == null || orders.isEmpty()) {
+            throw new IllegalArgumentException("orders must not be empty");
+        }
+        ByteBuffer payload = ByteBuffer.allocate(orders.size() * REQUEST_RECORD_BYTES).order(ByteOrder.BIG_ENDIAN);
+        for (BinaryNewOrder order : orders) {
+            payload.putLong(order.userId());
+            payload.putLong(order.orderId());
+            payload.putLong(order.price());
+            payload.putLong(order.quantity());
+            payload.putLong(order.ttlMillis());
+            payload.put(order.side());
+            payload.put(order.orderType());
+            payload.put(order.timeInForce());
+            payload.put(new byte[5]);
+        }
+        return sendFrame(FRAME_TYPE_NEW_ORDER_BATCH_COMMITTED, orders.size(), payload);
     }
 
     /**

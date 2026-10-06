@@ -25,6 +25,7 @@ import io.github.ike.ullmatcher.server.telemetry.ReadinessSnapshot;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
@@ -43,6 +44,10 @@ public final class MatcherServerApp implements Closeable {
     private final OrchestratorShardLifecycle orchestratorShardLifecycle;
 
     public MatcherServerApp(MatcherServerConfig config) throws IOException {
+        this(config, HttpSubmitAckMode.parse(System.getProperty("matcher.httpSubmitAckMode"), HttpSubmitAckMode.LOCAL));
+    }
+
+    public MatcherServerApp(MatcherServerConfig config, HttpSubmitAckMode defaultSubmitAckMode) throws IOException {
         this.config = config;
         config.validateDeploymentSafety();
         ReplicationTransportPolicyEnforcer.validateAndLock(config);
@@ -90,7 +95,7 @@ public final class MatcherServerApp implements Closeable {
                 config.httpMetricsEndpointMaxConcurrentRequests(),
                 config.shardKey(),
                 config.writeAdmissionPolicyConfig(),
-                HttpSubmitAckMode.parse(System.getProperty("matcher.httpSubmitAckMode"), HttpSubmitAckMode.LOCAL),
+                Objects.requireNonNull(defaultSubmitAckMode, "defaultSubmitAckMode"),
                 config.serverMode(),
                 config.ingressAuthConfig(),
                 nodeService,

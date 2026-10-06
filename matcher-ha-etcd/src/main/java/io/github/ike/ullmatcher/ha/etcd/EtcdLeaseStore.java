@@ -19,28 +19,14 @@ public final class EtcdLeaseStore implements LeaseStore, Closeable {
 
     private final EtcdClient client;
     private final String leaseKey;
-    private final long leaseTtlSeconds;
-    private final long localHeldCheckCacheNanos;
-    private volatile CachedHeldLease cachedHeldLease;
 
     public EtcdLeaseStore(EtcdConfig config) throws IOException {
-        this(new EtcdClient(config),
-                normalizePrefix(config.keyPrefix()) + "/lease/primary",
-                config.leaseTtlSeconds(),
-                java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(config.localHeldCheckCacheMillis()));
+        this(new EtcdClient(config), normalizePrefix(config.keyPrefix()) + "/lease/primary");
     }
 
-    EtcdLeaseStore(EtcdClient client, String leaseKey, long leaseTtlSeconds, long localHeldCheckCacheNanos) {
+    EtcdLeaseStore(EtcdClient client, String leaseKey) {
         this.client = Objects.requireNonNull(client, "client");
         this.leaseKey = Objects.requireNonNull(leaseKey, "leaseKey");
-        if (leaseTtlSeconds <= 0L) {
-            throw new IllegalArgumentException("leaseTtlSeconds must be positive");
-        }
-        if (localHeldCheckCacheNanos < 0L) {
-            throw new IllegalArgumentException("localHeldCheckCacheNanos must be non-negative");
-        }
-        this.leaseTtlSeconds = leaseTtlSeconds;
-        this.localHeldCheckCacheNanos = localHeldCheckCacheNanos;
     }
 
     @Override
@@ -62,13 +48,9 @@ public final class EtcdLeaseStore implements LeaseStore, Closeable {
         Objects.requireNonNull(fencingToken, "fencingToken");
         validateTiming(nowNanos, ttlNanos);
         try {
-            long leaseId = client.grantLease(leaseTtlSeconds);
+            long leaseId = client.grantLease(grantTtlSeconds(ttlNanos));
             String payload = LeasePayload.encode(nodeId, fencingToken);
-            boolean acquired = client.txnCreate(leaseKey, payload, leaseId);
-            if (acquired) {
-                cacheHeld(nodeId, fencingToken, nowNanos);
-            }
-            return acquired;
+            return client.txnCreate(leaseKey, payload, leaseId);
         } catch (IOException e) {
             throw new IllegalStateException("failed to acquire lease at etcd key " + leaseKey, e);
         }
@@ -80,15 +62,9 @@ public final class EtcdLeaseStore implements LeaseStore, Closeable {
         Objects.requireNonNull(fencingToken, "fencingToken");
         validateTiming(nowNanos, ttlNanos);
         try {
-            long leaseId = client.grantLease(leaseTtlSeconds);
+            long leaseId = client.grantLease(grantTtlSeconds(ttlNanos));
             String payload = LeasePayload.encode(nodeId, fencingToken);
-            boolean extended = client.txnReplaceIfValue(leaseKey, payload, payload, leaseId);
-            if (extended) {
-                cacheHeld(nodeId, fencingToken, nowNanos);
-            } else {
-                cachedHeldLease = null;
-            }
-            return extended;
+            return client.txnReplaceIfValue(leaseKey, payload, payload, leaseId);
         } catch (IOException e) {
             throw new IllegalStateException("failed to extend lease at etcd key " + leaseKey, e);
         }
@@ -96,28 +72,23 @@ public final class EtcdLeaseStore implements LeaseStore, Closeable {
 
     @Override
     public boolean isHeldBy(String nodeId, FencingToken fencingToken, long nowNanos) {
-        CachedHeldLease cached = cachedHeldLease;
-        if (cached != null
-                && cached.matches(nodeId, fencingToken)
-                && nowNanos < cached.expiresAtNanos()) {
-            return true;
-        }
         ClusterLease lease = currentLease();
-        boolean held = lease != null
+        return lease != null
                 && !lease.isExpired(nowNanos)
                 && lease.ownerNodeId().equals(nodeId)
                 && lease.fencingToken().equals(fencingToken);
-        if (held) {
-            cacheHeld(nodeId, fencingToken, nowNanos);
-        } else {
-            cachedHeldLease = null;
-        }
-        return held;
     }
 
     @Override
     public void close() throws IOException {
         client.close();
+    }
+
+    static long grantTtlSeconds(long ttlNanos) {
+        if (ttlNanos <= 0L) {
+            throw new IllegalArgumentException("ttlNanos must be positive");
+        }
+        return Math.max(1L, (ttlNanos + 1_000_000_000L - 1L) / 1_000_000_000L);
     }
 
     private static void validateTiming(long nowNanos, long ttlNanos) {
@@ -131,19 +102,6 @@ public final class EtcdLeaseStore implements LeaseStore, Closeable {
 
     private static String normalizePrefix(String prefix) {
         return prefix.endsWith("/") ? prefix.substring(0, prefix.length() - 1) : prefix;
-    }
-
-    private void cacheHeld(String nodeId, FencingToken fencingToken, long nowNanos) {
-        if (localHeldCheckCacheNanos == 0L) {
-            return;
-        }
-        cachedHeldLease = new CachedHeldLease(nodeId, fencingToken, nowNanos + localHeldCheckCacheNanos);
-    }
-
-    private record CachedHeldLease(String nodeId, FencingToken fencingToken, long expiresAtNanos) {
-        private boolean matches(String nodeId, FencingToken fencingToken) {
-            return this.nodeId.equals(nodeId) && this.fencingToken.equals(fencingToken);
-        }
     }
 
     private record LeasePayload(String ownerNodeId, long fencingTokenEpoch) {

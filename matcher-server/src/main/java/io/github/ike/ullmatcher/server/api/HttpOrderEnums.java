@@ -28,7 +28,7 @@ final class HttpOrderEnums {
         }
         return switch (raw) {
             case "LIMIT" -> OrderType.LIMIT;
-            case "MARKET", "MARKET_WITH_PROTECTION" -> OrderType.MARKET_WITH_PROTECTION;
+            case "MARKET_WITH_PROTECTION" -> OrderType.MARKET_WITH_PROTECTION;
             default -> throw invalid("orderType", raw);
         };
     }

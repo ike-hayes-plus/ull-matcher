@@ -68,6 +68,22 @@ final class EtcdControlPlaneIntegrationTest {
     }
 
     @Test
+    void isHeldBySeesLeaseLossWithoutLocalCacheWindow() throws Exception {
+        try (FakeEtcdServer server = new FakeEtcdServer();
+             EtcdLeaseStore store = new EtcdLeaseStore(config(server.endpoint()))) {
+            long nowNanos = System.nanoTime();
+            assertTrue(store.tryAcquire("node-a", new FencingToken(1L), nowNanos, TTL_NANOS));
+            assertTrue(store.isHeldBy("node-a", new FencingToken(1L), nowNanos + 1L));
+
+            server.deleteKey("/ull-matcher/test-etcd/lease/primary");
+
+            assertNull(store.currentLease());
+            assertFalse(store.isHeldBy("node-a", new FencingToken(1L), nowNanos + 2L),
+                    "lost etcd lease must fail isHeldBy immediately; a positive local cache would still return true");
+        }
+    }
+
+    @Test
     void orchestratorStoreRegistersShardBindsSymbolAndResolvesRoute() throws Exception {
         try (FakeEtcdServer server = new FakeEtcdServer();
              EtcdOrchestratorStore store = new EtcdOrchestratorStore(config(server.endpoint()))) {
@@ -168,12 +184,12 @@ final class EtcdControlPlaneIntegrationTest {
     }
 
     private static EtcdConfig tlsConfig(String endpoint, TestPkiFixture pki) {
-        return new EtcdConfig(endpoint, "/ull-matcher/test-etcd", 10L, 2_000L, 25L,
+        return new EtcdConfig(endpoint, "/ull-matcher/test-etcd", 10L, 2_000L,
                 pki.certificatePem(), null, null, false);
     }
 
     private static EtcdConfig config(String endpoint) {
-        return new EtcdConfig(endpoint, "/ull-matcher/test-etcd", 10L, 2_000L, 25L, null, null, null, false);
+        return new EtcdConfig(endpoint, "/ull-matcher/test-etcd", 10L, 2_000L, null, null, null, false);
     }
 
     private static final class FakeEtcdServer implements AutoCloseable {
@@ -284,6 +300,10 @@ final class EtcdControlPlaneIntegrationTest {
             JsonNode request = readJson(exchange);
             values.remove(EtcdClient.decode(request.path("key").asString()));
             writeJson(exchange, Map.of());
+        }
+
+        private void deleteKey(String key) {
+            values.remove(key);
         }
 
         private JsonNode readJson(HttpExchange exchange) throws IOException {

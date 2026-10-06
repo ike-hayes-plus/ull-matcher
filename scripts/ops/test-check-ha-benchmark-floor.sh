@@ -6,7 +6,7 @@ TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ull-ha-floor-test.XXXXXX")"
 trap 'rm -rf "${TMP_DIR}"' EXIT
 
 FLOOR_FILE="${ROOT_DIR}/doc/operations/benchmark-ha-ci-floor.json"
-REPORT="${TMP_DIR}/grpc-1p2s-binary-frame1.json"
+REPORT="${TMP_DIR}/grpc-1p2s.json"
 
 cat > "${REPORT}" <<'JSON'
 {

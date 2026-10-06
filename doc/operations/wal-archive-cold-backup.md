@@ -1,5 +1,7 @@
 # WAL 分段归档与冷备
 
+持久化预设与周期快照见 [persistence.md](persistence.md)。`PROD` 模式下必须配置下文冷备目录。
+
 ## 行为
 
 - 热 WAL 仍写在 `{dataDir}/wal/`，由 `SegmentedMmapWal` 分段滚动。

@@ -2,7 +2,6 @@ package io.github.ike.ullmatcher.server.orchestrator;
 
 import io.github.ike.ullmatcher.core.MatcherConfig;
 import io.github.ike.ullmatcher.orchestrator.InMemoryOrchestratorStore;
-import io.github.ike.ullmatcher.orchestrator.ShardLifecycleState;
 import io.github.ike.ullmatcher.orchestrator.SymbolRoute;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerConfig;
 import org.junit.jupiter.api.Test;
@@ -11,7 +10,6 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class OrchestratorShardLifecycleTest {
@@ -19,7 +17,7 @@ final class OrchestratorShardLifecycleTest {
     Path dir;
 
     @Test
-    void registersAndDrainsOnClose() throws Exception {
+    void registersAndUnregistersOnClose() throws Exception {
         try (InMemoryOrchestratorStore store = new InMemoryOrchestratorStore()) {
             MatcherServerConfig config = serverConfig(dir, 9);
             try (OrchestratorShardLifecycle lifecycle = new OrchestratorShardLifecycle(
@@ -31,9 +29,8 @@ final class OrchestratorShardLifecycleTest {
                 assertEquals(2L, route.generation());
             }
 
-            SymbolRoute afterClose = store.lookupRoute(9).orElseThrow();
-            assertFalse(afterClose.activeShard().isPresent());
-            assertEquals(ShardLifecycleState.DRAINING, afterClose.shard().state());
+            assertTrue(store.lookupRoute(9).isEmpty());
+            assertTrue(store.getShard("merchant:9").isEmpty());
         }
     }
 

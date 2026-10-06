@@ -152,6 +152,25 @@ class SegmentedMmapWalTest {
             assertEquals(2, restored.snapshotSequence());
             assertFalse(restored.segments().isEmpty());
             restored.validateSegments();
+            restored.validateForRestore(metadata.file(), metadata.lastSequence(), metadata.lastTradeId(), wal.currentSegmentPath());
+        }
+    }
+
+    @Test
+    void restoreValidationFailsWhenManifestSnapshotSequenceDoesNotMatch() throws Exception {
+        MatcherConfig cfg = new MatcherConfig(SYMBOL, 1024, 4096, 4096, 100_000_000L, true);
+        UltraLowLatencyMatcher matcher = new UltraLowLatencyMatcher(cfg, new NoopHandler());
+        Path walDir = tempDir.resolve("wal-mismatch");
+        Path snapshot = tempDir.resolve("snapshot-mismatch/symbol-1.snap");
+
+        try (SegmentedMmapWal wal = new SegmentedMmapWal(walDir, "symbol-1", MmapCommandWal.RECORD_SIZE * 2L)) {
+            apply(wal, matcher, newSell(1, 101, 100, 10));
+            SnapshotStore.SnapshotMetadata metadata = SnapshotStore.write(snapshot, matcher);
+            wal.writeManifest(metadata.file(), metadata.lastSequence(), metadata.lastTradeId());
+
+            IOException error = assertThrows(IOException.class,
+                    () -> wal.validateManifestForRestore(metadata.file(), metadata.lastSequence() + 1L, metadata.lastTradeId()));
+            assertTrue(error.getMessage().contains("snapshot sequence mismatch"));
         }
     }
 

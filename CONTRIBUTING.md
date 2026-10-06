@@ -18,7 +18,7 @@
 必需：
 
 - JDK 25
-- Maven 4，使用仓库里的 `./mvnw`
+- Maven 4，使用仓库里的 `./mvnw`（wrapper 钉死 `4.0.0-rc-7`）
 
 推荐初始化方式：
 
@@ -61,7 +61,9 @@ sdk env
  */
 ```
 
-覆盖率门禁对**所有模块**统一要求 line ≥ 0.80、branch ≥ 0.70，没有例外模块。
+覆盖率门禁对挂了 `jacoco-maven-plugin` 的模块统一要求 line ≥ 0.80、branch ≥ 0.70。
+`matcher-examples`、`matcher-benchmarks`、`matcher-server-dist` 不跑 JaCoCo。
+父 POM 排除 gRPC/Aeron 传输宿主、`MatcherClusterSupervisor` 和 `MatcherServerMain`（由 HA smoke / 启动测试覆盖）。
 生成的报告在 `<module>/target/site/jacoco/index.html`。
 
 > 如果你新增了一个模块的 surefire `<argLine>` 覆盖配置，必须保留 `@{jacocoArgLine}`，
@@ -87,7 +89,7 @@ sdk env
 ./mvnw -Pdependency-check verify -DskipTests      # OWASP 已知漏洞扫描
 ```
 
-混沌测试按需开启：
+混沌测试由 CI 的 `verify` job 额外跑 `-Pchaos-tests`。本地复现：
 
 ```bash
 ./mvnw test -Pchaos-tests
@@ -148,9 +150,8 @@ sdk env
 
 - Pull Request 保持聚焦，不要同时夹带无关改动。
 - 当用户可见行为、API 或配置变更时，必须同步更新 `README.md`。
-- 任何用户可见的变更都要在 `CHANGELOG.md` 的 `Unreleased` 段落里记一笔，
-  破坏性变更要标 `BREAKING` 并说明迁移动作。
-- 坐标、包名、持久化格式或 API 契约变更时，必须补迁移说明。
+- 任何用户可见的变更都要在 `CHANGELOG.md` 的 `Unreleased` 段落里记一笔；
+  破坏性变更标 `BREAKING`。3.0 是绿田基线，不维护历史版本迁移路径。
 - 如果修改影响发布产物或公开元数据，请确认 `.github/workflows/release.yml` 仍与预期产物集合一致。
 
 ## 发布说明

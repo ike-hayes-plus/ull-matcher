@@ -5,9 +5,9 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 BASE_URL="${BASE_URL:-http://127.0.0.1:8080}"
 STANDBY_BASE_URL="${STANDBY_BASE_URL:-}"
-REPORT="${REPORT:-$ROOT_DIR/target/current/http-ha/rest-commit-current.json}"
+REPORT="${REPORT:-$ROOT_DIR/target/benchmark/http-ha/rest-commit-current.json}"
 RESTING_ORDERS="${RESTING_ORDERS:-2048}"
-CONCURRENCY="${CONCURRENCY:-24}"
+CONCURRENCY="${CONCURRENCY:-64}"
 ACK_MODE="${ACK_MODE:-committed}"
 PRELOAD_ACK_MODE="${PRELOAD_ACK_MODE:-local}"
 HTTP_SUBMIT_MODE="${HTTP_SUBMIT_MODE:-single}"
@@ -26,7 +26,7 @@ Options:
   --standby-base-url URL      Optional standby HTTP base URL for health sampling.
   --report FILE               JSON report path.
   --resting-orders N          Number of maker/taker orders. Default: 2048
-  --concurrency N             Client worker count. Default: 24
+  --concurrency N             Client worker count. Default: 64
   --ack-mode MODE             local or committed. Default: committed
   --preload-ack-mode MODE     local or committed. Default: local
   --http-submit-mode MODE     single or batch. Default: single
@@ -36,6 +36,8 @@ Options:
   --wait-for-ready-seconds N  Wait for primary writable and standby health. Default: 30
 
 The script targets an already running matcher cluster and does not start or stop nodes.
+REST single-order needs WAL force delay well below 1s (BENCH preset default);
+HA suite sets WAL_FORCE_MAX_DELAY_MICROS=500 before start-node.
 USAGE
 }
 

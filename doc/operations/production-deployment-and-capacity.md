@@ -30,8 +30,16 @@
 - [shard-capacity-planning.md](../architecture/shard-capacity-planning.md)
 - [deployment-modes.md](deployment-modes.md)
 - [http-and-binary-concurrency.md](http-and-binary-concurrency.md)
+- [persistence.md](persistence.md)（WAL / 周期快照 / 冷备预设）
+- [wal-archive-cold-backup.md](wal-archive-cold-backup.md)
 
-## 3. 如何理解吞吐
+## 3. 持久化与 PROD 闸门
+
+- 生产默认 **`matcher.persistenceProfile=PROD`**（或 `ull.matcher.persistence-profile=PROD`）：逐命令 fsync、60s 周期 RDB、WAL 冷备。
+- `MatcherServerConfig.validateDeploymentSafety()` 在 **PROD** 下拒绝：`LAB`/`BENCH` 预设、`OS_BUFFERED`/`SYNC_PER_BATCH` WAL、缺失冷备、缺失周期快照、`dataDir`/冷备落在构建临时目录。
+- 压测与 lab 使用 **`BENCH`**；勿在生产关闭冷备或周期快照以换取吞吐。
+
+## 4. 如何理解吞吐
 
 需要区分三类数字：
 
@@ -49,7 +57,7 @@
 
 生产规划必须以 **replication committed throughput** 为准。
 
-## 4. 推荐服务器配置
+## 5. 推荐服务器配置
 
 | 用途 | CPU | 内存 | 磁盘 | 网络 |
 | --- | --- | --- | --- | --- |
@@ -61,7 +69,7 @@
 
 撮合器默认按单分片 `expectedPriceLevels=65536`、`expectedLiveOrders=1048576`、`orderPoolSize=1048576` 预分配。生产配置应按该分片的长期活跃挂单数和价格档分布设置 `EXPECTED_PRICE_LEVELS`、`EXPECTED_LIVE_ORDERS`、`ORDER_POOL_SIZE`；如果单分片可能长期接近百万活跃挂单，不要沿用默认容量。`PREVENT_SELF_TRADE=true` 是默认交易语义，关闭前必须确认业务允许同一 `userId` 自成交。
 
-## 5. 默认部署建议
+## 6. 默认部署建议
 
 ### 单分片、保守默认
 
@@ -77,7 +85,7 @@
 - 起步优先使用 `GRPC`
 - `AERON` 不在默认生产路径；启用前须 `transport-compare`、长稳 soak 与回滚演练（见 [ha-sharding-lab.md](ha-sharding-lab.md)）
 
-## 6. 脚本边界
+## 7. 脚本边界
 
 - `scripts/deploy/`
   - 正式部署入口；`default.conf` 提供默认值，真实生产配置从 `cluster.conf.example` 复制后独立维护
@@ -94,7 +102,7 @@
 
 发布前必须先执行 `scripts/deploy/cluster.sh -c conf/<cluster>.env validate`。校验失败时不得执行 `start`、`restart` 或任何会改变节点运行状态的动作。
 
-## 7. 容量规划规则
+## 8. 容量规划规则
 
 容量规划看 committed throughput，不看 accepted throughput。
 
@@ -109,7 +117,7 @@ safe shard budget = committed throughput * utilization cap
 - `60%`：保守生产规划
 - `70%`：环境高度可控且反复验证后才使用
 
-## 8. 容量不足时的处理顺序
+## 9. 容量不足时的处理顺序
 
 如果单分片 committed 吞吐仍不够，优先顺序应是：
 
@@ -118,7 +126,7 @@ safe shard budget = committed throughput * utilization cap
 3. 先按分片扩容，再考虑继续压单状态机
 4. 调整部署建议前，先重跑 committed benchmark
 
-## 9. 稳定性验证
+## 10. 稳定性验证
 
 `GRPC` 三节点拓扑建议至少验证：
 

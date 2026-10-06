@@ -83,18 +83,6 @@ public final class LongHeap {
     }
 
     /**
-     * 创建当前堆内容的浅拷贝，用于不修改原堆的顺序扫描。
-     *
-     * @return 堆副本
-     */
-    public LongHeap copy() {
-        LongHeap copy = new LongHeap(16, max);
-        copy.a = Arrays.copyOf(a, a.length);
-        copy.size = size;
-        return copy;
-    }
-
-    /**
      * 将当前堆内容复制到目标堆，用于复用扫描缓冲区。
      *
      * @param target 目标堆，方向必须与当前堆一致

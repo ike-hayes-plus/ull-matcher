@@ -9,7 +9,7 @@ public record BinaryNewOrder(long userId,
                              byte orderType,
                              byte timeInForce) {
     public BinaryNewOrder {
-        if (userId <= 0L || orderId <= 0L || price < 0L || quantity <= 0L) {
+        if (userId <= 0L || orderId <= 0L || price <= 0L || quantity <= 0L) {
             throw new IllegalArgumentException("userId, orderId, price and quantity are invalid");
         }
     }

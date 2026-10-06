@@ -640,7 +640,6 @@ public final class BinaryOrderIngressServer implements Closeable {
             case RING_FULL_BEFORE_WAL_APPEND -> 2;
             case COMMAND_POOL_EXHAUSTED -> 3;
             case MATCHER_STOPPED_AFTER_WAL_APPEND -> 4;
-            case RING_FULL_AFTER_WAL_APPEND -> 5;
         };
     }
 

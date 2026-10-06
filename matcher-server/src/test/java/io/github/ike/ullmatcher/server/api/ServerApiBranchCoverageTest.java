@@ -99,13 +99,13 @@ final class ServerApiBranchCoverageTest {
 
         HttpServerExchange header = new HttpServerExchange(null);
         header.getQueryParameters().put("ack", new ArrayDeque<>(List.of("  ")));
-        header.getRequestHeaders().put(new HttpString("X-Ull-Ack"), "replicated");
+        header.getRequestHeaders().put(new HttpString("X-Ull-Ack"), "committed");
         assertEquals(HttpSubmitAckMode.COMMITTED, HttpSubmitRequestPolicy.resolveAckMode(
                 header, "local", HttpSubmitAckMode.LOCAL));
 
         HttpServerExchange body = new HttpServerExchange(null);
         assertEquals(HttpSubmitAckMode.LOCAL, HttpSubmitRequestPolicy.resolveAckMode(
-                body, "LOCAL_ACCEPTED", HttpSubmitAckMode.COMMITTED));
+                body, "LOCAL", HttpSubmitAckMode.COMMITTED));
         assertEquals(HttpSubmitAckMode.COMMITTED, HttpSubmitRequestPolicy.resolveAckMode(
                 body, null, HttpSubmitAckMode.COMMITTED));
         assertThrows(BadRequestException.class, () -> HttpSubmitRequestPolicy.resolveAckMode(
@@ -121,10 +121,12 @@ final class ServerApiBranchCoverageTest {
     }
 
     @Test
-    void submitAckModeParsesAliasesAndDefaults() {
+    void submitAckModeParsesCanonicalNamesOnly() {
         assertEquals(HttpSubmitAckMode.LOCAL, HttpSubmitAckMode.parse(" ", HttpSubmitAckMode.LOCAL));
-        assertEquals(HttpSubmitAckMode.LOCAL, HttpSubmitAckMode.parse("local-accepted", HttpSubmitAckMode.COMMITTED));
-        assertEquals(HttpSubmitAckMode.COMMITTED, HttpSubmitAckMode.parse("replication-committed", HttpSubmitAckMode.LOCAL));
+        assertEquals(HttpSubmitAckMode.LOCAL, HttpSubmitAckMode.parse("local", HttpSubmitAckMode.COMMITTED));
+        assertEquals(HttpSubmitAckMode.COMMITTED, HttpSubmitAckMode.parse("committed", HttpSubmitAckMode.LOCAL));
+        assertThrows(BadRequestException.class, () -> HttpSubmitAckMode.parse("local-accepted", HttpSubmitAckMode.LOCAL));
+        assertThrows(BadRequestException.class, () -> HttpSubmitAckMode.parse("replication-committed", HttpSubmitAckMode.LOCAL));
         assertTrue(HttpSubmitAckMode.values().length >= 2);
     }
 

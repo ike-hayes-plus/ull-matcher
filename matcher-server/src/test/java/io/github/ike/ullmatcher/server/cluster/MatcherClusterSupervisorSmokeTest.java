@@ -2,12 +2,7 @@ package io.github.ike.ullmatcher.server.cluster;
 
 import io.github.ike.ullmatcher.ha.transport.ReplicationTransportType;
 import io.github.ike.ullmatcher.core.MatcherConfig;
-import io.github.ike.ullmatcher.ha.coordination.ClusterLease;
-import io.github.ike.ullmatcher.ha.coordination.FencingToken;
 import io.github.ike.ullmatcher.ha.coordination.HaRole;
-import io.github.ike.ullmatcher.ha.coordination.LeaseStore;
-import io.github.ike.ullmatcher.ha.discovery.DiscoveredNode;
-import io.github.ike.ullmatcher.ha.discovery.NodeRegistry;
 import io.github.ike.ullmatcher.ha.failover.FailoverPolicy;
 import io.github.ike.ullmatcher.ha.grpc.server.GrpcReplicationServerConfig;
 import io.github.ike.ullmatcher.ha.readiness.PromotionReadinessPolicy;
@@ -25,13 +20,8 @@ import io.github.ike.ullmatcher.server.security.IngressAuthConfig;
 import org.junit.jupiter.api.Test;
 
 
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -41,8 +31,8 @@ final class MatcherClusterSupervisorSmokeTest {
     @Test
     void supervisorRegistersLocalNodeAndFencesPrimaryAfterControlPlaneFailure() throws Exception {
         Path dir = Files.createTempDirectory("cluster-supervisor-smoke");
-        InMemoryLeaseStore leaseStore = new InMemoryLeaseStore("node-a");
-        InMemoryNodeRegistry nodeRegistry = new InMemoryNodeRegistry();
+        ClusterTestDoubles.InMemoryLeaseStore leaseStore = new ClusterTestDoubles.InMemoryLeaseStore("node-a");
+        ClusterTestDoubles.InMemoryNodeRegistry nodeRegistry = new ClusterTestDoubles.InMemoryNodeRegistry();
         MatcherClusterConfig clusterConfig = new MatcherClusterConfig(
                 leaseStore,
                 nodeRegistry,
@@ -139,53 +129,5 @@ final class MatcherClusterSupervisorSmokeTest {
     @FunctionalInterface
     private interface Check {
         boolean ok();
-    }
-
-    private static final class InMemoryNodeRegistry implements NodeRegistry {
-        private final Map<String, DiscoveredNode> nodes = new LinkedHashMap<>();
-        private volatile boolean failRegister;
-
-        @Override
-        public synchronized void registerOrUpdate(DiscoveredNode node) throws IOException {
-            if (failRegister) {
-                throw new IOException("registry unavailable");
-            }
-            nodes.put(node.nodeId(), node);
-        }
-
-        @Override
-        public synchronized void unregister(String nodeId) {
-            nodes.remove(nodeId);
-        }
-
-        @Override
-        public synchronized List<DiscoveredNode> listNodes() {
-            return new ArrayList<>(nodes.values());
-        }
-    }
-
-    private static final class InMemoryLeaseStore implements LeaseStore {
-        private volatile ClusterLease lease;
-
-        private InMemoryLeaseStore(String ownerNodeId) {
-            this.lease = new ClusterLease(ownerNodeId, new FencingToken(1L), System.nanoTime() + TimeUnit.SECONDS.toNanos(30));
-        }
-
-        @Override
-        public ClusterLease currentLease() {
-            return lease;
-        }
-
-        @Override
-        public boolean tryAcquire(String nodeId, FencingToken fencingToken, long nowNanos, long ttlNanos) {
-            lease = new ClusterLease(nodeId, fencingToken, nowNanos + ttlNanos);
-            return true;
-        }
-
-        @Override
-        public boolean tryExtend(String nodeId, FencingToken fencingToken, long nowNanos, long ttlNanos) {
-            lease = new ClusterLease(nodeId, fencingToken, nowNanos + ttlNanos);
-            return true;
-        }
     }
 }

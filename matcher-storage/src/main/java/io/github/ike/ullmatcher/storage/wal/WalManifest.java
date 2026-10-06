@@ -102,11 +102,55 @@ public record WalManifest(Path manifestFile,
      * @throws IOException 分段缺失或校验失败时抛出
      */
     public void validateSegments() throws IOException {
+        validateSegments(null);
+    }
+
+    /**
+     * 启动恢复时校验清单与已恢复快照一致。
+     *
+     * @param snapshotPath 已恢复快照路径
+     * @param snapshotSequence 已恢复快照序列号
+     * @param snapshotTradeId 已恢复快照成交编号
+     * @param currentWriter 当前写入分段；允许比清单记录更大
+     * @throws IOException 清单与快照或分段不一致时抛出
+     */
+    public void validateForRestore(Path snapshotPath, long snapshotSequence, long snapshotTradeId, Path currentWriter)
+            throws IOException {
+        if (this.snapshotSequence != snapshotSequence) {
+            throw new IOException("WAL manifest snapshot sequence mismatch: manifest="
+                    + this.snapshotSequence + " restored=" + snapshotSequence);
+        }
+        if (this.snapshotTradeId != snapshotTradeId) {
+            throw new IOException("WAL manifest snapshot tradeId mismatch: manifest="
+                    + this.snapshotTradeId + " restored=" + snapshotTradeId);
+        }
+        Path expectedSnapshot = snapshotPath.toAbsolutePath().normalize();
+        if (!this.snapshotPath.equals(expectedSnapshot)) {
+            throw new IOException("WAL manifest snapshot path mismatch: manifest="
+                    + this.snapshotPath + " restored=" + expectedSnapshot);
+        }
+        validateSegments(currentWriter);
+    }
+
+    /**
+     * 校验清单中记录的 WAL 分段仍与本地文件一致。
+     *
+     * @param currentWriter 当前写入分段；为 {@code null} 时所有分段必须精确匹配
+     * @throws IOException 分段缺失或校验失败时抛出
+     */
+    public void validateSegments(Path currentWriter) throws IOException {
+        Path writer = currentWriter == null ? null : currentWriter.toAbsolutePath().normalize();
         for (Segment segment : segments) {
             if (!Files.exists(segment.path())) {
                 throw new IOException("WAL segment missing: " + segment.path());
             }
             long size = Files.size(segment.path());
+            boolean grownWriter = writer != null
+                    && segment.path().toAbsolutePath().normalize().equals(writer)
+                    && size > segment.sizeBytes();
+            if (grownWriter) {
+                continue;
+            }
             if (size != segment.sizeBytes()) {
                 throw new IOException("WAL segment size mismatch: " + segment.path());
             }

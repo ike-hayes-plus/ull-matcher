@@ -3,7 +3,9 @@ package io.github.ike.ullmatcher.spring.boot.autoconfigure;
 import io.github.ike.ullmatcher.core.MatcherConfig;
 import io.github.ike.ullmatcher.discovery.zookeeper.ZooKeeperDiscoveryConfig;
 import io.github.ike.ullmatcher.discovery.zookeeper.ZooKeeperNodeRegistry;
+import io.github.ike.ullmatcher.ha.coordination.HaRole;
 import io.github.ike.ullmatcher.ha.coordination.LeaseStore;
+import io.github.ike.ullmatcher.server.api.BinaryIngressLimits;
 import io.github.ike.ullmatcher.ha.discovery.NodeRegistry;
 import io.github.ike.ullmatcher.ha.etcd.EtcdConfig;
 import io.github.ike.ullmatcher.ha.etcd.EtcdLeaseStore;
@@ -11,9 +13,11 @@ import io.github.ike.ullmatcher.ha.etcd.EtcdNodeRegistry;
 import io.github.ike.ullmatcher.ha.failover.FailoverPolicy;
 import io.github.ike.ullmatcher.ha.zookeeper.ZooKeeperLeaseStore;
 import io.github.ike.ullmatcher.ha.zookeeper.ZooKeeperLeaseStoreConfig;
+import io.github.ike.ullmatcher.server.api.HttpSubmitAckMode;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerApp;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerConfig;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerMode;
+import io.github.ike.ullmatcher.server.bootstrap.PersistenceSettings;
 import io.github.ike.ullmatcher.server.bootstrap.WriteAdmissionPolicyConfig;
 import io.github.ike.ullmatcher.server.cluster.AeronPreviewTransportConfig;
 import io.github.ike.ullmatcher.server.cluster.MatcherClusterConfig;
@@ -51,39 +55,30 @@ public class UllMatcherServerAutoConfiguration {
                 properties.getSymbolId(),
                 Path.of(properties.getDataDir())
         );
-        MatcherServerConfig config = new MatcherServerConfig(
-                properties.getServerMode(),
-                defaults.nodeId(),
-                properties.getShardKey(),
-                matcherConfig(properties),
-                defaults.walDirectory(),
-                defaults.walPrefix(),
-                defaults.walSegmentSizeBytes(),
-                properties.getWalDurabilityMode(),
-                properties.getWalForceBatchSize(),
-                properties.getWalForceMaxDelayMicros(),
-                defaults.snapshotFile(),
-                defaults.ringCapacity(),
-                defaults.gatewaySpinLimit(),
-                defaults.gatewayOfferTimeoutNanos(),
-                properties.getHttpPort(),
-                properties.getHttpBindHost(),
-                properties.getHttpWorkerThreads(),
-                properties.getHttpMaxBodyBytes(),
-                properties.getHttpMaxConcurrentRequests(),
-                properties.getHttpRequestTimeoutMillis(),
-                properties.getHttpWriteMaxConcurrentRequests(),
-                properties.getHttpReadMaxConcurrentRequests(),
-                properties.getHttpAdminMaxConcurrentRequests(),
-                properties.getHttpWriteTimeoutMillis(),
-                properties.getHttpReadTimeoutMillis(),
-                properties.getHttpAdminTimeoutMillis(),
-                properties.getHttpSubmitEndpointMaxConcurrentRequests(),
-                properties.getHttpCancelEndpointMaxConcurrentRequests(),
-                properties.getHttpSnapshotEndpointMaxConcurrentRequests(),
-                properties.getHttpReadinessEndpointMaxConcurrentRequests(),
-                properties.getHttpMetricsEndpointMaxConcurrentRequests(),
-                new WriteAdmissionPolicyConfig(
+        MatcherClusterConfig clusterConfig = clusterConfigProvider.getIfAvailable();
+        MatcherServerConfig.Builder builder = defaults.toBuilder()
+                .serverMode(properties.getServerMode())
+                .shardKey(properties.getShardKey())
+                .matcherConfig(matcherConfig(properties))
+                .walArchiveConfig(WalArchiveConfig.fromProperty(properties.getWalColdArchiveDir()))
+                .httpPort(properties.getHttpPort())
+                .httpBindHost(properties.getHttpBindHost())
+                .httpWorkerThreads(properties.getHttpWorkerThreads())
+                .httpMaxBodyBytes(properties.getHttpMaxBodyBytes())
+                .httpMaxConcurrentRequests(properties.getHttpMaxConcurrentRequests())
+                .httpRequestTimeoutMillis(properties.getHttpRequestTimeoutMillis())
+                .httpWriteMaxConcurrentRequests(properties.getHttpWriteMaxConcurrentRequests())
+                .httpReadMaxConcurrentRequests(properties.getHttpReadMaxConcurrentRequests())
+                .httpAdminMaxConcurrentRequests(properties.getHttpAdminMaxConcurrentRequests())
+                .httpWriteTimeoutMillis(properties.getHttpWriteTimeoutMillis())
+                .httpReadTimeoutMillis(properties.getHttpReadTimeoutMillis())
+                .httpAdminTimeoutMillis(properties.getHttpAdminTimeoutMillis())
+                .httpSubmitEndpointMaxConcurrentRequests(properties.getHttpSubmitEndpointMaxConcurrentRequests())
+                .httpCancelEndpointMaxConcurrentRequests(properties.getHttpCancelEndpointMaxConcurrentRequests())
+                .httpSnapshotEndpointMaxConcurrentRequests(properties.getHttpSnapshotEndpointMaxConcurrentRequests())
+                .httpReadinessEndpointMaxConcurrentRequests(properties.getHttpReadinessEndpointMaxConcurrentRequests())
+                .httpMetricsEndpointMaxConcurrentRequests(properties.getHttpMetricsEndpointMaxConcurrentRequests())
+                .writeAdmissionPolicyConfig(new WriteAdmissionPolicyConfig(
                         properties.getHttpShardWriteMaxConcurrentRequests(),
                         properties.getHttpTenantWriteMaxConcurrentRequests(),
                         properties.getHttpTenantAdmissionHeader(),
@@ -94,22 +89,39 @@ public class UllMatcherServerAutoConfiguration {
                         properties.getHttpTenantWriteDefaultWeight(),
                         properties.getHttpTenantWriteWeightOverrides(),
                         properties.getHttpTenantPriorityHeader()
-                ),
-                properties.isAllowInsecureRemoteHttp(),
-                IngressAuthConfig.fromCommaSeparated(properties.getIngressApiKeys(), properties.getIngressApiKeyHeader()),
-                properties.getGrpcPort(),
-                defaults.grpcServerConfig().withBindHost(properties.getGrpcBindHost()),
-                securityConfigProvider.getIfAvailable(ServerSecurityConfig::insecureDefaults),
-                ttlCancelConfigProvider.getIfAvailable(TtlCancelConfig::disabled),
-                defaults.initialRole(),
-                defaults.loopConfig(),
-                defaults.standbySyncConfig(),
-                OrchestratorRegistrationConfig.disabled(),
-                clusterConfigProvider.getIfAvailable()
-        );
-        return config.toBuilder()
-                .walArchiveConfig(WalArchiveConfig.fromProperty(properties.getWalColdArchiveDir()))
-                .build();
+                ))
+                .allowInsecureRemoteHttp(properties.isAllowInsecureRemoteHttp())
+                .ingressAuthConfig(IngressAuthConfig.fromCommaSeparated(
+                        properties.getIngressApiKeys(), properties.getIngressApiKeyHeader()))
+                .grpcPort(properties.getGrpcPort())
+                .grpcServerConfig(defaults.grpcServerConfig().withBindHost(properties.getGrpcBindHost()))
+                .securityConfig(securityConfigProvider.getIfAvailable(ServerSecurityConfig::insecureDefaults))
+                .ttlCancelConfig(ttlCancelConfigProvider.getIfAvailable(TtlCancelConfig::disabled))
+                .orchestratorRegistrationConfig(orchestratorRegistrationConfig(properties, clusterConfig))
+                .clusterConfig(clusterConfig)
+                .initialRole(clusterConfig == null ? defaults.initialRole() : HaRole.STANDBY)
+                .binaryIngressEnabled(properties.isBinaryIngressEnabled())
+                .binaryIngressPort(properties.getBinaryIngressPort())
+                .binaryIngressBindHost(properties.getBinaryIngressBindHost())
+                .binaryIngressMaxBatchSize(properties.getBinaryIngressMaxBatchSize())
+                .binaryIngressLimits(new BinaryIngressLimits(
+                        properties.getBinaryIngressMaxConnections(),
+                        properties.getBinaryIngressHandshakeTimeoutMillis(),
+                        properties.getBinaryIngressIdleTimeoutMillis()));
+
+        PersistenceSettings.apply(
+                builder,
+                properties.getServerMode(),
+                defaults,
+                properties.getPersistenceProfile(),
+                new PersistenceSettings.PropertyOverrides(
+                        properties.getWalDurabilityMode(),
+                        properties.getWalForceBatchSize(),
+                        properties.getWalForceMaxDelayMicros(),
+                        properties.getSnapshotIntervalMillis()));
+        MatcherServerConfig config = builder.build();
+        config.validateDeploymentSafety();
+        return config;
     }
 
     @Bean
@@ -224,12 +236,32 @@ public class UllMatcherServerAutoConfiguration {
     @Bean(initMethod = "start", destroyMethod = "close")
     @ConditionalOnMissingBean
     @ConditionalOnProperty(prefix = "ull.matcher", name = "auto-start", havingValue = "true")
-    public MatcherServerApp ullMatcherServerApp(MatcherServerConfig config) throws IOException {
-        return new MatcherServerApp(config);
+    public MatcherServerApp ullMatcherServerApp(MatcherServerConfig config,
+                                                UllMatcherServerProperties properties) throws IOException {
+        return new MatcherServerApp(
+                config,
+                HttpSubmitAckMode.parse(properties.getHttpSubmitAckMode(), HttpSubmitAckMode.LOCAL));
     }
 
     private static Path blankToNull(String path) {
         return path == null || path.isBlank() ? null : Path.of(path);
+    }
+
+    private static OrchestratorRegistrationConfig orchestratorRegistrationConfig(
+            UllMatcherServerProperties properties,
+            MatcherClusterConfig clusterConfig) {
+        if (!properties.isOrchestratorEnabled()) {
+            return OrchestratorRegistrationConfig.disabled();
+        }
+        if (clusterConfig == null) {
+            throw new IllegalArgumentException(
+                    "ull.matcher.orchestrator-enabled requires ull.matcher.cluster.enabled=true and etcd control plane");
+        }
+        if (!"etcd".equals(controlPlaneProvider(properties.getCluster()))) {
+            throw new IllegalArgumentException(
+                    "ull.matcher.orchestrator-enabled requires ull.matcher.cluster lease/discovery provider etcd");
+        }
+        return OrchestratorRegistrationConfig.etcd(properties.getOrchestratorGeneration(), etcdConfig(properties));
     }
 
     private static MatcherConfig matcherConfig(UllMatcherServerProperties properties) {
@@ -250,7 +282,6 @@ public class UllMatcherServerAutoConfiguration {
                 cluster.getEtcdKeyPrefix().isBlank() ? "/ull-matcher/" + cluster.getName() : cluster.getEtcdKeyPrefix(),
                 cluster.getEtcdLeaseTtlSeconds(),
                 cluster.getEtcdTimeoutMillis(),
-                cluster.getEtcdLocalHeldCheckCacheMillis(),
                 blankToPath(cluster.getEtcdTlsTrustChain()),
                 blankToPath(cluster.getEtcdTlsCertChain()),
                 blankToPath(cluster.getEtcdTlsPrivateKey()),

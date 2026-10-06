@@ -24,9 +24,16 @@ public enum Side {
      * 解码字节形式的买卖方向。
      *
      * @param code 买卖方向紧凑编码
-     * @return 买方编码返回 {@link #BUY}，否则返回 {@link #SELL}
+     * @return 匹配的方向
+     * @throws IllegalArgumentException 编码不是已声明的方向
      */
     public static Side from(byte code) {
-        return code == BUY.code ? BUY : SELL;
+        if (code == BUY.code) {
+            return BUY;
+        }
+        if (code == SELL.code) {
+            return SELL;
+        }
+        throw new IllegalArgumentException("unknown side code: " + code);
     }
 }

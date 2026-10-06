@@ -102,6 +102,11 @@ public final class AsyncEventDispatcher implements MatchEventHandler {
         slot.orderStatus = event.status;
         slot.rejectReason = event.rejectReason;
         slot.remaining = event.remaining;
+        slot.side = event.side;
+        slot.orderType = event.orderType;
+        slot.timeInForce = event.timeInForce;
+        slot.price = event.price;
+        slot.quantity = event.quantity;
         slot.expireAtEpochMillis = event.expireAtEpochMillis;
         publish();
     }
@@ -221,6 +226,11 @@ public final class AsyncEventDispatcher implements MatchEventHandler {
         order.status = slot.orderStatus;
         order.rejectReason = slot.rejectReason;
         order.remaining = slot.remaining;
+        order.side = slot.side;
+        order.orderType = slot.orderType;
+        order.timeInForce = slot.timeInForce;
+        order.price = slot.price;
+        order.quantity = slot.quantity;
         order.expireAtEpochMillis = slot.expireAtEpochMillis;
     }
 
@@ -285,6 +295,15 @@ public final class AsyncEventDispatcher implements MatchEventHandler {
 
         /** 剩余数量。 */
         long remaining;
+
+        /** 订单方向编码。 */
+        byte side;
+
+        /** 订单类型编码。 */
+        byte orderType;
+
+        /** 有效期策略编码。 */
+        byte timeInForce;
 
         /** TTL 动作。 */
         TtlEventAction ttlAction;

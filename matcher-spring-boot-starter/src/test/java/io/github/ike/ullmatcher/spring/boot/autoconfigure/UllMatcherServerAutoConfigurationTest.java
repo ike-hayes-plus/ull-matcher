@@ -1,5 +1,6 @@
 package io.github.ike.ullmatcher.spring.boot.autoconfigure;
 
+import io.github.ike.ullmatcher.ha.coordination.HaRole;
 import io.github.ike.ullmatcher.ha.coordination.ClusterLease;
 import io.github.ike.ullmatcher.ha.coordination.FencingToken;
 import io.github.ike.ullmatcher.ha.coordination.LeaseStore;
@@ -11,6 +12,7 @@ import io.github.ike.ullmatcher.ha.replication.ReplicationMode;
 import io.github.ike.ullmatcher.hft.WalDurabilityMode;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerConfig;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerMode;
+import io.github.ike.ullmatcher.server.bootstrap.PersistenceProfile;
 import io.github.ike.ullmatcher.ha.transport.ReplicationTransportType;
 import io.github.ike.ullmatcher.server.cluster.MatcherClusterConfig;
 import io.github.ike.ullmatcher.server.engine.TtlCancelConfig;
@@ -44,13 +46,83 @@ class UllMatcherServerAutoConfigurationTest {
     }
 
     @Test
+    void orchestratorRegistrationIsDisabledByDefault() {
+        contextRunner.run(context -> {
+            MatcherServerConfig config = context.getBean(MatcherServerConfig.class);
+            assertThat(config.orchestratorRegistrationConfig().enabled()).isFalse();
+        });
+    }
+
+    @Test
+    void orchestratorRegistrationRequiresEtcdControlPlane() {
+        contextRunner
+                .withPropertyValues(
+                        "ull.matcher.orchestrator-enabled=true",
+                        "ull.matcher.cluster.enabled=true",
+                        "ull.matcher.cluster.zookeeper-connect=127.0.0.1:2181",
+                        "ull.matcher.cluster.etcd-endpoint=http://127.0.0.1:2379")
+                .run(context -> assertThat(context).hasFailed());
+    }
+
+    @Test
+    void orchestratorRegistrationBindsEtcdWhenEnabled() {
+        contextRunner
+                .withPropertyValues(
+                        "ull.matcher.orchestrator-enabled=true",
+                        "ull.matcher.orchestrator-generation=3",
+                        "ull.matcher.cluster.enabled=true",
+                        "ull.matcher.cluster.lease-provider=etcd",
+                        "ull.matcher.cluster.discovery-provider=etcd",
+                        "ull.matcher.cluster.etcd-endpoint=http://127.0.0.1:2379")
+                .run(context -> {
+                    MatcherServerConfig config = context.getBean(MatcherServerConfig.class);
+                    assertThat(config.orchestratorRegistrationConfig().enabled()).isTrue();
+                    assertThat(config.orchestratorRegistrationConfig().generation()).isEqualTo(3L);
+                    assertThat(config.orchestratorRegistrationConfig().etcdConfig().endpoint())
+                            .isEqualTo("http://127.0.0.1:2379");
+                });
+    }
+
+    @Test
+    void benchPersistenceProfileAppliesWalPresets() {
+        contextRunner
+                .withPropertyValues("ull.matcher.persistence-profile=BENCH")
+                .run(context -> {
+                    MatcherServerConfig config = context.getBean(MatcherServerConfig.class);
+                    assertThat(config.persistenceProfile()).isEqualTo(PersistenceProfile.BENCH);
+                    assertThat(config.walDurabilityMode()).isEqualTo(WalDurabilityMode.SYNC_PER_BATCH);
+                    assertThat(config.walForceBatchSize()).isEqualTo(PersistenceProfile.BENCH_WAL_FORCE_BATCH_SIZE);
+                    assertThat(config.walForceMaxDelayMicros()).isEqualTo(PersistenceProfile.BENCH_WAL_FORCE_MAX_DELAY_MICROS);
+                    assertThat(config.snapshotIntervalMillis()).isZero();
+                });
+    }
+
+    @Test
+    void prodServerModeExpandsProdPersistenceWithoutExplicitProfile() throws IOException {
+        java.nio.file.Path dataDir = java.nio.file.Files.createTempDirectory("spring-prod-data");
+        java.nio.file.Path coldDir = java.nio.file.Files.createTempDirectory("spring-prod-cold");
+        contextRunner
+                .withPropertyValues(
+                        "ull.matcher.server-mode=PROD",
+                        "ull.matcher.data-dir=" + dataDir,
+                        "ull.matcher.wal-cold-archive-dir=" + coldDir)
+                .run(context -> {
+                    MatcherServerConfig config = context.getBean(MatcherServerConfig.class);
+                    assertThat(config.persistenceProfile()).isEqualTo(PersistenceProfile.PROD);
+                    assertThat(config.walDurabilityMode()).isEqualTo(WalDurabilityMode.SYNC_PER_COMMAND);
+                    assertThat(config.snapshotIntervalMillis()).isEqualTo(PersistenceProfile.PROD_SNAPSHOT_INTERVAL_MILLIS);
+                    assertThat(config.walArchiveConfig().enabled()).isTrue();
+                });
+    }
+
+    @Test
     void bindsWalTlsAndTtlProperties() {
         contextRunner
                 .withPropertyValues(
                         "ull.matcher.node-id=node-b",
                         "ull.matcher.shard-key=merchant:42",
                         "ull.matcher.symbol-id=7",
-                        "ull.matcher.server-mode=PROD",
+                        "ull.matcher.server-mode=DEV",
                         "ull.matcher.expected-price-levels=8192",
                         "ull.matcher.expected-live-orders=262144",
                         "ull.matcher.order-pool-size=524288",
@@ -75,6 +147,7 @@ class UllMatcherServerAutoConfigurationTest {
                         "ull.matcher.http-snapshot-endpoint-max-concurrent-requests=3",
                         "ull.matcher.http-readiness-endpoint-max-concurrent-requests=12",
                         "ull.matcher.http-metrics-endpoint-max-concurrent-requests=6",
+                        "ull.matcher.http-submit-ack-mode=committed",
                         "ull.matcher.http-shard-write-max-concurrent-requests=50",
                         "ull.matcher.http-tenant-write-max-concurrent-requests=7",
                         "ull.matcher.http-tenant-admission-header=X-Tenant-Key",
@@ -117,9 +190,11 @@ class UllMatcherServerAutoConfigurationTest {
                     assertThat(config.matcherConfig().orderPoolSize()).isEqualTo(524288);
                     assertThat(config.matcherConfig().quoteScale()).isEqualTo(10000L);
                     assertThat(config.matcherConfig().preventSelfTrade()).isFalse();
-                    assertThat(config.serverMode()).isEqualTo(MatcherServerMode.PROD);
+                    assertThat(config.serverMode()).isEqualTo(MatcherServerMode.DEV);
                     assertThat(config.httpPort()).isEqualTo(18080);
                     assertThat(config.httpBindHost()).isEqualTo("127.0.0.1");
+                    assertThat(context.getBean(UllMatcherServerProperties.class).getHttpSubmitAckMode())
+                            .isEqualTo("committed");
                     assertThat(config.grpcPort()).isEqualTo(19090);
                     assertThat(config.grpcServerConfig().bindHost()).isEqualTo("127.0.0.1");
                     assertThat(config.httpWorkerThreads()).isEqualTo(6);
@@ -218,6 +293,30 @@ class UllMatcherServerAutoConfigurationTest {
                     assertThat(clusterConfig.replicationTransportPolicyConfig().transportChangeWindowId()).isEqualTo("change-20260621");
                     assertThat(clusterConfig.replicationTransportPolicyConfig().allowPreviewTransportInProd()).isTrue();
                     assertThat(serverConfig.clusterConfig()).isSameAs(clusterConfig);
+                    assertThat(serverConfig.initialRole()).isEqualTo(HaRole.STANDBY);
+                });
+    }
+
+    @Test
+    void bindsBinaryIngressProperties() {
+        contextRunner
+                .withPropertyValues(
+                        "ull.matcher.binary-ingress-enabled=true",
+                        "ull.matcher.binary-ingress-port=11080",
+                        "ull.matcher.binary-ingress-bind-host=127.0.0.1",
+                        "ull.matcher.binary-ingress-max-batch-size=128",
+                        "ull.matcher.binary-ingress-max-connections=64",
+                        "ull.matcher.binary-ingress-handshake-timeout-millis=1500",
+                        "ull.matcher.binary-ingress-idle-timeout-millis=8000")
+                .run(context -> {
+                    MatcherServerConfig config = context.getBean(MatcherServerConfig.class);
+                    assertThat(config.binaryIngressEnabled()).isTrue();
+                    assertThat(config.binaryIngressPort()).isEqualTo(11080);
+                    assertThat(config.binaryIngressBindHost()).isEqualTo("127.0.0.1");
+                    assertThat(config.binaryIngressMaxBatchSize()).isEqualTo(128);
+                    assertThat(config.binaryIngressLimits().maxConnections()).isEqualTo(64);
+                    assertThat(config.binaryIngressLimits().handshakeTimeoutMillis()).isEqualTo(1500L);
+                    assertThat(config.binaryIngressLimits().idleTimeoutMillis()).isEqualTo(8000L);
                 });
     }
 
@@ -232,8 +331,7 @@ class UllMatcherServerAutoConfigurationTest {
                         "ull.matcher.cluster.etcd-endpoint=http://127.0.0.1:2379",
                         "ull.matcher.cluster.etcd-key-prefix=/ull-matcher/orders",
                         "ull.matcher.cluster.etcd-lease-ttl-seconds=15",
-                        "ull.matcher.cluster.etcd-timeout-millis=750",
-                        "ull.matcher.cluster.etcd-local-held-check-cache-millis=10"
+                        "ull.matcher.cluster.etcd-timeout-millis=750"
                 )
                 .run(context -> {
                     assertThat(context).hasSingleBean(LeaseStore.class);

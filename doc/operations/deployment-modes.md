@@ -47,7 +47,7 @@ java \
 说明：
 
 - `taskset` / `numactl` 用于提升 CPU 与内存局部性
-- gRPC 建议在生产模式下启用 TLS/mTLS
+- gRPC 在生产模式下非 loopback bind 必须启用 mTLS
 - 项目部署边界是受控内网；HTTP / binary ingress 不设计为直接公网暴露入口
 - HTTP 默认绑定 `127.0.0.1`，适合由同机 sidecar、内网网关或内网服务调用
 - 内网部署时，HTTP 明文入口应只暴露在受控 VPC / 子网 / 安全组内，不建议直接暴露到公网

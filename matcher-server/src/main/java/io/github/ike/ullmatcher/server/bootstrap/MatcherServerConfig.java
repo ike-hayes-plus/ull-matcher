@@ -69,11 +69,15 @@ public record MatcherServerConfig(
         MatchLoopConfig loopConfig,
         StandbySyncConfig standbySyncConfig,
         OrchestratorRegistrationConfig orchestratorRegistrationConfig,
-        MatcherClusterConfig clusterConfig
+        MatcherClusterConfig clusterConfig,
+        PersistenceProfile persistenceProfile,
+        long snapshotIntervalMillis
 ) {
     public static final WalDurabilityMode DEFAULT_WAL_DURABILITY_MODE = WalDurabilityMode.SYNC_PER_COMMAND;
     public static final int DEFAULT_WAL_FORCE_BATCH_SIZE = 1;
     public static final long DEFAULT_WAL_FORCE_MAX_DELAY_MICROS = 0L;
+    public static final PersistenceProfile DEFAULT_PERSISTENCE_PROFILE = PersistenceProfile.NONE;
+    public static final long DEFAULT_SNAPSHOT_INTERVAL_MILLIS = 0L;
     public static final int DEFAULT_HTTP_MAX_CONCURRENT_REQUESTS = 2048;
     public static final int DEFAULT_HTTP_READ_MAX_CONCURRENT_REQUESTS = 1024;
     public static final int DEFAULT_HTTP_WRITE_MAX_CONCURRENT_REQUESTS = 1024;
@@ -125,6 +129,9 @@ public record MatcherServerConfig(
                 || binaryIngressBindHost == null || binaryIngressBindHost.isBlank()) {
             throw new IllegalArgumentException("nodeId, shardKey, walPrefix, httpBindHost and binaryIngressBindHost must not be blank");
         }
+        if (nodeId.indexOf('|') >= 0) {
+            throw new IllegalArgumentException("nodeId must not contain '|'");
+        }
         if (walSegmentSizeBytes <= 0L || walForceBatchSize <= 0 || walForceMaxDelayMicros < 0L
                 || ringCapacity <= 0 || gatewaySpinLimit <= 0 || gatewayOfferTimeoutNanos < 0L
                 || httpPort < 0 || grpcPort < 0 || binaryIngressPort < 0 || httpWorkerThreads <= 0 || httpMaxBodyBytes <= 0
@@ -142,6 +149,12 @@ public record MatcherServerConfig(
         }
         if (binaryIngressMaxBatchSize > ringCapacity) {
             throw new IllegalArgumentException("binaryIngressMaxBatchSize must not exceed ringCapacity");
+        }
+        if (persistenceProfile == null) {
+            persistenceProfile = DEFAULT_PERSISTENCE_PROFILE;
+        }
+        if (snapshotIntervalMillis < 0L) {
+            throw new IllegalArgumentException("snapshotIntervalMillis must not be negative");
         }
     }
 
@@ -196,7 +209,9 @@ public record MatcherServerConfig(
                 MatchLoopConfig.defaults(),
                 StandbySyncConfig.defaults(),
                 OrchestratorRegistrationConfig.disabled(),
-                null
+                null,
+                DEFAULT_PERSISTENCE_PROFILE,
+                DEFAULT_SNAPSHOT_INTERVAL_MILLIS
         );
     }
 
@@ -296,7 +311,9 @@ public record MatcherServerConfig(
                 orchestratorRegistrationConfig == null
                         ? OrchestratorRegistrationConfig.disabled()
                         : orchestratorRegistrationConfig,
-                clusterConfig
+                clusterConfig,
+                DEFAULT_PERSISTENCE_PROFILE,
+                DEFAULT_SNAPSHOT_INTERVAL_MILLIS
         );
     }
 
@@ -381,6 +398,8 @@ public record MatcherServerConfig(
         private StandbySyncConfig standbySyncConfig;
         private OrchestratorRegistrationConfig orchestratorRegistrationConfig;
         private MatcherClusterConfig clusterConfig;
+        private PersistenceProfile persistenceProfile;
+        private long snapshotIntervalMillis;
 
         private Builder(MatcherServerConfig source) {
             this.serverMode = source.serverMode;
@@ -432,6 +451,8 @@ public record MatcherServerConfig(
             this.standbySyncConfig = source.standbySyncConfig;
             this.orchestratorRegistrationConfig = source.orchestratorRegistrationConfig;
             this.clusterConfig = source.clusterConfig;
+            this.persistenceProfile = source.persistenceProfile;
+            this.snapshotIntervalMillis = source.snapshotIntervalMillis;
         }
 
         public Builder serverMode(MatcherServerMode value) {
@@ -679,6 +700,16 @@ public record MatcherServerConfig(
             return this;
         }
 
+        public Builder persistenceProfile(PersistenceProfile value) {
+            this.persistenceProfile = value;
+            return this;
+        }
+
+        public Builder snapshotIntervalMillis(long value) {
+            this.snapshotIntervalMillis = value;
+            return this;
+        }
+
         public MatcherServerConfig build() {
             return new MatcherServerConfig(
                     serverMode,
@@ -729,7 +760,9 @@ public record MatcherServerConfig(
                     loopConfig,
                     standbySyncConfig,
                     orchestratorRegistrationConfig,
-                    clusterConfig
+                    clusterConfig,
+                    persistenceProfile,
+                    snapshotIntervalMillis
             );
         }
     }
@@ -750,8 +783,27 @@ public record MatcherServerConfig(
         if (serverMode != MatcherServerMode.PROD) {
             return;
         }
+        if (persistenceProfile == PersistenceProfile.LAB) {
+            throw new IllegalStateException("prod mode forbids matcher.persistenceProfile=LAB");
+        }
+        if (persistenceProfile == PersistenceProfile.BENCH) {
+            throw new IllegalStateException("prod mode forbids matcher.persistenceProfile=BENCH");
+        }
+        if (!walArchiveConfig.enabled()) {
+            throw new IllegalStateException(
+                    "prod mode requires matcher.walColdArchiveDir for WAL cold archive (persistence profile "
+                            + persistenceProfile.name() + ")");
+        }
+        if (snapshotIntervalMillis <= 0L) {
+            throw new IllegalStateException(
+                    "prod mode requires matcher.snapshotIntervalMillis > 0 (persistence profile "
+                            + persistenceProfile.name() + ")");
+        }
         if (walDurabilityMode == WalDurabilityMode.OS_BUFFERED) {
             throw new IllegalStateException("prod mode forbids matcher.walDurabilityMode=OS_BUFFERED");
+        }
+        if (walDurabilityMode == WalDurabilityMode.SYNC_PER_BATCH) {
+            throw new IllegalStateException("prod mode forbids matcher.walDurabilityMode=SYNC_PER_BATCH");
         }
         if (isEphemeralBuildOutputDirectory(walDirectory)) {
             throw new IllegalStateException("prod mode requires a persistent matcher.dataDir outside build output directories; resolved wal directory="
@@ -780,8 +832,8 @@ public record MatcherServerConfig(
         }
         if (requiresGrpcReplicationServer()
                 && !isLoopbackHost(grpcServerConfig.bindHost())
-                && securityConfig.grpcServerTls() == null) {
-            throw new IllegalStateException("prod mode requires gRPC TLS when matcher.grpcBindHost is not loopback");
+                && (securityConfig.grpcServerTls() == null || !securityConfig.grpcServerTls().requireMutualTls())) {
+            throw new IllegalStateException("prod mode requires gRPC mTLS when matcher.grpcBindHost is not loopback");
         }
         if (clusterConfig != null
                 && clusterConfig.replicationTransportType() == ReplicationTransportType.AERON_PREVIEW

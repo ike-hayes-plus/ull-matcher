@@ -14,7 +14,7 @@ from typing import Callable
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DOC = ROOT / "doc/operations/benchmark-baseline.md"
-DEFAULT_REPORT_ROOT = ROOT / "target/current"
+DEFAULT_REPORT_ROOT = ROOT / "target/benchmark/3.0-full"
 
 
 @dataclass(frozen=True)
@@ -26,50 +26,44 @@ class Scenario:
     committed_key: str | None
     catch_up_key: str | None
     p99_key: str | None
-    p99_unit: str | None
 
 
+# Main-table scenarios only (doc/operations/benchmark-baseline.md §压测结果).
 SCENARIOS = [
-    Scenario("Core-only matcher", "core-only/report-clean.json",
-             "acceptedOrdersPerSecond", None, None, None, "p99LatencyMicros", "us"),
-    Scenario("本地持久化服务路径", "embed-journaled-core/report-clean.json",
-             "acceptedOrdersPerSecond", "tradeEventsPerSecond", None, None, None, None),
-    Scenario("Single-node HTTP", "single-node-http/report-clean.json",
+    Scenario("Core-only matcher", "core-only.json",
+             "acceptedOrdersPerSecond", None, None, None, "p99LatencyMicros"),
+    Scenario("本地持久化服务路径", "embed-journaled-core.json",
+             "acceptedOrdersPerSecond", "tradeEventsPerSecond", None, None, None),
+    Scenario("Single-node HTTP", "single-node-http.json",
              "acceptedOrdersPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond",
-             None, "p99LatencyMs", "ms"),
-    Scenario("Single-node binary", "single-node-binary/report-clean.json",
+             None, "p99LatencyMs"),
+    Scenario("Single-node binary", "single-node-binary.json",
              "acceptedOrdersPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond",
-             None, "p99LatencyMs", "ms"),
-    Scenario("External `1P1S` REST + `GRPC` local ack", "http-commit/grpc-1p1s-local-current.json",
+             None, "p99LatencyMs"),
+    Scenario("External `1P1S` REST + `GRPC` local ack", "rest-1p1s-local.json",
              "acceptedOrdersPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond",
-             "commitCatchupSeconds", "latency.p99Ms", "ms"),
-    Scenario("External `1P1S` REST + `GRPC` committed ack", "http-commit/grpc-1p1s-committed-current.json",
+             "commitCatchupSeconds", "latency.p99Ms"),
+    Scenario("External `1P1S` REST + `GRPC` committed ack", "rest-1p1s-committed.json",
              "acceptedOrdersPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond",
-             "commitCatchupSeconds", "latency.p99Ms", "ms"),
-    Scenario("REST committed single", "http-ha/rest-single-1024-current.json",
-             "acceptedOrdersPerSecond", None, "replicationCommittedSubmissionsPerSecond",
-             "commitCatchupSeconds", "latency.p99Ms", "ms"),
-    Scenario("REST committed batch", "http-ha/rest-batch-1024-current.json",
-             "acceptedOrdersPerSecond", None, "replicationCommittedSubmissionsPerSecond",
-             "commitCatchupSeconds", "latency.p99Ms", "ms"),
-    Scenario("External `1P1S` binary + `GRPC` any", "full-bench-binary-32768-final-code/grpc-1p1s-any.json",
+             "commitCatchupSeconds", "latency.p99Ms"),
+    Scenario("External `1P1S` binary + `GRPC` any", "grpc-1p1s.json",
              "acceptedCommandsPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond",
-             "commitCatchupSeconds", "latency.p99Ms", "ms"),
-    Scenario("External `1P1S` binary + `AERON` any", "full-bench-binary-32768-final-code/aeron-1p1s-any.json",
+             "commitCatchupSeconds", "latency.p99Ms"),
+    Scenario("External `1P1S` binary + `AERON` any", "aeron-1p1s.json",
              "acceptedCommandsPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond",
-             "commitCatchupSeconds", "latency.p99Ms", "ms"),
-    Scenario("External `1P2S` binary + `GRPC` quorum", "full-bench-binary-32768-final-code/grpc-1p2s-quorum.json",
+             "commitCatchupSeconds", "latency.p99Ms"),
+    Scenario("External `1P2S` binary + `GRPC` quorum", "grpc-1p2s.json",
              "acceptedCommandsPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond",
-             "commitCatchupSeconds", "latency.p99Ms", "ms"),
-    Scenario("External `1P2S` binary + `AERON` quorum", "full-bench-binary-32768-final-code/aeron-1p2s-quorum.json",
+             "commitCatchupSeconds", "latency.p99Ms"),
+    Scenario("External `1P2S` binary + `AERON` quorum", "aeron-1p2s.json",
              "acceptedCommandsPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond",
-             "commitCatchupSeconds", "latency.p99Ms", "ms"),
-    Scenario("External `1P3S` binary + `GRPC` quorum", "full-bench-binary-32768-final-code/grpc-1p3s-quorum.json",
+             "commitCatchupSeconds", "latency.p99Ms"),
+    Scenario("External `1P3S` binary + `GRPC` quorum", "grpc-1p3s.json",
              "acceptedCommandsPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond",
-             "commitCatchupSeconds", "latency.p99Ms", "ms"),
-    Scenario("External `1P3S` binary + `AERON` quorum", "full-bench-binary-32768-final-code/aeron-1p3s-quorum.json",
+             "commitCatchupSeconds", "latency.p99Ms"),
+    Scenario("External `1P3S` binary + `AERON` quorum", "aeron-1p3s.json",
              "acceptedCommandsPerSecond", "tradeEventsPerSecond", "replicationCommittedSubmissionsPerSecond",
-             "commitCatchupSeconds", "latency.p99Ms", "ms"),
+             "commitCatchupSeconds", "latency.p99Ms"),
 ]
 
 
@@ -96,8 +90,16 @@ def parse_number(text: str) -> tuple[float, str | None] | None:
 
 def baseline_rows(doc: Path) -> dict[str, list[str]]:
     rows: dict[str, list[str]] = {}
+    in_main = False
     for line in doc.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
+        if stripped.startswith("## 压测结果"):
+            in_main = True
+            continue
+        if in_main and stripped.startswith("## "):
+            break
+        if not in_main:
+            continue
         if not stripped.startswith("| ") or stripped.startswith("| ---"):
             continue
         cells = [cell.strip() for cell in stripped.strip("|").split("|")]
@@ -156,11 +158,14 @@ def main() -> int:
                         help="relative tolerance for throughput metrics below the documented value")
     parser.add_argument("--latency-tolerance", type=float, default=0.05,
                         help="relative tolerance for catch-up and p99 metrics above the documented value")
+    parser.add_argument("--skip-missing-reports", action="store_true",
+                        help="skip scenarios whose JSON report file is absent (useful on CI without lab hardware)")
     args = parser.parse_args()
 
     rows = baseline_rows(args.doc)
     failures: list[str] = []
     checked = 0
+    skipped = 0
 
     for scenario in SCENARIOS:
         cells = rows.get(scenario.name)
@@ -174,13 +179,13 @@ def main() -> int:
             catch_up_cell = cells[8]
             p99_cell = cells[9]
         else:
-            accepted_cell = cells[2] if len(cells) == 6 else cells[4]
-            trade_cell = None if len(cells) == 6 else cells[5]
-            committed_cell = cells[3] if len(cells) == 6 else cells[6]
-            catch_up_cell = cells[5] if len(cells) == 6 else cells[7]
-            p99_cell = cells[4] if len(cells) == 6 else cells[8]
+            failures.append(f"{scenario.name}: unexpected baseline table shape ({len(cells)} columns)")
+            continue
         report_path = args.report_root / scenario.report
         if not report_path.exists():
+            if args.skip_missing_reports:
+                skipped += 1
+                continue
             failures.append(f"{scenario.name}: missing report {report_path}")
             continue
         try:
@@ -207,7 +212,7 @@ def main() -> int:
             print(f"- {failure}", file=sys.stderr)
         return 1
 
-    print(f"benchmark baseline validation passed: {checked} scenarios")
+    print(f"benchmark baseline validation passed: {checked} scenarios checked, {skipped} skipped")
     return 0
 
 

@@ -55,6 +55,7 @@ public final class SingleNodeServerCrossingBenchmark {
                 .walDurabilityMode(parsed.durabilityMode())
                 .walForceBatchSize(parsed.forceBatchSize())
                 .walForceMaxDelayMicros(parsed.forceMaxDelayMicros())
+                .snapshotIntervalMillis(parsed.snapshotIntervalMillis())
                 .build();
 
         try (MatcherNodeService nodeService = new MatcherNodeService(config);
@@ -277,6 +278,7 @@ public final class SingleNodeServerCrossingBenchmark {
                              WalDurabilityMode durabilityMode,
                              int forceBatchSize,
                              long forceMaxDelayMicros,
+                             long snapshotIntervalMillis,
                              Path dataRoot) {
         private static Arguments parse(String[] args) {
             int restingOrders = 2_048;
@@ -289,6 +291,7 @@ public final class SingleNodeServerCrossingBenchmark {
             WalDurabilityMode durabilityMode = WalDurabilityMode.SYNC_PER_BATCH;
             int forceBatchSize = 32;
             long forceMaxDelayMicros = 500L;
+            long snapshotIntervalMillis = 0L;
             Path dataRoot = Path.of("target", "single-node-server-bench");
             List<String> tokens = new ArrayList<>(List.of(args));
             for (int i = 0; i < tokens.size(); i += 2) {
@@ -305,6 +308,7 @@ public final class SingleNodeServerCrossingBenchmark {
                     case "--durability-mode" -> durabilityMode = WalDurabilityMode.valueOf(value);
                     case "--force-batch-size" -> forceBatchSize = Integer.parseInt(value);
                     case "--force-max-delay-micros" -> forceMaxDelayMicros = Long.parseLong(value);
+                    case "--snapshot-interval-millis" -> snapshotIntervalMillis = Long.parseLong(value);
                     case "--data-root" -> dataRoot = Path.of(value);
                     default -> throw new IllegalArgumentException("unknown argument: " + key);
                 }
@@ -323,6 +327,7 @@ public final class SingleNodeServerCrossingBenchmark {
                     durabilityMode,
                     forceBatchSize,
                     forceMaxDelayMicros,
+                    snapshotIntervalMillis,
                     dataRoot
             );
         }

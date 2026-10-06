@@ -177,9 +177,49 @@ public final class SegmentedMmapWal implements WalWriter, WalReader {
     }
 
     /**
+     * 快照落盘后滚动到新写入分段，让已被覆盖的旧分段可以立刻归档删除。
+     *
+     * @param nextFirstSequence 新分段第一条命令序列号
+     * @throws IOException 分段无法关闭或打开时抛出
+     */
+    public void rollAfterSnapshot(long nextFirstSequence) throws IOException {
+        if (writer == null || writer.writePosition() <= 0L) {
+            return;
+        }
+        rollTo(nextFirstSequence);
+    }
+
+    /**
+     * 校验快照检查点清单与当前 WAL 分段。
+     * <p>
+     * 快照存在且本地仍有 WAL 分段时必须有清单。当前写入分段允许在清单记录之后继续追加。
+     *
+     * @param snapshotPath 已恢复快照路径
+     * @param snapshotSequence 已恢复快照序列号
+     * @param snapshotTradeId 已恢复快照成交编号
+     * @throws IOException 清单缺失、与快照不一致或分段损坏时抛出
+     */
+    public void validateManifestForRestore(Path snapshotPath, long snapshotSequence, long snapshotTradeId)
+            throws IOException {
+        Path manifestFile = manifestPath();
+        List<Path> liveSegments = listSegments();
+        if (snapshotSequence <= 0L) {
+            return;
+        }
+        if (!Files.exists(manifestFile)) {
+            if (liveSegments.isEmpty()) {
+                return;
+            }
+            throw new IOException("WAL manifest missing for snapshot sequence " + snapshotSequence);
+        }
+        WalManifest manifest = WalManifest.read(manifestFile);
+        manifest.validateForRestore(snapshotPath, snapshotSequence, snapshotTradeId, writerPath);
+    }
+
+    /**
      * 删除已经被快照覆盖的旧 WAL 分段。
      * <p>
-     * 当前正在写入的分段不会被删除，即使它已被快照覆盖；下一次滚动后会参与清理。
+     * 当前正在写入的分段不会被删除，即使它已被快照覆盖；调用方应先 {@link #rollAfterSnapshot(long)}。
      *
      * @param snapshotSequence 快照包含的最后命令序列号
      * @return 本次清理结果

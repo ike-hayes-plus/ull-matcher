@@ -12,95 +12,70 @@ from pathlib import Path
 from typing import Optional
 
 from benchmark_metadata import benchmark_metadata
+from http_keepalive import KeepAliveHttp, get_json
+
+
+def http_client(base_url: str, timeout: float = 10.0) -> KeepAliveHttp:
+    return KeepAliveHttp(base_url, timeout=timeout)
 
 
 def fetch_json(url: str):
-    with urllib.request.urlopen(url, timeout=5) as response:
-        return json.loads(response.read().decode("utf-8"))
+    return get_json(url)
 
 
 def post_order(base_url: str, payload: dict, ack_mode: str):
     if ack_mode:
         payload = dict(payload)
         payload["ack"] = ack_mode
-    request = urllib.request.Request(
-        f"{base_url}/api/v1/orders",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
     started = time.perf_counter_ns()
-    try:
-        with urllib.request.urlopen(request, timeout=10) as response:
-            body = json.loads(response.read().decode("utf-8"))
-            latency_ms = (time.perf_counter_ns() - started) / 1_000_000.0
-            return {
-                "status": response.status,
-                "result": body.get("result"),
-                "submissionId": body.get("submissionId"),
-                "latencyMs": latency_ms,
-            }
-    except urllib.error.HTTPError as exc:
-        body = {}
-        try:
-            body = json.loads(exc.read().decode("utf-8"))
-        except Exception:
-            body = {}
-        latency_ms = (time.perf_counter_ns() - started) / 1_000_000.0
+    status, body = http_client(base_url).request_json("POST", "/api/v1/orders", payload)
+    latency_ms = (time.perf_counter_ns() - started) / 1_000_000.0
+    if status >= 400:
         return {
-            "status": exc.code,
-            "result": body.get("result") or f"HTTP_{exc.code}",
+            "status": status,
+            "result": body.get("result") or f"HTTP_{status}",
             "detail": body.get("detail", ""),
             "latencyMs": latency_ms,
         }
+    return {
+        "status": status,
+        "result": body.get("result"),
+        "submissionId": body.get("submissionId"),
+        "latencyMs": latency_ms,
+    }
 
 
 def post_order_batch(base_url: str, payloads: list[dict], ack_mode: str):
     request_payload = {"orders": payloads}
     if ack_mode:
         request_payload["ack"] = ack_mode
-    request = urllib.request.Request(
-        f"{base_url}/api/v1/orders/batch",
-        data=json.dumps(request_payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
     started = time.perf_counter_ns()
-    try:
-        with urllib.request.urlopen(request, timeout=10) as response:
-            body = json.loads(response.read().decode("utf-8"))
-            latency_ms = (time.perf_counter_ns() - started) / 1_000_000.0
-            submissions = body.get("submissions") or []
-            per_order_latency_ms = latency_ms / max(1, len(payloads))
-            results = []
-            for item in submissions:
-                results.append({
-                    "status": item.get("status", response.status),
-                    "result": item.get("result"),
-                    "submissionId": item.get("submissionId"),
-                    "latencyMs": per_order_latency_ms,
-                    "batchLatencyMs": latency_ms,
-                })
-            return results
-    except urllib.error.HTTPError as exc:
-        body = {}
-        try:
-            body = json.loads(exc.read().decode("utf-8"))
-        except Exception:
-            body = {}
-        latency_ms = (time.perf_counter_ns() - started) / 1_000_000.0
-        per_order_latency_ms = latency_ms / max(1, len(payloads))
+    status, body = http_client(base_url).request_json("POST", "/api/v1/orders/batch", request_payload)
+    latency_ms = (time.perf_counter_ns() - started) / 1_000_000.0
+    per_order_latency_ms = latency_ms / max(1, len(payloads))
+    if status >= 400:
         detail = body.get("detail", "") or body.get("error", "")
         return [
             {
-                "status": exc.code,
-                "result": f"HTTP_{exc.code}",
+                "status": status,
+                "result": f"HTTP_{status}",
                 "detail": detail,
                 "latencyMs": per_order_latency_ms,
                 "batchLatencyMs": latency_ms,
             }
             for _ in payloads
         ]
+    submissions = body.get("submissions") or []
+    results = []
+    for item in submissions:
+        results.append({
+            "status": item.get("status", status),
+            "result": item.get("result"),
+            "submissionId": item.get("submissionId"),
+            "latencyMs": per_order_latency_ms,
+            "batchLatencyMs": latency_ms,
+        })
+    return results
 
 
 def wait_for(description: str, predicate, timeout_seconds: float):
@@ -241,7 +216,7 @@ def main() -> int:
     parser.add_argument("--standby-base-url")
     parser.add_argument("--report", required=True)
     parser.add_argument("--resting-orders", type=int, default=2048)
-    parser.add_argument("--concurrency", type=int, default=24)
+    parser.add_argument("--concurrency", type=int, default=64)
     parser.add_argument("--poll-interval-ms", type=int, default=100)
     parser.add_argument("--commit-timeout-seconds", type=float, default=90.0)
     parser.add_argument("--order-id-start", type=int, default=int(time.time() * 1_000_000))

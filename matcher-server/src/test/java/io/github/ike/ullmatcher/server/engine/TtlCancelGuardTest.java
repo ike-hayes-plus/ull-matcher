@@ -23,7 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class TtlCancelGuardTest {
     @Test
     void walAppendedButNotAppliedCancelRemainsTrackedAndRetriesUntilAccepted() throws Exception {
-        AtomicReference<SubmitResult> nextCancelResult = new AtomicReference<>(SubmitResult.RING_FULL_AFTER_WAL_APPEND);
+        AtomicReference<SubmitResult> nextCancelResult = new AtomicReference<>(SubmitResult.MATCHER_STOPPED_AFTER_WAL_APPEND);
         TtlCancelConfig config = new TtlCancelConfig(true, 10L, 10L, 100L, 100L, 16);
         List<TtlEventAction> actions = new ArrayList<>();
         ManualClock clock = new ManualClock();

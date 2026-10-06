@@ -28,7 +28,7 @@ final class AsyncEventDispatcherTest {
         assertEquals(1, dispatcher.size());
         assertEquals(2, handler.events.size());
         assertEquals("trade:11:101:202:1000", handler.events.get(0));
-        assertEquals("order:12:303:PARTIALLY_FILLED:7", handler.events.get(1));
+        assertEquals("order:12:303:PARTIALLY_FILLED:7:B:L:G:99:10", handler.events.get(1));
 
         assertEquals(1, dispatcher.drainTo(handler, 10));
         assertEquals(0, dispatcher.size());
@@ -76,6 +76,11 @@ final class AsyncEventDispatcherTest {
         event.status = OrderStatus.PARTIALLY_FILLED;
         event.rejectReason = RejectReason.NONE;
         event.remaining = 7L;
+        event.side = 'B';
+        event.orderType = 'L';
+        event.timeInForce = 'G';
+        event.price = 99L;
+        event.quantity = 10L;
         event.expireAtEpochMillis = 123_456L;
         return event;
     }
@@ -102,7 +107,9 @@ final class AsyncEventDispatcherTest {
 
         @Override
         public void onOrder(OrderEvent event) {
-            events.add("order:" + event.sequence + ':' + event.orderId + ':' + event.status + ':' + event.remaining);
+            events.add("order:" + event.sequence + ':' + event.orderId + ':' + event.status + ':' + event.remaining
+                    + ':' + (char) event.side + ':' + (char) event.orderType + ':' + (char) event.timeInForce
+                    + ':' + event.price + ':' + event.quantity);
         }
 
         @Override

@@ -51,7 +51,7 @@ final class OrderStateTracker implements MatchEventHandler {
         state.rejectReason = "NONE";
         state.remaining = order.remaining();
         state.side = Side.from(order.side()).name();
-        state.orderType = OrderType.LIMIT.name();
+        state.orderType = order.orderType().name();
         state.timeInForce = order.timeInForce().name();
         state.price = order.price();
         state.quantity = order.quantity();
@@ -101,6 +101,9 @@ final class OrderStateTracker implements MatchEventHandler {
 
     @Override
     public void onOrder(OrderEvent event) {
+        if (event.orderId <= 0L) {
+            return;
+        }
         SubmittedOrder submitted = submittedOrders.get(event.orderId);
         TrackedOrderState state = states.get(event.orderId);
         boolean terminal = event.status == OrderStatus.FILLED || event.status == OrderStatus.CANCELLED ||

@@ -16,8 +16,15 @@ MODE_LABEL="lab"
 : "${TRANSPORT_TLS_DIR:=$DATA_ROOT/tls}"
 : "${CP_BUILD_MAVEN_ARGS:= -q -pl matcher-server -am -DskipTests package dependency:build-classpath}"
 
+# Remember caller-provided persistence before deploy defaults fill the blanks.
+_ULL_LAB_PERSISTENCE_EXPLICIT_PROFILE="${PERSISTENCE_PROFILE+x}"
+_ULL_LAB_PERSISTENCE_EXPLICIT_SNAPSHOT="${SNAPSHOT_INTERVAL_MILLIS+x}"
+_ULL_LAB_PERSISTENCE_EXPLICIT_COLD="${WAL_COLD_ARCHIVE_DIR+x}"
+_ULL_LAB_TLS_EXPLICIT="${ENABLE_TRANSPORT_TLS+x}"
 # shellcheck source=/dev/null
 source "${ROOT_DIR}/scripts/deploy/default.conf"
+# shellcheck source=/dev/null
+source "${ROOT_DIR}/scripts/deploy/lab-bench.defaults.sh"
 # shellcheck disable=SC1091
 source "${ROOT_DIR}/scripts/lib/use-project-java.sh"
 JAVA_BIN="${JAVA_HOME}/bin/java"

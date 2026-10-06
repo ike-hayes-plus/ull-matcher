@@ -30,12 +30,22 @@ public enum TimeInForce {
      * 解码字节形式的有效期策略。
      *
      * @param code 有效期策略紧凑编码
-     * @return 解码后的策略，默认返回 {@link #GTC}
+     * @return 匹配的有效期策略
+     * @throws IllegalArgumentException 编码不是已声明的有效期策略
      */
     public static TimeInForce from(byte code) {
-        if (code == IOC.code) return IOC;
-        if (code == FOK.code) return FOK;
-        if (code == POST_ONLY.code) return POST_ONLY;
-        return GTC;
+        if (code == GTC.code) {
+            return GTC;
+        }
+        if (code == IOC.code) {
+            return IOC;
+        }
+        if (code == FOK.code) {
+            return FOK;
+        }
+        if (code == POST_ONLY.code) {
+            return POST_ONLY;
+        }
+        throw new IllegalArgumentException("unknown timeInForce code: " + code);
     }
 }

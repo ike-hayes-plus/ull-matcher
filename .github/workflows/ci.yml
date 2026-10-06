@@ -43,11 +43,17 @@ jobs:
           ./scripts/ops/test-archive-current-benchmarks.sh
           ./scripts/ops/test-validate-benchmark-baseline.sh
           ./scripts/ops/test-check-ha-benchmark-floor.sh
+          # Do not run the 3.0-full matrix on CI (needs dedicated lab hardware).
+          # Validate the published table shape; compare numbers only when reports exist.
+          ./scripts/ops/validate-benchmark-baseline.py --skip-missing-reports
 
       # Full verify: style checks, every module's tests, and the JaCoCo
       # line/branch gates defined in the parent pom.
       - name: Build, test and enforce coverage gates
         run: ./mvnw --batch-mode --no-transfer-progress -Pstyle-check verify
+
+      - name: Run chaos tests
+        run: ./mvnw --batch-mode --no-transfer-progress -Pchaos-tests test
 
       - name: Build server distribution artifact
         if: matrix.os == 'ubuntu-latest'

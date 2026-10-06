@@ -44,6 +44,9 @@ start_matcher_node() {
   local enable_transport_tls="${ENABLE_TRANSPORT_TLS:?ENABLE_TRANSPORT_TLS is required}"
   local transport_tls_dir="${TRANSPORT_TLS_DIR:?TRANSPORT_TLS_DIR is required}"
   local transport_tls_reload_millis="${TRANSPORT_TLS_RELOAD_MILLIS:?TRANSPORT_TLS_RELOAD_MILLIS is required}"
+  local persistence_profile="${PERSISTENCE_PROFILE:-}"
+  local wal_cold_archive_dir="${WAL_COLD_ARCHIVE_DIR:-}"
+  local snapshot_interval_millis="${SNAPSHOT_INTERVAL_MILLIS:-}"
   local wal_durability_mode="$WAL_DURABILITY_MODE"
   local wal_force_batch_size="$WAL_FORCE_BATCH_SIZE"
   local wal_force_max_delay_micros="$WAL_FORCE_MAX_DELAY_MICROS"
@@ -98,6 +101,9 @@ start_matcher_node() {
   local full_cp="$module_cp:$dependency_cp"
 
   local data_dir="${matcher_data_dir:-$data_root/$node_id}"
+  if [[ -z "$wal_cold_archive_dir" && "$server_mode" == "PROD" ]]; then
+    wal_cold_archive_dir="$data_dir/wal-cold"
+  fi
   local log_file="$log_root/$node_id.log"
   local pid_file="$log_root/$node_id.pid"
   local ports_file="$log_root/$node_id.ports"
@@ -198,6 +204,15 @@ start_matcher_node() {
       -Dmatcher.transportMtlsRequired=true
       -Dmatcher.transportTlsReloadMillis="$transport_tls_reload_millis"
     )
+  fi
+  if [[ -n "$persistence_profile" ]]; then
+    cmd+=(-Dmatcher.persistenceProfile="$persistence_profile")
+  fi
+  if [[ -n "$wal_cold_archive_dir" ]]; then
+    cmd+=(-Dmatcher.walColdArchiveDir="$wal_cold_archive_dir")
+  fi
+  if [[ -n "$snapshot_interval_millis" ]]; then
+    cmd+=(-Dmatcher.snapshotIntervalMillis="$snapshot_interval_millis")
   fi
   if [[ -n "$wal_durability_mode" ]]; then
     cmd+=(-Dmatcher.walDurabilityMode="$wal_durability_mode")

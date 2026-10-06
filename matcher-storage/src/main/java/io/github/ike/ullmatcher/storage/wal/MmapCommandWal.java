@@ -188,12 +188,23 @@ public final class MmapCommandWal implements WalWriter, WalReader {
      */
     @Override
     public void close() throws IOException {
+        IOException forceFailure = null;
         try {
             force();
-        } catch (IOException ignored) {
-            // 忽略关闭前刷盘失败。
+        } catch (IOException e) {
+            forceFailure = e;
         }
-        channel.close();
+        try {
+            channel.close();
+        } catch (IOException e) {
+            if (forceFailure != null) {
+                e.addSuppressed(forceFailure);
+            }
+            throw e;
+        }
+        if (forceFailure != null) {
+            throw forceFailure;
+        }
     }
 
     /**

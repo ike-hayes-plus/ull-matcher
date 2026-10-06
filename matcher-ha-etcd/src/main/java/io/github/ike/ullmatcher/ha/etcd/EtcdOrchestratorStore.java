@@ -66,10 +66,11 @@ public final class EtcdOrchestratorStore implements OrchestratorStore, Closeable
             throw new IOException("unknown shardKey=" + shardKey);
         }
         long updatedAt = System.currentTimeMillis();
+        long leaseId = client.grantLease(leaseTtlSeconds);
         client.put(
                 OrchestratorKeySpace.symbolRouteKey(v3Root, symbolId),
                 OrchestratorPayloadCodec.encodeSymbolRoute(symbolId, shardKey, generation, updatedAt),
-                0L
+                leaseId
         );
     }
 
@@ -82,6 +83,9 @@ public final class EtcdOrchestratorStore implements OrchestratorStore, Closeable
         OrchestratorPayloadCodec.SymbolRouteHeader header =
                 OrchestratorPayloadCodec.decodeSymbolRoute(symbolId, routeValue.value());
         RegisteredShard shard = getShard(header.shardKey()).orElse(null);
+        if (shard == null) {
+            return Optional.empty();
+        }
         return Optional.of(new SymbolRoute(
                 header.symbolId(),
                 header.shardKey(),

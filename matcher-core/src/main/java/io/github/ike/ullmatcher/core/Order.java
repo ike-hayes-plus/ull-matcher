@@ -14,6 +14,9 @@ public final class Order {
     /** 来自 {@code Side.code} 的方向编码。 */
     public byte side;
 
+    /** 来自 {@code OrderType.code} 的订单类型编码。 */
+    public byte orderType;
+
     /** 来自 {@code TimeInForce.code} 的有效期策略编码。 */
     public byte timeInForce;
 
@@ -48,6 +51,6 @@ public final class Order {
      */
     public void reset() {
         orderId = userId = price = quantity = remaining = sequence = expireAtEpochMillis = 0;
-        symbolId = 0; side = 0; timeInForce = 0; prev = null; next = null;
+        symbolId = 0; side = 0; orderType = 0; timeInForce = 0; prev = null; next = null;
     }
 }

@@ -64,6 +64,15 @@ assert_fails_with "WAL_DURABILITY_MODE must be" run_cluster start node-a
 write_config 'HTTP_BIND_HOST="0.0.0.0"'
 assert_fails_with "ALLOW_INSECURE_REMOTE_HTTP=true" run_cluster plan node-a
 
+write_config 'BINARY_BIND_HOST="0.0.0.0"'
+assert_fails_with "ALLOW_INSECURE_REMOTE_HTTP=true" run_cluster plan node-a
+
+write_config 'ENABLE_TRANSPORT_TLS="false"'
+assert_fails_with "ENABLE_TRANSPORT_TLS=true" run_cluster plan node-a
+
+write_config $'LEASE_PROVIDER="etcd"\nDISCOVERY_PROVIDER="etcd"\nETCD_ENDPOINT="http://10.0.0.10:2379"'
+assert_fails_with "https" run_cluster plan node-a
+
 cat >"${CONFIG_FILE}" <<EOF
 REMOTE_ROOT="${ROOT_DIR}"
 NODES=(

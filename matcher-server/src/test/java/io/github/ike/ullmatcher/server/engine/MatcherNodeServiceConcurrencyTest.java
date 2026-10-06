@@ -217,6 +217,34 @@ final class MatcherNodeServiceConcurrencyTest {
         }
     }
 
+    @Test
+    void installSnapshotFromIsolatesLocalWalTail() throws Exception {
+        Path dir = Files.createTempDirectory("matcher-node-snapshot-install");
+        MatcherServerConfig config = testConfig(dir);
+        try (MatcherNodeService service = new MatcherNodeService(config)) {
+            service.start();
+            assertEquals(io.github.ike.ullmatcher.hft.SubmitResult.ACCEPTED,
+                    service.submitNewOrder(1L, 60_000L, Side.BUY, OrderType.LIMIT, TimeInForce.GTC, 100L, 1L).result());
+            assertTrue(await(() -> service.liveOrderCount() == 1, 5_000L));
+
+            SnapshotStore.SnapshotMetadata authoritativeSnapshot = authoritativeSnapshot(
+                    dir.resolve("authoritative.snap"), 70_000L
+            );
+            SnapshotSyncResult result = service.installSnapshotFrom(
+                    new FileSnapshotSource("node-b", authoritativeSnapshot.file(), authoritativeSnapshot),
+                    TimeUnit.SECONDS.toNanos(5)
+            );
+
+            assertEquals(authoritativeSnapshot.lastSequence(), result.lastSequence());
+            assertEquals(1, service.liveOrderCount());
+            assertNull(service.orderState(60_000L));
+            assertEquals(70_000L, service.orderState(70_000L).orderId());
+            try (var files = Files.list(dir)) {
+                assertTrue(files.anyMatch(path -> path.getFileName().toString().startsWith("wal.fenced.")));
+            }
+        }
+    }
+
     private static List<MatcherNodeService.BatchNewOrderRequest> newOrderBatch(long orderIdStart, int count) {
         ArrayList<MatcherNodeService.BatchNewOrderRequest> requests = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {

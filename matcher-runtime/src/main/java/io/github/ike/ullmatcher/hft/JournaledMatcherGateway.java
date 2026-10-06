@@ -20,8 +20,10 @@ import java.util.function.BooleanSupplier;
  * <p>
  * 提交方法的顺序非常重要：
  * <ol>
- *     <li>先写 WAL 并强制刷盘，保证返回成功前具备本地可恢复性。</li>
- *     <li>再投递环形缓冲区，保证撮合线程只处理已经写入日志的命令。</li>
+ *     <li>先写 WAL，再按 {@link WalDurabilityMode} 刷盘：{@code SYNC_PER_COMMAND} 每条
+ *     {@code force}，{@code SYNC_PER_BATCH} 按批量或时延 {@code force}，
+ *     {@code OS_BUFFERED} 不在提交路径 {@code force}。</li>
+ *     <li>投递前先等待 ring 容量；单生产者下 WAL 后 offer 失败视为不变量破坏。</li>
  * </ol>
  */
 public final class JournaledMatcherGateway {

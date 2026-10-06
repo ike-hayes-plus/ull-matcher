@@ -14,7 +14,6 @@ final class HttpOrderEnumsTest {
         assertEquals(Side.BUY, HttpOrderEnums.parseSide("BUY"));
         assertEquals(Side.SELL, HttpOrderEnums.parseSide("SELL"));
         assertEquals(OrderType.LIMIT, HttpOrderEnums.parseOrderType("LIMIT"));
-        assertEquals(OrderType.MARKET_WITH_PROTECTION, HttpOrderEnums.parseOrderType("MARKET"));
         assertEquals(OrderType.MARKET_WITH_PROTECTION, HttpOrderEnums.parseOrderType("MARKET_WITH_PROTECTION"));
         assertEquals(TimeInForce.GTC, HttpOrderEnums.parseTimeInForce("GTC"));
         assertEquals(TimeInForce.IOC, HttpOrderEnums.parseTimeInForce("IOC"));
@@ -27,6 +26,7 @@ final class HttpOrderEnumsTest {
         assertThrows(BadRequestException.class, () -> HttpOrderEnums.parseSide(null));
         assertThrows(BadRequestException.class, () -> HttpOrderEnums.parseSide("UP"));
         assertThrows(BadRequestException.class, () -> HttpOrderEnums.parseOrderType(null));
+        assertThrows(BadRequestException.class, () -> HttpOrderEnums.parseOrderType("MARKET"));
         assertThrows(BadRequestException.class, () -> HttpOrderEnums.parseOrderType("STOP"));
         assertThrows(BadRequestException.class, () -> HttpOrderEnums.parseTimeInForce(null));
         assertThrows(BadRequestException.class, () -> HttpOrderEnums.parseTimeInForce("DAY"));

@@ -116,7 +116,7 @@ Maven 坐标见下节「依赖坐标」。生产安全边界见 [doc/operations/
 ### 环境要求
 
 - JDK 25
-- Maven 4，使用仓库里的 `./mvnw`
+- Maven 4，使用仓库里的 `./mvnw`（wrapper 钉死 `4.0.0-rc-7`）
 - 本地 SSD / NVMe
 
 工程内已经带 `.sdkmanrc`，请在仓库目录执行：
@@ -145,20 +145,22 @@ java -Dmatcher.nodeId=node-a \
      -jar matcher-server-dist/target/ull-matcher-server-dist-3.0.0.jar
 ```
 
-开发调试时也可以直接使用模块 classpath 启动：
+开发调试时也可以直接使用模块 classpath 启动。先生成 classpath，再启动：
 
 ```bash
+./mvnw --batch-mode --no-transfer-progress -pl matcher-server -am -DincludeScope=runtime \
+    dependency:build-classpath -Dmdep.outputFile=target/lab/classpath.txt
 java -Dmatcher.nodeId=node-a \
      -Dmatcher.symbolId=1 \
      -Dmatcher.dataDir=target/matcher-server \
-     -cp "$(cat target/lab/classpath.txt):matcher-server/target/classes:matcher-core/target/classes:matcher-storage/target/classes:matcher-runtime/target/classes:matcher-ha/target/classes:matcher-ha-grpc/target/classes:matcher-ha-aeron/target/classes:matcher-ha-zookeeper/target/classes:matcher-ha-etcd/target/classes:matcher-discovery-zookeeper/target/classes:matcher-examples/target/classes" \
+     -cp "$(cat target/lab/classpath.txt):matcher-server/target/classes" \
      io.github.ike.ullmatcher.server.bootstrap.MatcherServerMain
 ```
 
 默认会开放：
 
 - HTTP: `127.0.0.1:8080`
-- gRPC replication: `127.0.0.1:9190`
+- gRPC replication: `127.0.0.1:9090`（独立 `-jar` / classpath 启动默认值；`scripts/deploy` 集群模板默认 `9190` 起，避免和本机其他 gRPC 抢端口）
 
 ### 配置驱动集群启动
 
@@ -219,10 +221,10 @@ ZK_CONNECT=10.0.0.10:2181,10.0.0.11:2181,10.0.0.12:2181
 # 可选：etcd lease + etcd discovery
 LEASE_PROVIDER=etcd
 DISCOVERY_PROVIDER=etcd
-ETCD_ENDPOINT=http://10.0.0.10:2379,http://10.0.0.11:2379,http://10.0.0.12:2379
+ETCD_ENDPOINT=https://10.0.0.10:2379,https://10.0.0.11:2379,https://10.0.0.12:2379
 ```
 
-etcd provider 支持逗号分隔的多 endpoint，并按请求做 endpoint failover；生产环境应配置 3 个或更多 etcd 成员地址。提交入口的本地 primary lease 校验做短 TTL 正向缓存，默认 `matcher.etcdLocalHeldCheckCacheMillis=25`。它只缓存“当前节点仍持有当前 fencing token”的正向结果，用来避免每笔提交附近放大成 etcd HTTP 读；代价是提交入口感知 lease 丢失最多滞后这个缓存窗口，控制面 tick 仍会继续做权威续租和 fencing。
+etcd provider 支持逗号分隔的多 endpoint，并按请求做 endpoint failover；生产环境应配置 3 个或更多 etcd 成员地址。提交入口和控制面的 `isHeldBy` 每次都读 etcd。提交入口仍按 `matcher.primaryLeaseSubmitCheckMicros`（默认 1000µs）节流检查频率。
 
 控制面只支持 `zk/zk` 或 `etcd/etcd` 两种生产组合。节点发现和 primary lease 使用同一种强一致控制面，避免发现、租约和 fencing 被拆散到不同系统。
 
@@ -242,11 +244,10 @@ curl http://<primary-ip>:<http-port>/api/v1/runtime/readiness
 停节点：
 
 ```bash
-bash scripts/deploy/stop-node.sh node-a
-bash scripts/deploy/stop-node.sh node-b
+scripts/deploy/cluster.sh -c conf/merchant-42.env stop
 ```
 
-`start-node.sh` / `stop-node.sh` 是底层单节点工具；生产集群优先使用 `cluster.sh`，避免手工漏配 IP、端口、WAL 路径或复制模式。
+`start-node.sh` / `stop-node.sh` 是底层单节点工具，只读 `scripts/deploy/default.conf` 的 `LOG_ROOT`。用 `cluster.sh` 拉起的节点必须用 `cluster.sh ... stop`，否则找不到 pid。
 
 ## 部署模式
 
@@ -283,7 +284,7 @@ REST 压测支持单笔和批量两种模式。批量模式示例：
 ```bash
 python3 scripts/bench/replication-commit-benchmark.py \
   --base-url http://127.0.0.1:8080 \
-  --report target/current/http-ha/rest-batch-local.json \
+  --report target/benchmark/http-ha/rest-batch-local.json \
   --ack-mode local \
   --http-submit-mode batch \
   --batch-size 32
@@ -297,7 +298,7 @@ scripts/lab/run-rest-commit-benchmark.sh \
   --standby-base-url http://127.0.0.1:8081 \
   --wait-for-ready-seconds 30 \
   --http-submit-mode single \
-  --report target/current/http-ha/rest-single-1024-current.json
+  --report target/benchmark/http-ha/rest-single.json
 
 scripts/lab/run-rest-commit-benchmark.sh \
   --base-url http://127.0.0.1:8080 \
@@ -305,8 +306,10 @@ scripts/lab/run-rest-commit-benchmark.sh \
   --wait-for-ready-seconds 30 \
   --http-submit-mode batch \
   --batch-size 32 \
-  --report target/current/http-ha/rest-batch-1024-current.json
+  --report target/benchmark/http-ha/rest-batch.json
 ```
+
+单笔 REST 节点需 `WAL_FORCE_MAX_DELAY_MICROS=500`（`run-ha-benchmark-suite.sh` 已设）。主表校验只认 `target/benchmark/3.0-full/rest-1p1s-*.json`。
 
 ## Java SDK
 
@@ -351,22 +354,24 @@ try (MatcherBinaryClient client = new MatcherBinaryClient("127.0.0.1", 18080, ja
 | `POST` | `/api/v1/orders`                                        | 新单                |
 | `POST` | `/api/v1/orders/batch`                                  | 批量新单              |
 | `POST` | `/api/v1/orders/cancel`                                 | 撤单                |
+| `GET`  | `/api/v1/orders`                                        | 最近订单              |
 | `GET`  | `/api/v1/orders/{orderId}`                              | 查询订单状态            |
 | `GET`  | `/api/v1/submissions/{submissionId}`                    | 查询 submission     |
 | `GET`  | `/api/v1/submissions/by-idempotency?idempotencyKey=...` | 按幂等键查询 submission |
 | `POST` | `/api/v1/admin/snapshot`                                | 触发快照              |
+| `GET`  | `/api/v1/orchestrator/routes/symbols/{symbolId}`        | 编排路由（开启 orchestrator 时） |
 | `GET`  | `/api/v1/runtime/live`                                  | 存活探针，仅返回 `{"status":"UP"}`，免鉴权 |
 | `GET`  | `/api/v1/runtime/health`                                | 节点健康，需要 ingress API key |
 | `GET`  | `/api/v1/runtime/readiness`                             | readiness，需要 ingress API key |
-| `GET`  | `/api/v1/runtime/state`                                 | 运行态               |
-| `GET`  | `/metrics`                                              | Prometheus 指标     |
+| `GET`  | `/metrics`                                              | Prometheus 指标，配置了 API key 时需要鉴权 |
 
 ### Binary ingress
 
 `BinaryOrderIngressServer` 是高频主入口。支持：
 
-- 批量新单帧
-- 批量撤单帧
+- 批量新单帧（type `1`）
+- 批量撤单帧（type `2`）
+- 等待复制确认的批量新单帧（type `3`，SDK：`MatcherBinaryClient.submitOrdersCommitted`）
 - 固定帧响应
 
 建议：
@@ -506,14 +511,12 @@ README 只保留容量判断所需的摘要。完整 benchmark 口径和可复�
 
 - `restingOrders = 2048`
 - `crossingOrders = 2048`
-- `concurrency = 24`
+- `concurrency = 24`（REST HA 1P1S 为 **64** + 线程内 HTTP keep-alive）
 - `batchSize = 64`（binary ingress 场景）
 
 `restingOrders = 2048` 不是业务上限。它只是稳定 benchmark 口径：用 2048 笔预挂卖单形成足够深的可成交盘口，再用 2048 笔 crossing 买单完全吃掉该盘口。2048 是 2 的幂，便于固定批次、重复运行和观察队列/复制水位。
 
-Binary HA committed 容量行使用 `32768/32768` 订单窗口，便于更稳定地观察复制确认收敛。
-
-扩展大窗口验证曾使用 `1P1S`、`GRPC`、binary ingress、`restingOrders=1,000,000`、`crossingOrders=1,000,000`、`concurrency=24`、`batchSize=64`，结果为 `accepted=1,000,000`、`tradeEvents=1,000,000`、`committed=1,000,000`、`accepted/s=421,047`、`committed/s=415,615`、p99 `0.14 ms`、rejected `0`。该结果用于验证百万级挂单窗口可跑通；容量规划仍以 [Benchmark 基线](doc/operations/benchmark-baseline.md) 的标准窗口表为事实源。
+Binary HA committed 容量行使用 `32768/32768` 订单窗口，便于更稳定地观察复制确认收敛。百万级窗口验证数字只维护在 [Benchmark 基线](doc/operations/benchmark-baseline.md)。
 
 ### 容量摘要
 
@@ -544,7 +547,7 @@ Binary HA committed 容量行使用 `32768/32768` 订单窗口，便于更稳定
 
 ### 推荐服务器配置
 
-压测基线来自 Apple M4 Pro、12 逻辑 CPU、24 GiB 内存、本地 SSD、**JDK Temurin 25.0.3**。容量数字以 [Benchmark 基线](doc/operations/benchmark-baseline.md) 与 `target/benchmark/current/` 为准。生产环境建议按下面配置起步：
+压测基线来自 Apple M4 Pro、12 逻辑 CPU、24 GiB 内存、本地 SSD、**JDK Temurin 25.0.3**。容量数字以 [Benchmark 基线](doc/operations/benchmark-baseline.md) 与 `target/benchmark/3.0-full/`（主表 JSON）为准；历史分项报告仍可能在 `target/benchmark/current/`。生产环境建议按下面配置起步：
 
 | 用途 | CPU | 内存 | 磁盘 | 网络 |
 | --- | --- | --- | --- | --- |
@@ -554,24 +557,9 @@ Binary HA committed 容量行使用 `32768/32768` 订单窗口，便于更稳定
 
 优先保证 CPU 主频、磁盘 fsync 延迟和网络尾延迟。单机堆更多不能替代分片扩容。
 
-### 参考机器上的保守容量参考
+### 参考机器上的容量数字
 
-下表是容量规划的保守值，不是单次 benchmark 峰值。`trade events/s` 表示压测期间每秒完成的撮合成交事件数。完整事实源见
-[Benchmark 基线](doc/operations/benchmark-baseline.md)。
-
-| 模式                                                            | 推荐用途                             | accepted/s | trade events/s | committed/s |
-| ------------------------------------------------------------- | -------------------------------- | ----------: | --------------: | ----------: |
-| Core-only matcher                                             | 纯内存撮合主链                         | `32,464,634` | `N/A` | `N/A` |
-| Single-node HTTP                                              | 通用业务服务                           | 见基线文档 | 见基线文档 | 见基线文档 |
-| Single-node binary                                            | 高频单节点                            | 见基线文档 | 见基线文档 | 见基线文档 |
-| External `1P1S` REST + `GRPC` local ack                       | REST 写入 + 单备复制，本地 WAL 返回         | `3,375` | `3,375` | `3,369` |
-| External `1P1S` REST + `GRPC` committed ack                   | REST 写入 + 单备复制，等待 committed 返回   | `3,403` | `3,403` | `3,397` |
-| External `1P1S` binary + `GRPC` replication committed         | 高频主入口 + 单备闭环真实 committed         | `302,069` | `302,069` | `264,048` |
-| External `1P1S` binary + `AERON` replication committed        | 高频主入口 + 单备闭环真实 committed         | `270,880` | `270,880` | `210,889` |
-| External `1P2S` binary + `GRPC` quorum replication committed  | 高频主入口 + 两备 quorum 闭环真实 committed | `218,302` | `218,302` | `205,545` |
-| External `1P2S` binary + `AERON` quorum replication committed | 高频主入口 + 两备 quorum 闭环真实 committed | `324,817` | `324,817` | `78,769` |
-| External `1P3S` binary + `GRPC` quorum replication committed  | 高频主入口 + 三备 quorum 闭环真实 committed | `194,859` | `194,859` | `182,880` |
-| External `1P3S` binary + `AERON` quorum replication committed | 高频主入口 + 三备 quorum 闭环真实 committed | `297,155` | `297,155` | `43,807` |
+峰值与 committed 只维护在 [Benchmark 基线](doc/operations/benchmark-baseline.md)；分片预算见 [shard-capacity-planning.md](doc/architecture/shard-capacity-planning.md)。不要在 README 再抄一版数字表。
 
 ### 推荐部署原则
 
@@ -594,7 +582,7 @@ Binary HA committed 容量行使用 `32768/32768` 订单窗口，便于更稳定
 
 - 入口
   - `matcher.httpPort`
-  - `matcher.binaryIngressEnabled`
+  - `matcher.binaryIngressEnabled`（Spring：`ull.matcher.binary-ingress-enabled`）
   - `matcher.binaryIngressPort`
 - 撮合容量与语义
   - `matcher.expectedPriceLevels`
@@ -603,21 +591,27 @@ Binary HA committed 容量行使用 `32768/32768` 订单窗口，便于更稳定
   - `matcher.quoteScale`
   - `matcher.preventSelfTrade`
 - 持久化
+  - `matcher.persistenceProfile`
+  - `matcher.snapshotIntervalMillis`
   - `matcher.walDurabilityMode`
   - `matcher.walForceBatchSize`
   - `matcher.walForceMaxDelayMicros`
+  - `matcher.walColdArchiveDir`
 - 复制
   - `matcher.replicationTransport`
   - `matcher.replicationMode`
   - `matcher.replicationTimeoutMillis`
   - `matcher.failoverMinStandbyReplicas`
-  - `matcher.httpSubmitAckMode`
+  - `matcher.httpSubmitAckMode`（Spring：`ull.matcher.http-submit-ack-mode`）
   - `matcher.httpSubmitBatchMaxOrders`
+  - `matcher.orchestratorEnabled`（须 etcd 控制面；Spring：`ull.matcher.orchestrator-enabled`）
 - 传输安全
   - `matcher.transportMtlsRequired`
   - `matcher.transportTlsReloadMillis`
+  - 独立 JVM：`matcher.transportTlsCertChain` / `matcher.transportTlsPrivateKey` / `matcher.transportTlsTrustChain`
+  - Spring：`ull.matcher.tls.cert-chain` / `ull.matcher.tls.private-key` / `ull.matcher.tls.trust-chain`
 
-Standalone 与 Spring Boot starter 共享 WAL 默认值：`SYNC_PER_COMMAND`、`walForceBatchSize=1`、`walForceMaxDelayMicros=0`。需要以吞吐优先的批量刷盘模式运行时，应显式配置这些参数并在故障演练中确认可接受的丢失窗口。
+未设 `matcher.persistenceProfile` 时，Standalone 与 Spring Boot starter 共享 WAL 默认值：`SYNC_PER_COMMAND`、`walForceBatchSize=1`、`walForceMaxDelayMicros=0`。生产用 `PROD` 预设（含周期快照与冷备），压测用 `BENCH`；见 [persistence.md](doc/operations/persistence.md)。
 
 撮合容量默认值为 `expectedPriceLevels=65536`、`expectedLiveOrders=1048576`、`orderPoolSize=1048576`、`quoteScale=100000000`、`preventSelfTrade=true`。如果单分片可能长期保留接近百万级未成交挂单，应在生产配置中调大 `expectedLiveOrders` 和 `orderPoolSize`，并为价格档分布调大 `expectedPriceLevels`；`preventSelfTrade` 默认开启，关闭前应确认业务允许同一 `userId` 自成交。
 
@@ -630,7 +624,6 @@ Standalone 与 Spring Boot starter 共享 WAL 默认值：`SYNC_PER_COMMAND`、`
   - [安全策略](SECURITY.md)
   - [行为准则](CODE_OF_CONDUCT.md)
   - [变更日志](CHANGELOG.md)
-  - [生产部署与容量](doc/operations/production-deployment-and-capacity.md)
 - 架构：
   - [Shard 模型设计](doc/architecture/shard-model-design.md)
   - [多分片容量规划](doc/architecture/shard-capacity-planning.md)
@@ -642,6 +635,8 @@ Standalone 与 Spring Boot starter 共享 WAL 默认值：`SYNC_PER_COMMAND`、`
   - [部署模式](doc/operations/deployment-modes.md)
   - [HA / Sharding 验证环境手册](doc/operations/ha-sharding-lab.md)
   - [HTTP 路由预算与可观测性](doc/operations/http-route-budget-observability.md)
+  - [持久化预设与周期快照](doc/operations/persistence.md)
+  - [WAL 冷备](doc/operations/wal-archive-cold-backup.md)
   - [WAL / 复制 / 租约故障验证矩阵](doc/operations/wal-replication-lease-chaos-matrix.md)
   - [Shard 发布 Runbook](doc/operations/shard-rollout-runbook.md)
   - [Shard 发布检查清单](doc/operations/shard-rollout-checklist.md)

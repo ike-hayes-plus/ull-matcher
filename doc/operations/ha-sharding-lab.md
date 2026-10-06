@@ -180,14 +180,7 @@ REPLICATION_TRANSPORT=AERON ./scripts/chaos/cluster.sh up
 REPLICATION_TRANSPORT=AERON_PREVIEW ./scripts/chaos/cluster.sh up
 ```
 
-如果要演练“模式切换窗口”，建议显式带上：
-
-```bash
--Dmatcher.allowTransportChange=true
--Dmatcher.transportChangeWindowId=lab-switch-001
-```
-
-节点级滚动切换建议直接使用单节点脚本：
+节点级滚动切换使用单节点脚本，并显式打开变更窗口：
 
 ```bash
 ./scripts/lab/stop-node.sh node-b

@@ -130,6 +130,41 @@ final class MatcherBinaryClientProtocolTest {
     }
 
     @Test
+    void submitOrdersCommittedUsesFrameTypeThreeAndReadsReplicationFlag() throws Exception {
+        try (ServerSocket serverSocket = new ServerSocket(0)) {
+            FutureTask<int[]> server = new FutureTask<>(() -> {
+                try (Socket socket = serverSocket.accept()) {
+                    int[] header = readRequestHeader(socket);
+                    socket.getInputStream().readNBytes(header[4]);
+                    writeHeader(socket, RESPONSE_MAGIC, (short) 1, (short) 101, 1, 24);
+                    ByteBuffer payload = ByteBuffer.allocate(24).order(ByteOrder.BIG_ENDIAN);
+                    payload.putLong(301L);
+                    payload.putLong(15L);
+                    payload.putInt(0);
+                    payload.putInt(1);
+                    socket.getOutputStream().write(payload.array());
+                    socket.getOutputStream().flush();
+                    return header;
+                }
+            });
+            Thread.ofPlatform().start(server);
+
+            try (MatcherBinaryClient client = new MatcherBinaryClient(
+                    "127.0.0.1", serverSocket.getLocalPort(), Duration.ofSeconds(2))) {
+                BinaryCommandResult result = client.submitOrdersCommitted(
+                        List.of(BinaryNewOrder.buyLimit(1L, 301L, 99L, 2L))).getFirst();
+                assertEquals(301L, result.orderId());
+                assertEquals(15L, result.sequence());
+                assertTrue(result.replicationCommitted());
+            }
+
+            int[] header = server.get();
+            assertEquals(REQUEST_MAGIC, header[0]);
+            assertEquals(3, header[2], "committed new-order batches use frame type 3");
+        }
+    }
+
+    @Test
     void emptyResultFrameYieldsNoResults() throws Exception {
         try (ServerSocket serverSocket = new ServerSocket(0)) {
             FutureTask<Void> server = new FutureTask<>(() -> {

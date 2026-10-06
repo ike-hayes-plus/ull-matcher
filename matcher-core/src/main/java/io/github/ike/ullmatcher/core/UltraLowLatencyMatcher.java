@@ -22,9 +22,6 @@ import java.util.function.Consumer;
  * </ul>
  */
 public final class UltraLowLatencyMatcher {
-    /** 不可变撮合器配置。 */
-    private final MatcherConfig cfg;
-
     /** 热路径缓存的配置字段，避免 record 访问开销。 */
     private final int symbolId;
     private final boolean preventSelfTrade;
@@ -71,7 +68,7 @@ public final class UltraLowLatencyMatcher {
      * @param handler 在撮合线程内同步调用的事件处理器
      */
     public UltraLowLatencyMatcher(MatcherConfig cfg, MatchEventHandler handler) {
-        this.cfg = Objects.requireNonNull(cfg, "cfg");
+        Objects.requireNonNull(cfg, "cfg");
         this.symbolId = cfg.symbolId();
         this.preventSelfTrade = cfg.preventSelfTrade();
         this.quoteScale = cfg.quoteScale();
@@ -101,9 +98,7 @@ public final class UltraLowLatencyMatcher {
             onCancel(c);
             return;
         }
-        if (c.type == CommandType.SNAPSHOT_MARKER) {
-            emitOrder(c.sequence, c.symbolId, 0, OrderStatus.NEW, RejectReason.NONE, 0);
-        }
+        // SNAPSHOT_MARKER only advances lastSequence. It is not an order.
     }
 
     /**
@@ -112,9 +107,9 @@ public final class UltraLowLatencyMatcher {
      * @param c 新订单命令
      */
     private void onNewOrder(Command c) {
-        if (c.orderId <= 0 || c.userId <= 0 || c.quantity <= 0 || c.price < 0 ||
+        if (c.orderId <= 0 || c.userId <= 0 || c.quantity <= 0 || c.price <= 0 ||
                 quoteAmountWouldOverflow(c.price, c.quantity) || c.symbolId != symbolId ||
-                (c.side != Side.BUY.code && c.side != Side.SELL.code)) {
+                !knownSide(c.side) || !knownOrderType(c.orderType) || !knownTimeInForce(c.timeInForce)) {
             reject(c, RejectReason.INVALID_ORDER);
             return;
         }
@@ -123,25 +118,26 @@ public final class UltraLowLatencyMatcher {
             return;
         }
 
-        if (willRestIfUnfilled(c.timeInForce) && book.lacksRestingCapacity(c.side, c.price, c.orderId)) {
+        Order opposite = bestOpposite(c.side);
+        boolean crossesBest = opposite != null && crosses(c.side, c.price, opposite.price);
+        if (willRestIfUnfilled(c.timeInForce) && !crossesBest
+                && book.lacksRestingCapacity(c.side, c.price, c.orderId)) {
             rejectCapacity(c);
             return;
         }
 
-        Order opposite = bestOpposite(c.side);
-        boolean crossesBest = opposite != null && crosses(c.side, c.price, opposite.price);
         if (preventSelfTrade && crossesBest &&
                 book.hasSelfTradeInFillPath(c.side, c.price, c.userId, c.quantity)) {
-            emitOrder(c, OrderStatus.REJECTED, RejectReason.SELF_TRADE_PREVENTED, c.quantity);
+            reject(c, RejectReason.SELF_TRADE_PREVENTED);
             return;
         }
         if (c.timeInForce == TimeInForce.POST_ONLY.code && crossesBest) {
-            emitOrder(c, OrderStatus.REJECTED, RejectReason.POST_ONLY_WOULD_TAKE, c.quantity);
+            reject(c, RejectReason.POST_ONLY_WOULD_TAKE);
             return;
         }
         if (c.timeInForce == TimeInForce.FOK.code &&
                 !book.hasFillableQuantity(c.side, c.price, c.quantity, c.userId, preventSelfTrade)) {
-            emitOrder(c, OrderStatus.CANCELLED, RejectReason.FOK_NOT_FILLABLE, c.quantity);
+            reject(c, RejectReason.FOK_NOT_FILLABLE);
             return;
         }
         if (c.timeInForce == TimeInForce.IOC.code && !crossesBest) {
@@ -158,6 +154,7 @@ public final class UltraLowLatencyMatcher {
         taker.userId = c.userId;
         taker.symbolId = c.symbolId;
         taker.side = c.side;
+        taker.orderType = c.orderType;
         taker.timeInForce = c.timeInForce;
         taker.price = c.price;
         taker.quantity = c.quantity;
@@ -175,7 +172,8 @@ public final class UltraLowLatencyMatcher {
                         taker.remaining == taker.quantity ? OrderStatus.NEW : OrderStatus.PARTIALLY_FILLED,
                         RejectReason.NONE, taker.remaining);
             } else {
-                emitOrder(taker, OrderStatus.CANCELLED, RejectReason.CAPACITY_EXCEEDED, taker.remaining);
+                emitOrder(taker, OrderStatus.REJECTED, RejectReason.CAPACITY_EXCEEDED, taker.remaining);
+                rejectedCommandCount++;
                 capacityRejectedCommandCount++;
                 pool.release(taker);
             }
@@ -183,9 +181,7 @@ public final class UltraLowLatencyMatcher {
             if (taker.remaining == 0) {
                 emitOrder(taker, OrderStatus.FILLED, RejectReason.NONE, 0);
             } else {
-                emitOrder(taker,
-                        taker.remaining == taker.quantity ? OrderStatus.CANCELLED : OrderStatus.PARTIALLY_FILLED,
-                        RejectReason.NONE, taker.remaining);
+                emitOrder(taker, OrderStatus.CANCELLED, RejectReason.NONE, taker.remaining);
             }
             pool.release(taker);
         }
@@ -287,8 +283,8 @@ public final class UltraLowLatencyMatcher {
         }
         long remaining = o.remaining;
         book.remove(o);
+        emitOrder(o, OrderStatus.CANCELLED, RejectReason.NONE, remaining);
         pool.release(o);
-        emitOrder(c.sequence, c.symbolId, c.orderId, OrderStatus.CANCELLED, RejectReason.NONE, remaining);
     }
 
     /**
@@ -328,12 +324,12 @@ public final class UltraLowLatencyMatcher {
 
     private void emitOrder(Command c, OrderStatus status, RejectReason reason, long remaining) {
         emitOrder(c.sequence, c.symbolId, c.orderId, status, reason, remaining, c.expireAtEpochMillis,
-                c.side, OrderType.LIMIT.code, c.timeInForce, c.price, c.quantity);
+                c.side, c.orderType, c.timeInForce, c.price, c.quantity);
     }
 
     private void emitOrder(Order order, OrderStatus status, RejectReason reason, long remaining) {
         emitOrder(lastSequence, order.symbolId, order.orderId, status, reason, remaining, order.expireAtEpochMillis,
-                order.side, OrderType.LIMIT.code, order.timeInForce, order.price, order.quantity);
+                order.side, order.orderType, order.timeInForce, order.price, order.quantity);
     }
 
     private void emitOrder(long seq, int symbolId, long orderId, OrderStatus status, RejectReason reason, long remaining,
@@ -409,6 +405,21 @@ public final class UltraLowLatencyMatcher {
         return timeInForce != TimeInForce.IOC.code && timeInForce != TimeInForce.FOK.code;
     }
 
+    private static boolean knownSide(byte side) {
+        return side == Side.BUY.code || side == Side.SELL.code;
+    }
+
+    private static boolean knownOrderType(byte orderType) {
+        return orderType == OrderType.LIMIT.code || orderType == OrderType.MARKET_WITH_PROTECTION.code;
+    }
+
+    private static boolean knownTimeInForce(byte timeInForce) {
+        return timeInForce == TimeInForce.GTC.code
+                || timeInForce == TimeInForce.IOC.code
+                || timeInForce == TimeInForce.FOK.code
+                || timeInForce == TimeInForce.POST_ONLY.code;
+    }
+
     /**
      * 快照读取入口：只允许在撮合线程暂停或通过控制命令同步后调用。
      *
@@ -427,17 +438,19 @@ public final class UltraLowLatencyMatcher {
      * @param userId 用户编号
      * @param symbolId 交易对或分片编号
      * @param side 方向编码
+     * @param orderType 订单类型编码
      * @param timeInForce 有效期策略编码
      * @param price 定点数价格
      * @param quantity 原始定点数数量
      * @param remaining 剩余定点数数量
      * @param sequence 创建该订单的命令序列号
      */
-    public void restoreLiveOrder(long orderId, long userId, int symbolId, byte side, byte timeInForce,
+    public void restoreLiveOrder(long orderId, long userId, int symbolId, byte side, byte orderType, byte timeInForce,
                                  long price, long quantity, long remaining, long sequence, long expireAtEpochMillis) {
-        if (symbolId != this.symbolId || price < 0 || quantity <= 0 || remaining <= 0 || remaining > quantity ||
+        if (orderId <= 0 || userId <= 0 || symbolId != this.symbolId || price <= 0 || quantity <= 0
+                || remaining <= 0 || remaining > quantity ||
                 quoteAmountWouldOverflow(price, quantity) ||
-                (side != Side.BUY.code && side != Side.SELL.code) || book.exists(orderId)) {
+                !knownSide(side) || !knownOrderType(orderType) || !knownTimeInForce(timeInForce) || book.exists(orderId)) {
             throw new IllegalArgumentException("invalid snapshot order " + orderId);
         }
         Order order = pool.borrow();
@@ -448,6 +461,7 @@ public final class UltraLowLatencyMatcher {
         order.userId = userId;
         order.symbolId = symbolId;
         order.side = side;
+        order.orderType = orderType;
         order.timeInForce = timeInForce;
         order.price = price;
         order.quantity = quantity;

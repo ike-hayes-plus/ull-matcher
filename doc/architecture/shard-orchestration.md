@@ -28,7 +28,7 @@
           │  编排面（matcher-orchestrator）        │
           │  路由表 · shard 注册 · drain API       │
           └──────────────┬──────────────────────┘
-                         │ etcd / ZK
+                         │ etcd
      ┌───────────────────┼───────────────────┐
      ▼                   ▼                   ▼
  matcher-server      matcher-server       matcher-server
@@ -40,7 +40,7 @@
 ## 4. 交付状态
 
 - [x] `matcher-orchestrator` + `EtcdOrchestratorStore`
-- [x] `matcher.orchestratorEnabled` 自注册 / heartbeat / drain
+- [x] `matcher.orchestratorEnabled`（独立 JVM）/ `ull.matcher.orchestrator-enabled`（Spring）自注册 / heartbeat / drain；须 etcd 控制面
 - [x] HTTP `GET /api/v1/orchestrator/routes/symbols/{symbolId}` + SDK
 - [x] `RoutingTable.startBackgroundRefresh`（嵌入方周期刷新）
 - [ ] etcd watch 推送（可选增强）
@@ -49,9 +49,11 @@
 ## 5. 控制面键空间
 
 ```text
-/ull-matcher/v3/routes/symbols/{symbolId}     → { shardKey, generation, updatedAt }
-/ull-matcher/v3/shards/{shardKey}             → { nodeId, http, grpc, binary, role, state }
+{etcdKeyPrefix}/v3/routes/symbols/{symbolId}  → { shardKey, generation, updatedAt }
+{etcdKeyPrefix}/v3/shards/{shardKey}          → { nodeId, http, grpc, binary, role, state }
 ```
+
+`etcdKeyPrefix` 与现有控制面 prefix 相同：独立 JVM 默认 `/ull-matcher/{clusterName}`，Spring 默认 `/ull-matcher/{cluster.name}`。例如 cluster `prod` 的 symbol 7 路由键是 `/ull-matcher/prod/v3/routes/symbols/7`。
 
 未开启 orchestrator 时，单节点部署行为与无编排时相同。
 

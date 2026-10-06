@@ -1,13 +1,13 @@
 {
   "_comment": [
     "Floors for HA/cluster benchmark reports (binary ingress, REST HA).",
-    "Validated when reports exist under target/benchmark/current/ or via",
+    "Validated when reports exist under target/benchmark/3.0-full/ via",
     "scripts/ops/check-ha-benchmark-floor.sh. Values sit well below the",
     "reference machine in benchmark-baseline.md to tolerate lab variance."
   ],
   "scenarios": {
-    "grpc-1p2s-binary-frame1": {
-      "reportFile": "grpc-1p2s-binary-frame1.json",
+    "grpc-1p1s-binary": {
+      "reportFile": "grpc-1p1s.json",
       "atLeast": {
         "acceptedCommandsPerSecond": 120000.0,
         "replicationCommittedSubmissionsPerSecond": 110000.0
@@ -17,14 +17,80 @@
         "commitCatchupSeconds": 0.05
       }
     },
-    "grpc-1p2s-binary-committed-frame": {
-      "reportFile": "grpc-1p2s-binary-committed-frame.json",
+    "aeron-1p1s-binary": {
+      "reportFile": "aeron-1p1s.json",
       "atLeast": {
-        "acceptedCommandsPerSecond": 60000.0,
-        "replicationCommittedSubmissionsPerSecond": 60000.0
+        "acceptedCommandsPerSecond": 90000.0,
+        "replicationCommittedSubmissionsPerSecond": 85000.0
       },
       "atMost": {
-        "latency.p99Ms": 5.0,
+        "latency.p99Ms": 3.0,
+        "commitCatchupSeconds": 0.05
+      }
+    },
+    "grpc-1p2s-binary-frame1": {
+      "reportFile": "grpc-1p2s.json",
+      "atLeast": {
+        "acceptedCommandsPerSecond": 120000.0,
+        "replicationCommittedSubmissionsPerSecond": 110000.0
+      },
+      "atMost": {
+        "latency.p99Ms": 2.0,
+        "commitCatchupSeconds": 0.05
+      }
+    },
+    "aeron-1p2s-binary": {
+      "reportFile": "aeron-1p2s.json",
+      "atLeast": {
+        "acceptedCommandsPerSecond": 150000.0,
+        "replicationCommittedSubmissionsPerSecond": 40000.0
+      },
+      "atMost": {
+        "latency.p99Ms": 3.0,
+        "commitCatchupSeconds": 0.5
+      }
+    },
+    "grpc-1p3s-binary": {
+      "reportFile": "grpc-1p3s.json",
+      "atLeast": {
+        "acceptedCommandsPerSecond": 80000.0,
+        "replicationCommittedSubmissionsPerSecond": 70000.0
+      },
+      "atMost": {
+        "latency.p99Ms": 3.0,
+        "commitCatchupSeconds": 0.05
+      }
+    },
+    "aeron-1p3s-binary": {
+      "reportFile": "aeron-1p3s.json",
+      "atLeast": {
+        "acceptedCommandsPerSecond": 150000.0,
+        "replicationCommittedSubmissionsPerSecond": 20000.0
+      },
+      "atMost": {
+        "latency.p99Ms": 3.0,
+        "commitCatchupSeconds": 1.5
+      }
+    },
+    "rest-1p1s-local": {
+      "reportFile": "rest-1p1s-local.json",
+      "atLeast": {
+        "acceptedOrdersPerSecond": 2500.0,
+        "replicationCommittedSubmissionsPerSecond": 2500.0
+      },
+      "atMost": {
+        "latency.p99Ms": 50.0,
+        "commitCatchupSeconds": 0.05
+      }
+    },
+    "rest-1p1s-committed": {
+      "reportFile": "rest-1p1s-committed.json",
+      "atLeast": {
+        "acceptedOrdersPerSecond": 2500.0,
+        "replicationCommittedSubmissionsPerSecond": 2500.0
+      },
+      "atMost": {
+        "latency.p99Ms": 50.0,
         "commitCatchupSeconds": 0.05
       }
     }

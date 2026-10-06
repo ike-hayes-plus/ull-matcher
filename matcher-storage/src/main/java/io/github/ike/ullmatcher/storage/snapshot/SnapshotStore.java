@@ -1,6 +1,7 @@
 package io.github.ike.ullmatcher.storage.snapshot;
 
 import io.github.ike.ullmatcher.api.MatchEventHandler;
+import io.github.ike.ullmatcher.api.OrderType;
 import io.github.ike.ullmatcher.api.TimeInForce;
 import io.github.ike.ullmatcher.core.MatcherConfig;
 import io.github.ike.ullmatcher.core.UltraLowLatencyMatcher;
@@ -32,7 +33,7 @@ public final class SnapshotStore {
     private static final int MAGIC = 0x534E4150; // 魔数：SNAP
 
     /** 快照二进制格式版本。 */
-    private static final int VERSION = 3;
+    private static final int VERSION = 4;
 
     /**
      * 工具类。
@@ -56,6 +57,7 @@ public final class SnapshotStore {
                 o.userId,
                 o.symbolId,
                 o.side,
+                o.orderType,
                 o.timeInForce,
                 o.price,
                 o.quantity,
@@ -75,6 +77,7 @@ public final class SnapshotStore {
                 out.writeLong(order.userId);
                 out.writeInt(order.symbolId);
                 out.writeByte(order.side);
+                out.writeByte(order.orderType);
                 out.writeByte(order.timeInForce);
                 out.writeLong(order.price);
                 out.writeLong(order.quantity);
@@ -104,7 +107,7 @@ public final class SnapshotStore {
 
         ParsedSnapshot parsed = parse(file);
         for (SnapshotOrder order : parsed.orders()) {
-            matcher.restoreLiveOrder(order.orderId, order.userId, order.symbolId, order.side,
+            matcher.restoreLiveOrder(order.orderId, order.userId, order.symbolId, order.side, order.orderType,
                     restoreTimeInForce(order.timeInForce, order.orderId).code,
                     order.price, order.quantity, order.remaining, order.sequence, order.expireAtEpochMillis);
         }
@@ -120,6 +123,7 @@ public final class SnapshotStore {
         List<SnapshotLiveOrder> orders = new ArrayList<>(parsed.orders().size());
         for (SnapshotOrder order : parsed.orders()) {
             orders.add(new SnapshotLiveOrder(order.orderId, order.symbolId, order.side,
+                    OrderType.from(order.orderType),
                     restoreTimeInForce(order.timeInForce, order.orderId),
                     order.price, order.quantity, order.remaining, order.sequence, order.expireAtEpochMillis));
         }
@@ -130,9 +134,9 @@ public final class SnapshotStore {
         try (DataInputStream in = new DataInputStream(new BufferedInputStream(Files.newInputStream(file)))) {
             if (in.readInt() != MAGIC) throw new IOException("bad snapshot magic");
             int version = in.readInt();
-            if (version != 1 && version != 2 && version != VERSION) throw new IOException("unsupported snapshot version " + version);
+            if (version != VERSION) throw new IOException("unsupported snapshot version " + version);
             long snapshotSequence = in.readLong();
-            long snapshotTradeSequence = version == 1 ? 0L : in.readLong();
+            long snapshotTradeSequence = in.readLong();
             long count = in.readLong();
             List<SnapshotOrder> orders = new ArrayList<>(Math.toIntExact(count));
             for (long i = 0; i < count; i++) {
@@ -142,11 +146,12 @@ public final class SnapshotStore {
                         in.readInt(),
                         in.readByte(),
                         in.readByte(),
+                        in.readByte(),
                         in.readLong(),
                         in.readLong(),
                         in.readLong(),
                         in.readLong(),
-                        version >= 3 ? in.readLong() : 0L
+                        in.readLong()
                 );
                 validateSnapshotOrder(order, snapshotSequence);
                 orders.add(order);
@@ -196,7 +201,8 @@ public final class SnapshotStore {
      */
     public record SnapshotMetadata(Path file, long lastSequence, long lastTradeId, long liveOrderCount) {}
 
-    public record SnapshotLiveOrder(long orderId, int symbolId, byte side, TimeInForce timeInForce,
+    public record SnapshotLiveOrder(long orderId, int symbolId, byte side, OrderType orderType,
+                                    TimeInForce timeInForce,
                                     long price, long quantity, long remaining, long sequence,
                                     long expireAtEpochMillis) {}
 
@@ -209,6 +215,7 @@ public final class SnapshotStore {
      * @param userId 用户编号
      * @param symbolId 交易对或分片编号
      * @param side 方向编码
+     * @param orderType 订单类型编码
      * @param timeInForce 有效期策略编码
      * @param price 定点数价格
      * @param quantity 原始定点数数量
@@ -216,6 +223,6 @@ public final class SnapshotStore {
      * @param sequence 创建该订单的命令序列号
      * @param expireAtEpochMillis 订单绝对过期时间，单位为 epoch millis；非 TTL 订单为 {@code 0}
      */
-    private record SnapshotOrder(long orderId, long userId, int symbolId, byte side, byte timeInForce,
+    private record SnapshotOrder(long orderId, long userId, int symbolId, byte side, byte orderType, byte timeInForce,
                                  long price, long quantity, long remaining, long sequence, long expireAtEpochMillis) {}
 }

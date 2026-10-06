@@ -189,7 +189,7 @@ validate_replication_mode() {
 
 validate_wal_mode() {
   case "$1" in
-    SYNC_PER_BATCH|SYNC_PER_COMMAND|OS_BUFFERED) ;;
+    ""|SYNC_PER_BATCH|SYNC_PER_COMMAND|OS_BUFFERED) ;;
     *)
       echo "WAL_DURABILITY_MODE must be SYNC_PER_COMMAND, SYNC_PER_BATCH, or OS_BUFFERED: $1" >&2
       return 1
@@ -591,6 +591,27 @@ validate_config() {
     echo "ENABLE_TRANSPORT_TLS must be true or false" >&2
     status=1
   fi
+  if [[ "${SERVER_MODE_VALUE}" == "PROD" ]] && is_remote_bind_host "$GRPC_BIND_HOST" && [[ "$ENABLE_TRANSPORT_TLS" != "true" ]]; then
+    echo "PROD GRPC_BIND_HOST=$GRPC_BIND_HOST is non-loopback; set ENABLE_TRANSPORT_TLS=true" >&2
+    status=1
+  fi
+  if [[ "${SERVER_MODE_VALUE}" == "PROD" && "${lease_provider}" == "etcd" ]]; then
+    local etcd_endpoint
+    local etcd_host
+    IFS=',' read -ra etcd_endpoints <<< "${ETCD_ENDPOINT}"
+    for etcd_endpoint in "${etcd_endpoints[@]}"; do
+      etcd_endpoint="${etcd_endpoint#"${etcd_endpoint%%[![:space:]]*}"}"
+      etcd_endpoint="${etcd_endpoint%"${etcd_endpoint##*[![:space:]]}"}"
+      if [[ "$etcd_endpoint" == http://* ]]; then
+        etcd_host="${etcd_endpoint#http://}"
+        etcd_host="${etcd_host%%[:/]*}"
+        if is_remote_bind_host "$etcd_host"; then
+          echo "PROD etcd endpoint must use https for non-loopback: $etcd_endpoint" >&2
+          status=1
+        fi
+      fi
+    done
+  fi
   if [[ "$allow_dual_remote_ingress" != "true" && "$allow_dual_remote_ingress" != "false" ]]; then
     echo "ALLOW_DUAL_REMOTE_INGRESS must be true or false" >&2
     status=1
@@ -617,6 +638,10 @@ validate_config() {
   fi
   if is_remote_bind_host "$http_bind_host" && [[ "$allow_insecure_remote_http" != "true" ]]; then
     echo "HTTP_BIND_HOST=$http_bind_host is non-loopback in PROD; set ALLOW_INSECURE_REMOTE_HTTP=true only when an internal sidecar/gateway is the security boundary" >&2
+    status=1
+  fi
+  if is_remote_bind_host "$binary_bind_host" && [[ "$allow_insecure_remote_http" != "true" ]]; then
+    echo "BINARY_BIND_HOST=$binary_bind_host is non-loopback in PROD; set ALLOW_INSECURE_REMOTE_HTTP=true only when an internal sidecar/gateway is the security boundary" >&2
     status=1
   fi
 

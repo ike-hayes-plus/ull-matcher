@@ -22,7 +22,8 @@ SYMBOL_ID="1"
 # PREVENT_SELF_TRADE=true
 
 ZK_CONNECT="10.0.0.10:2181,10.0.0.11:2181,10.0.0.12:2181"
-ETCD_ENDPOINT="http://10.0.0.10:2379,http://10.0.0.11:2379,http://10.0.0.12:2379"
+ETCD_ENDPOINT="https://10.0.0.10:2379,https://10.0.0.11:2379,https://10.0.0.12:2379"
+ENABLE_TRANSPORT_TLS="true"
 
 # Use one control plane per cluster: both providers must be zk, or both etcd.
 LEASE_PROVIDER="zk"

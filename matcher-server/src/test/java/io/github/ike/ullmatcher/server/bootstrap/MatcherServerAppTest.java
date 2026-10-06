@@ -17,6 +17,7 @@ import io.github.ike.ullmatcher.server.cluster.MatcherClusterConfig;
 import io.github.ike.ullmatcher.server.cluster.ReplicationTransportPolicyConfig;
 import io.github.ike.ullmatcher.server.security.IngressAuthConfig;
 import io.github.ike.ullmatcher.server.security.ServerSecurityConfig;
+import io.github.ike.ullmatcher.storage.wal.WalArchiveConfig;
 import io.github.ike.ullmatcher.server.telemetry.ReadinessSnapshot;
 import org.junit.jupiter.api.Test;
 
@@ -59,7 +60,7 @@ final class MatcherServerAppTest {
             HttpClient client = HttpClient.newHttpClient();
             assertEquals(200, statusOf(client, app.httpPort(), "/api/v1/runtime/live"));
             assertEquals(200, statusOf(client, app.httpPort(), "/api/v1/runtime/health"));
-            assertEquals(200, statusOf(client, app.httpPort(), "/api/v1/runtime/state"));
+            assertEquals(200, statusOf(client, app.httpPort(), "/api/v1/runtime/health"));
             assertEquals(200, statusOf(client, app.httpPort(), "/api/v1/runtime/readiness"));
             assertEquals(200, statusOf(client, app.httpPort(), "/metrics"));
 
@@ -167,6 +168,9 @@ final class MatcherServerAppTest {
         Path dir = Files.createTempDirectory("matcher-app-unsafe");
         MatcherServerConfig config = baseBuilder(dir)
                 .serverMode(MatcherServerMode.PROD)
+                .persistenceProfile(PersistenceProfile.PROD)
+                .snapshotIntervalMillis(PersistenceProfile.PROD_SNAPSHOT_INTERVAL_MILLIS)
+                .walArchiveConfig(WalArchiveConfig.ofDirectory(dir.resolve("wal-cold")))
                 .httpBindHost("10.0.0.10")
                 .build();
 

@@ -71,9 +71,9 @@ final class ServerEngineBranchCoverageTest {
         OrderStateTracker tracker = new OrderStateTracker(2);
 
         tracker.onRecoveredLiveOrder(new SnapshotStore.SnapshotLiveOrder(
-                1L, 7, Side.BUY.code, TimeInForce.GTC, 100L, 10L, 10L, 5L, 0L));
+                1L, 7, Side.BUY.code, OrderType.LIMIT, TimeInForce.GTC, 100L, 10L, 10L, 5L, 0L));
         tracker.onRecoveredLiveOrder(new SnapshotStore.SnapshotLiveOrder(
-                2L, 7, Side.SELL.code, TimeInForce.GTC, 99L, 8L, 3L, 6L, 40L));
+                2L, 7, Side.SELL.code, OrderType.LIMIT, TimeInForce.GTC, 99L, 8L, 3L, 6L, 40L));
 
         OrderEvent orphanFilled = event(99L, OrderStatus.FILLED, RejectReason.NONE);
         tracker.onOrder(orphanFilled);

@@ -63,6 +63,9 @@ final class SnapshotCoordinator {
         awaitSequenceApplied(engine.matcher(), markerSequence, engine.ring());
         SnapshotStore.SnapshotMetadata metadata = SnapshotStore.write(snapshotFile, engine.matcher());
         engine.standbySyncService().markSnapshot(metadata.lastSequence());
+        engine.wal().rollAfterSnapshot(metadata.lastSequence() + 1L);
+        engine.wal().deleteSegmentsCoveredBySnapshot(metadata.lastSequence());
+        engine.wal().writeManifest(metadata.file(), metadata.lastSequence(), metadata.lastTradeId());
         return new SnapshotMaterial(metadata.file(), metadata.lastSequence(), metadata.lastTradeId(), metadata.liveOrderCount());
     }
 

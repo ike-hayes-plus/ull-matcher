@@ -149,7 +149,6 @@ def status_to_result(status: int):
         2: "RING_FULL_BEFORE_WAL_APPEND",
         3: "COMMAND_POOL_EXHAUSTED",
         4: "MATCHER_STOPPED_AFTER_WAL_APPEND",
-        5: "RING_FULL_AFTER_WAL_APPEND",
     }.get(status, f"UNKNOWN_{status}")
 
 

@@ -44,6 +44,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -55,6 +56,7 @@ import java.util.concurrent.locks.LockSupport;
  * <p>
  * 该类把入口层、撮合引擎、WAL、快照和高可用复制链收敛成一个节点语义：
  * 控制面串行推进，提交流量独立批量推进，最后一跳仍保持单线程撮合。
+ * 周期 RDB 与权威快照导出仅在 PRIMARY（或单节点无集群）上运行，避免备库写出或流出未追平 RDB。
  */
 public final class MatcherNodeService implements Closeable, NodeControlStateSource, SnapshotMaterialSource {
     private static final Logger LOG = LoggerFactory.getLogger(MatcherNodeService.class);
@@ -83,6 +85,8 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
     private volatile boolean replicationIngressPaused;
     private volatile boolean closed;
     private volatile long nextPrimaryLeaseSubmitCheckNanos;
+    private ScheduledExecutorService snapshotScheduler;
+    private volatile boolean periodicSnapshotRunning;
 
     public MatcherNodeService(MatcherServerConfig config) {
         this.config = Objects.requireNonNull(config, "config");
@@ -131,9 +135,48 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
             }
             nextSequence.set(state.matcher().lastSequence() + 1L);
             ttlCancelGuard.start();
-            LOG.info("matcher node started nodeId={} role={}", config.nodeId(), config.initialRole().name());
+            startPeriodicSnapshotsIfConfigured();
+            LOG.info("matcher node started nodeId={} role={} persistenceProfile={} snapshotIntervalMillis={}",
+                    config.nodeId(), config.initialRole().name(),
+                    config.persistenceProfile().name(), config.snapshotIntervalMillis());
             return null;
         });
+    }
+
+    private void startPeriodicSnapshotsIfConfigured() {
+        long intervalMillis = config.snapshotIntervalMillis();
+        if (intervalMillis <= 0L || snapshotScheduler != null) {
+            return;
+        }
+        snapshotScheduler = Executors.newSingleThreadScheduledExecutor(
+                Thread.ofPlatform().daemon(true).name("matcher-snapshot-" + config.nodeId()).factory());
+        snapshotScheduler.scheduleWithFixedDelay(
+                this::runPeriodicSnapshot,
+                intervalMillis,
+                intervalMillis,
+                TimeUnit.MILLISECONDS);
+    }
+
+    private void runPeriodicSnapshot() {
+        MatcherEngine current = state;
+        if (current == null) {
+            return;
+        }
+        if (config.clusterConfig() != null && current.runtime().role() != HaRole.PRIMARY) {
+            return;
+        }
+        if (periodicSnapshotRunning) {
+            LOG.warn("skipping overlapping periodic snapshot nodeId={}", config.nodeId());
+            return;
+        }
+        periodicSnapshotRunning = true;
+        try {
+            createSnapshot();
+        } catch (Exception e) {
+            LOG.warn("periodic snapshot failed nodeId={}", config.nodeId(), e);
+        } finally {
+            periodicSnapshotRunning = false;
+        }
     }
 
     public SubmitResponse submitNewOrder(long userId, long orderId, Side side, OrderType orderType, TimeInForce tif,
@@ -381,6 +424,7 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
     @Override
     public SnapshotMaterial latestSnapshot() throws IOException {
         return invokeControlWrite(() -> {
+            requireAuthoritativeSnapshotRole();
             if (Files.exists(config.snapshotFile()) && lastSnapshot.file().equals(config.snapshotFile())) {
                 return lastSnapshot;
             }
@@ -390,20 +434,8 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
 
     public SnapshotSyncResult installSnapshotFrom(SnapshotSyncSource source, long timeoutNanos) throws IOException {
         Objects.requireNonNull(source, "source");
-        return invokeControlWrite(() -> {
-            replicationIngressPaused = true;
-            try {
-                Path tmp = config.snapshotFile().resolveSibling(config.snapshotFile().getFileName() + ".sync");
-                SnapshotSyncResult result = source.downloadLatestSnapshot(tmp, timeoutNanos);
-                Files.move(result.file(), config.snapshotFile(), java.nio.file.StandardCopyOption.REPLACE_EXISTING,
-                        java.nio.file.StandardCopyOption.ATOMIC_MOVE);
-                restartFromSnapshot();
-                lastSnapshot = new SnapshotMaterial(config.snapshotFile(), result.lastSequence(), result.lastTradeId(), result.liveOrderCount());
-                return new SnapshotSyncResult(config.snapshotFile(), result.bytesWritten(), result.lastSequence(), result.lastTradeId(), result.liveOrderCount());
-            } finally {
-                replicationIngressPaused = false;
-            }
-        });
+        return invokeControlWrite(() -> installAuthoritativeSnapshot(source, timeoutNanos, requireStarted().runtime().role(),
+                "installed authoritative snapshot and isolated local WAL"));
     }
 
     public SnapshotSyncResult rejoinFencedFromSnapshot(SnapshotSyncSource source, long timeoutNanos) throws IOException {
@@ -413,29 +445,8 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
             if (current.runtime().role() != HaRole.FENCED) {
                 throw new IllegalStateException("only fenced runtime can rejoin from authoritative snapshot");
             }
-            replicationIngressPaused = true;
-            try {
-                Path tmp = config.snapshotFile().resolveSibling(config.snapshotFile().getFileName() + ".rejoin");
-                SnapshotSyncResult result = source.downloadLatestSnapshot(tmp, timeoutNanos);
-                FencingToken token = current.runtime().fencingToken();
-                current.close();
-                state = null;
-                quarantineWalDirectory();
-                Files.move(result.file(), config.snapshotFile(), java.nio.file.StandardCopyOption.REPLACE_EXISTING,
-                        java.nio.file.StandardCopyOption.ATOMIC_MOVE);
-                orderStateTracker.reset();
-                ttlCancelGuard.resetTrackedState();
-                EngineLifecycleManager.EngineStartResult restarted = engineLifecycleManager.createEngine(HaRole.STANDBY, token);
-                state = restarted.engine();
-                lastSnapshot = new SnapshotMaterial(config.snapshotFile(), result.lastSequence(), result.lastTradeId(), result.liveOrderCount());
-                nextSequence.set(state.matcher().lastSequence() + 1L);
-                LOG.warn("fenced node rejoined as standby from authoritative snapshot nodeId={} source={} lastSequence={}",
-                        config.nodeId(), source.nodeId(), result.lastSequence());
-                return new SnapshotSyncResult(config.snapshotFile(), result.bytesWritten(), result.lastSequence(),
-                        result.lastTradeId(), result.liveOrderCount());
-            } finally {
-                replicationIngressPaused = false;
-            }
+            return installAuthoritativeSnapshot(source, timeoutNanos, HaRole.STANDBY,
+                    "fenced node rejoined as standby from authoritative snapshot");
         });
     }
 
@@ -607,6 +618,10 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
             controlExecutor.shutdownNow();
             submitWorker.interrupt();
         }
+        ScheduledExecutorService scheduler = snapshotScheduler;
+        if (scheduler != null) {
+            scheduler.shutdownNow();
+        }
         try {
             clusterRoleCoordinator.replicationCoordinator().close();
         } catch (IOException e) {
@@ -630,25 +645,54 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
         }
     }
 
-    private void restartFromSnapshot() throws IOException {
-        EngineLifecycleManager.RestartResult restarted = engineLifecycleManager.restartFromSnapshot(requireStarted());
-        state = restarted.engine();
-        if (restarted.snapshotMaterial() != null) {
-            lastSnapshot = restarted.snapshotMaterial();
+    private SnapshotSyncResult installAuthoritativeSnapshot(SnapshotSyncSource source,
+                                                            long timeoutNanos,
+                                                            HaRole restartRole,
+                                                            String logMessage) throws IOException {
+        MatcherEngine current = requireStarted();
+        replicationIngressPaused = true;
+        try {
+            Path tmp = FencedRejoinStore.rejoinTemp(config.snapshotFile());
+            SnapshotSyncResult result = source.downloadLatestSnapshot(tmp, timeoutNanos);
+            io.github.ike.ullmatcher.storage.wal.StorageSync.forceFile(result.file());
+            Path quarantine = FencedRejoinStore.plannedQuarantine(config.walDirectory());
+            FencedRejoinStore.writeIntent(config.snapshotFile(), result.file(), quarantine);
+            FencingToken token = current.runtime().fencingToken();
+            current.close();
+            state = null;
+            quarantineWalDirectory(quarantine);
+            persistInstalledSnapshot(result.file(), config.snapshotFile());
+            FencedRejoinStore.clearIntent(config.snapshotFile());
+            orderStateTracker.reset();
+            ttlCancelGuard.resetTrackedState();
+            EngineLifecycleManager.EngineStartResult restarted = engineLifecycleManager.createEngine(restartRole, token);
+            state = restarted.engine();
+            lastSnapshot = new SnapshotMaterial(config.snapshotFile(), result.lastSequence(), result.lastTradeId(), result.liveOrderCount());
+            nextSequence.set(state.matcher().lastSequence() + 1L);
+            LOG.warn("{} nodeId={} source={} lastSequence={} role={}",
+                    logMessage, config.nodeId(), source.nodeId(), result.lastSequence(), restartRole.name());
+            return new SnapshotSyncResult(config.snapshotFile(), result.bytesWritten(), result.lastSequence(),
+                    result.lastTradeId(), result.liveOrderCount());
+        } finally {
+            replicationIngressPaused = false;
         }
-        nextSequence.set(state.matcher().lastSequence() + 1L);
-        LOG.info("matcher engine restarted from snapshot nodeId={} role={}", config.nodeId(), restarted.role().name());
     }
 
-    private void quarantineWalDirectory() throws IOException {
+    private static void persistInstalledSnapshot(Path downloaded, Path snapshotFile) throws IOException {
+        io.github.ike.ullmatcher.storage.wal.StorageSync.forceFile(downloaded);
+        Files.move(downloaded, snapshotFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+        io.github.ike.ullmatcher.storage.wal.StorageSync.forceDirectory(snapshotFile.toAbsolutePath().getParent());
+    }
+
+    private void quarantineWalDirectory(Path quarantine) throws IOException {
         Path walDirectory = config.walDirectory();
         if (!Files.exists(walDirectory)) {
             return;
         }
-        Path quarantine = walDirectory.resolveSibling(walDirectory.getFileName() + ".fenced."
-                + System.currentTimeMillis() + "." + System.nanoTime());
         Files.move(walDirectory, quarantine);
-        LOG.warn("quarantined fenced local WAL before standby rejoin nodeId={} from={} to={}",
+        io.github.ike.ullmatcher.storage.wal.StorageSync.forceDirectory(walDirectory.toAbsolutePath().getParent());
+        LOG.warn("quarantined local WAL before authoritative snapshot install nodeId={} from={} to={}",
                 config.nodeId(), walDirectory, quarantine);
     }
 
@@ -698,10 +742,20 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
     }
 
     private SnapshotMaterial createSnapshotInternal() throws IOException {
+        requireAuthoritativeSnapshotRole();
         lastSnapshot = snapshotCoordinator.createSnapshot(requireStarted());
         LOG.info("snapshot created nodeId={} file={} lastSequence={}",
                 config.nodeId(), lastSnapshot.file(), lastSnapshot.lastSequence());
         return lastSnapshot;
+    }
+
+    private void requireAuthoritativeSnapshotRole() throws IOException {
+        if (config.clusterConfig() == null) {
+            return;
+        }
+        if (requireStarted().runtime().role() != HaRole.PRIMARY) {
+            throw new IOException("only primary can create or export an authoritative snapshot");
+        }
     }
 
     private <T> T invokeControlWrite(Callable<T> task) throws IOException {

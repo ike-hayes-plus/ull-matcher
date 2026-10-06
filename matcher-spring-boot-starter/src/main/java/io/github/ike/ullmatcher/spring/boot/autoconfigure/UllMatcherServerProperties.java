@@ -6,6 +6,8 @@ import io.github.ike.ullmatcher.hft.WalDurabilityMode;
 import io.github.ike.ullmatcher.core.MatcherConfig;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerConfig;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerMode;
+import io.github.ike.ullmatcher.server.bootstrap.PersistenceProfile;
+import io.github.ike.ullmatcher.server.api.BinaryIngressLimits;
 import io.github.ike.ullmatcher.server.security.IngressAuthConfig;
 import io.github.ike.ullmatcher.server.cluster.ReplicationTransportPolicyConfig;
 import io.github.ike.ullmatcher.ha.transport.ReplicationTransportType;
@@ -31,6 +33,14 @@ public class UllMatcherServerProperties {
     private String httpBindHost = "127.0.0.1";
     private int grpcPort = 9090;
     private String grpcBindHost = "127.0.0.1";
+    private String httpSubmitAckMode = "local";
+    private boolean binaryIngressEnabled;
+    private int binaryIngressPort = 10080;
+    private String binaryIngressBindHost = "127.0.0.1";
+    private int binaryIngressMaxBatchSize = 256;
+    private int binaryIngressMaxConnections = BinaryIngressLimits.DEFAULT_MAX_CONNECTIONS;
+    private long binaryIngressHandshakeTimeoutMillis = BinaryIngressLimits.DEFAULT_HANDSHAKE_TIMEOUT_MILLIS;
+    private long binaryIngressIdleTimeoutMillis = BinaryIngressLimits.DEFAULT_IDLE_TIMEOUT_MILLIS;
     private int httpWorkerThreads = MatcherServerConfig.defaultHttpWorkerThreads();
     private int httpMaxBodyBytes = 1 << 20;
     private int httpMaxConcurrentRequests = MatcherServerConfig.DEFAULT_HTTP_MAX_CONCURRENT_REQUESTS;
@@ -59,10 +69,14 @@ public class UllMatcherServerProperties {
     private boolean allowInsecureRemoteHttp;
     private String ingressApiKeys = "";
     private String ingressApiKeyHeader = IngressAuthConfig.DEFAULT_API_KEY_HEADER;
-    private WalDurabilityMode walDurabilityMode = MatcherServerConfig.DEFAULT_WAL_DURABILITY_MODE;
-    private int walForceBatchSize = MatcherServerConfig.DEFAULT_WAL_FORCE_BATCH_SIZE;
-    private long walForceMaxDelayMicros = MatcherServerConfig.DEFAULT_WAL_FORCE_MAX_DELAY_MICROS;
+    private WalDurabilityMode walDurabilityMode;
+    private Integer walForceBatchSize;
+    private Long walForceMaxDelayMicros;
     private String walColdArchiveDir = "";
+    private PersistenceProfile persistenceProfile = PersistenceProfile.NONE;
+    private Long snapshotIntervalMillis;
+    private boolean orchestratorEnabled;
+    private long orchestratorGeneration = 1L;
     private final Ttl ttl = new Ttl();
     private final Tls tls = new Tls();
     private final Cluster cluster = new Cluster();
@@ -193,6 +207,70 @@ public class UllMatcherServerProperties {
 
     public void setGrpcBindHost(String grpcBindHost) {
         this.grpcBindHost = grpcBindHost;
+    }
+
+    public String getHttpSubmitAckMode() {
+        return httpSubmitAckMode;
+    }
+
+    public void setHttpSubmitAckMode(String httpSubmitAckMode) {
+        this.httpSubmitAckMode = httpSubmitAckMode;
+    }
+
+    public boolean isBinaryIngressEnabled() {
+        return binaryIngressEnabled;
+    }
+
+    public void setBinaryIngressEnabled(boolean binaryIngressEnabled) {
+        this.binaryIngressEnabled = binaryIngressEnabled;
+    }
+
+    public int getBinaryIngressPort() {
+        return binaryIngressPort;
+    }
+
+    public void setBinaryIngressPort(int binaryIngressPort) {
+        this.binaryIngressPort = binaryIngressPort;
+    }
+
+    public String getBinaryIngressBindHost() {
+        return binaryIngressBindHost;
+    }
+
+    public void setBinaryIngressBindHost(String binaryIngressBindHost) {
+        this.binaryIngressBindHost = binaryIngressBindHost;
+    }
+
+    public int getBinaryIngressMaxBatchSize() {
+        return binaryIngressMaxBatchSize;
+    }
+
+    public void setBinaryIngressMaxBatchSize(int binaryIngressMaxBatchSize) {
+        this.binaryIngressMaxBatchSize = binaryIngressMaxBatchSize;
+    }
+
+    public int getBinaryIngressMaxConnections() {
+        return binaryIngressMaxConnections;
+    }
+
+    public void setBinaryIngressMaxConnections(int binaryIngressMaxConnections) {
+        this.binaryIngressMaxConnections = binaryIngressMaxConnections;
+    }
+
+    public long getBinaryIngressHandshakeTimeoutMillis() {
+        return binaryIngressHandshakeTimeoutMillis;
+    }
+
+    public void setBinaryIngressHandshakeTimeoutMillis(long binaryIngressHandshakeTimeoutMillis) {
+        this.binaryIngressHandshakeTimeoutMillis = binaryIngressHandshakeTimeoutMillis;
+    }
+
+    public long getBinaryIngressIdleTimeoutMillis() {
+        return binaryIngressIdleTimeoutMillis;
+    }
+
+    public void setBinaryIngressIdleTimeoutMillis(long binaryIngressIdleTimeoutMillis) {
+        this.binaryIngressIdleTimeoutMillis = binaryIngressIdleTimeoutMillis;
     }
 
     public int getHttpWorkerThreads() {
@@ -427,19 +505,19 @@ public class UllMatcherServerProperties {
         this.walDurabilityMode = walDurabilityMode;
     }
 
-    public int getWalForceBatchSize() {
+    public Integer getWalForceBatchSize() {
         return walForceBatchSize;
     }
 
-    public void setWalForceBatchSize(int walForceBatchSize) {
+    public void setWalForceBatchSize(Integer walForceBatchSize) {
         this.walForceBatchSize = walForceBatchSize;
     }
 
-    public long getWalForceMaxDelayMicros() {
+    public Long getWalForceMaxDelayMicros() {
         return walForceMaxDelayMicros;
     }
 
-    public void setWalForceMaxDelayMicros(long walForceMaxDelayMicros) {
+    public void setWalForceMaxDelayMicros(Long walForceMaxDelayMicros) {
         this.walForceMaxDelayMicros = walForceMaxDelayMicros;
     }
 
@@ -449,6 +527,38 @@ public class UllMatcherServerProperties {
 
     public void setWalColdArchiveDir(String walColdArchiveDir) {
         this.walColdArchiveDir = walColdArchiveDir;
+    }
+
+    public PersistenceProfile getPersistenceProfile() {
+        return persistenceProfile;
+    }
+
+    public void setPersistenceProfile(PersistenceProfile persistenceProfile) {
+        this.persistenceProfile = persistenceProfile;
+    }
+
+    public Long getSnapshotIntervalMillis() {
+        return snapshotIntervalMillis;
+    }
+
+    public void setSnapshotIntervalMillis(Long snapshotIntervalMillis) {
+        this.snapshotIntervalMillis = snapshotIntervalMillis;
+    }
+
+    public boolean isOrchestratorEnabled() {
+        return orchestratorEnabled;
+    }
+
+    public void setOrchestratorEnabled(boolean orchestratorEnabled) {
+        this.orchestratorEnabled = orchestratorEnabled;
+    }
+
+    public long getOrchestratorGeneration() {
+        return orchestratorGeneration;
+    }
+
+    public void setOrchestratorGeneration(long orchestratorGeneration) {
+        this.orchestratorGeneration = orchestratorGeneration;
     }
 
     public Ttl getTtl() {
@@ -589,7 +699,6 @@ public class UllMatcherServerProperties {
         private String etcdKeyPrefix = "";
         private long etcdLeaseTtlSeconds = 10L;
         private long etcdTimeoutMillis = 2_000L;
-        private long etcdLocalHeldCheckCacheMillis = 25L;
         private String etcdTlsTrustChain = "";
         private String etcdTlsCertChain = "";
         private String etcdTlsPrivateKey = "";
@@ -695,14 +804,6 @@ public class UllMatcherServerProperties {
 
         public void setEtcdTimeoutMillis(long etcdTimeoutMillis) {
             this.etcdTimeoutMillis = etcdTimeoutMillis;
-        }
-
-        public long getEtcdLocalHeldCheckCacheMillis() {
-            return etcdLocalHeldCheckCacheMillis;
-        }
-
-        public void setEtcdLocalHeldCheckCacheMillis(long etcdLocalHeldCheckCacheMillis) {
-            this.etcdLocalHeldCheckCacheMillis = etcdLocalHeldCheckCacheMillis;
         }
 
         public String getEtcdTlsTrustChain() {
