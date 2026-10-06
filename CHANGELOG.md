@@ -26,8 +26,5 @@
 
 ### Removed
 
-- 文档与代码中的 2.0 迁移、`MIGRATION-2.0.md`、`HttpRequestPipeline.directBlocking`。
-
-### Fixed
-
-- HA / WAL / ingress 与 2.0 tag 以来累积修复保持有效（详见 git history `v2.0.0..HEAD`）。
+- 历史版本迁移文档与 `HttpRequestPipeline.directBlocking`。
+- 架构文档统一为 `replication-transport.md`、`shard-orchestration.md`（无版本后缀 ADR 文件名）。

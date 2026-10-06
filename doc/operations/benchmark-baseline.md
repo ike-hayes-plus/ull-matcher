@@ -8,7 +8,7 @@
 - 12 逻辑 CPU
 - 24 GiB 内存
 - 本地 SSD
-- **JDK Temurin 25.0.3**（2.0 运行时与本文「压测结果」口径）
+- **JDK Temurin 25.0.3**（与本文「压测结果」口径一致）
 
 正式 JSON 报告目录：`target/benchmark/current/`（`scripts/ops/run-ha-benchmark-suite.sh`，Temurin 25 / `.sdkmanrc`）。
 
@@ -279,7 +279,7 @@ scripts/ops/run-benchmark-regression.sh
 
 ### WAL 元数据 fsync
 
-2.0 在段文件创建时增加了一次 `FileChannel.force(true)`。这是**正确性修复**，不是性能优化：
+当前实现在段文件创建时增加了一次 `FileChannel.force(true)`。这是**正确性修复**，不是性能优化：
 `truncate()` 只改页缓存里的文件长度，此前数据页可能已经 msync 落盘而长度没有，
 崩溃后会留下一个被截短的段，丢掉已经 ack 过的命令。
 

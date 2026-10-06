@@ -48,7 +48,7 @@
 
 ## 产品基线（3.0）
 
-当前唯一维护版本为 **3.0.0**：JDK 25 / Maven 4 单分片撮合节点，可选 **etcd 多分片编排**（register / symbol 路由 / drain）。编排不会把多个 symbol 放进同一状态机；见 [shard-orchestration-3.0.md](doc/architecture/shard-orchestration-3.0.md)。
+当前唯一维护版本为 **3.0.0**：JDK 25 / Maven 4 单分片撮合节点，可选 **etcd 多分片编排**（register / symbol 路由 / drain）。编排不会把多个 symbol 放进同一状态机；见 [shard-orchestration.md](doc/architecture/shard-orchestration.md)。
 
 ## 模块地图
 

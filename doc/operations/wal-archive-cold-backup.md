@@ -1,16 +1,16 @@
-# WAL 分段归档与冷备（2.1）
+# WAL 分段归档与冷备
 
 ## 行为
 
 - 热 WAL 仍写在 `{dataDir}/wal/`，由 `SegmentedMmapWal` 分段滚动。
 - **快照成功后**，引擎会删除已被快照覆盖、且非当前写入段的 WAL 文件。
-- 2.1 起若配置了冷备目录，删除前会把分段 **复制** 到冷备路径并 `fsync`，复制失败则 **保留** 热 WAL（与 `WalSegmentArchiver` 契约一致）。
+- 若配置了冷备目录，删除前会把分段 **复制** 到冷备路径并 `fsync`，复制失败则 **保留** 热 WAL（与 `WalSegmentArchiver` 契约一致）。
 
 ## 配置
 
 | 入口 | 属性 | 说明 |
 | --- | --- | --- |
-| 独立进程 | `matcher.walColdArchiveDir` | 绝对或相对路径；未设置则与 2.0 相同（不归档） |
+| 独立进程 | `matcher.walColdArchiveDir` | 绝对或相对路径；未设置则不归档 |
 | Spring Boot | `ull.matcher.wal-cold-archive-dir` | 同上 |
 
 冷备布局：

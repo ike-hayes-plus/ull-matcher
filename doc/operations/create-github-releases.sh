@@ -3,34 +3,27 @@
 set -euo pipefail
 
 repo="${1:-ike-hayes-plus/ull-matcher}"
+tag="${2:-v3.0.0}"
 
 if ! command -v gh >/dev/null 2>&1; then
   echo "install gh: brew install gh && gh auth login" >&2
   exit 1
 fi
 
-gh release view v1.1.0.0 --repo "$repo" >/dev/null 2>&1 || \
-  gh release create v1.1.0.0 --repo "$repo" --title "v1.1.0.0" --notes "$(cat <<'EOF'
-首个公开基线（2026-07-02，`b3015cc`）。
+if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
+  echo "Release $tag already exists on $repo"
+  exit 0
+fi
 
-- 初始开源撮合引擎与 HA 骨架
-- 详见仓库该 tag 时间点文档
+gh release create "$tag" --repo "$repo" --title "$tag" --notes "$(cat <<'EOF'
+**3.0** 单分片节点 + 可选 etcd 多分片编排。
 
-EOF
-)"
-
-gh release view v2.0.0 --repo "$repo" >/dev/null 2>&1 || \
-  gh release create v2.0.0 --repo "$repo" --title "v2.0.0" --notes "$(cat <<'EOF'
-**2.0 单分片生产基线**（`8196f6c`，2026-10-05）
-
-- JDK 25 / Maven 4，`./mvnw`
-- 生产默认 gRPC 复制、ingress 鉴权、etcd mTLS、PROD 安全闸门
-- Java SDK 3.0；见 [README.md](../../README.md)
+- JDK 25 / Maven 4，`./mvnw -Pstyle-check verify`
+- 生产默认 gRPC 复制、HTTP/binary ingress 鉴权、PROD 安全闸门
+- SDK：`io.github.ike:ull-matcher-sdk-java:3.0.0`
 - 部署：[production-deployment-and-capacity.md](production-deployment-and-capacity.md)
 
-**不含** 3.0 `matcher-orchestrator`（在 `v2.0.0` 之后的 master 提交）。
-
 EOF
 )"
 
-echo "Done. Open: https://github.com/${repo}/releases"
+echo "Done. Open: https://github.com/${repo}/releases/tag/${tag}"

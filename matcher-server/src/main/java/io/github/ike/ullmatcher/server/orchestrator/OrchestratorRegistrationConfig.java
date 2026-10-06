@@ -5,7 +5,7 @@ import io.github.ike.ullmatcher.ha.etcd.EtcdConfig;
 import java.util.Objects;
 
 /**
- * 3.0 分片在控制面编排存储中的自注册配置（默认关闭，2.0 行为不变）。
+ * 分片在控制面编排存储中的自注册配置（默认关闭）。
  */
 public record OrchestratorRegistrationConfig(
         boolean enabled,

@@ -4,7 +4,7 @@ import java.nio.file.Path;
 import java.util.Objects;
 
 /**
- * WAL 分段冷备配置。未设置 {@link #coldArchiveDirectory()} 时不归档（与 2.0 行为一致）。
+ * WAL 分段冷备配置。未设置 {@link #coldArchiveDirectory()} 时不归档。
  */
 public record WalArchiveConfig(Path coldArchiveDirectory) {
     public WalArchiveConfig {
