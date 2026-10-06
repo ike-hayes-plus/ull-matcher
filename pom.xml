@@ -64,7 +64,7 @@
         <curator.version>5.9.0</curator.version>
         <grpc.version>1.83.1</grpc.version>
         <jackson.version>3.1.5</jackson.version>
-        <protobuf.version>4.35.1</protobuf.version>
+        <protobuf.version>4.36.2</protobuf.version>
         <protobuf.maven.plugin.version>5.1.8</protobuf.maven.plugin.version>
         <aeron.version>1.53.3</aeron.version>
         <opentelemetry.version>1.63.0</opentelemetry.version>
