@@ -45,9 +45,27 @@
 | `matcher.httpShardWriteMaxConcurrentRequests` | **1024** | 分片写准入（与写 budget 对齐） |
 | `matcher.httpWorkerThreads` | **max(32, 2×CPU)** | Undertow worker/IO 规模基线 |
 
-拐点扫频：`scripts/lab/run-http-concurrency-sweep.sh`（内置 `SingleNodeServerCrossingBenchmark`）。
+拐点扫频：`scripts/lab/run-http-concurrency-sweep.sh`（`SingleNodeServerCrossingBenchmark`，默认 **单笔** `POST /orders`）。
 
-REST **写**与读一样经虚拟线程 dispatch，但在 handler 内仍会阻塞等待撮合/WAL；吞吐天花板见 §1，请用 binary 承载高频写。
+### 单节点 HTTP 破万（本机 M4 Pro，2048 crossing，2026-10-06）
+
+| 模式 | 客户端并发 | 拐点/配置 | accepted orders/s | 说明 |
+| --- | ---: | --- | ---: | --- |
+| 单笔 REST | 16 | 扫频拐点 **~16**（再上去回落） | **~5.9k** | 每请求 1 单；受 JSON + 同步 handler + submit 端点 budget(512) 约束 |
+| 批量 REST | 16 | `--batch-size 32`，submit budget **2048** | **~16.8k** | `POST /api/v1/orders/batch`；64 个 HTTP 请求承载 2048 单 |
+| Binary ingress | — | 见 benchmark-baseline | **~77k+** | 高频写首选 |
+
+**结论：** 「HTTP 并发破万」若指 **订单受理条数/s**，用 **batch REST + 放宽 submit 端点 budget（与写 budget 对齐）** 即可在本机远超 10k；若坚持 **单笔 POST /orders** 且要 **>10k orders/s**，在当前架构下 **不现实**，应改 batch 或 binary。
+
+批量压测示例：
+
+```bash
+./mvnw -q -pl matcher-examples -am install -DskipTests
+# 脚本内可扩展 --batch-size；或直接：
+java -cp ... SingleNodeServerCrossingBenchmark --batch-size 32 --http-submit-endpoint-budget 2048 --concurrency 16
+```
+
+REST **写**与读一样经虚拟线程 dispatch，但在 handler 内仍会阻塞等待撮合/WAL；极限吞吐见上表与 §1。
 
 ## 3. 容量与观测
 

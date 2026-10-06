@@ -1,4 +1,5 @@
 target/
+.mvn/target/
 $PWD/
 .DS_Store
 *.log

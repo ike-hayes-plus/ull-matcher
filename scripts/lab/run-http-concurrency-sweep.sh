@@ -6,6 +6,8 @@ REPORT_DIR="${REPORT_DIR:-$ROOT_DIR/target/benchmark/http-sweep}"
 RESTING_ORDERS="${RESTING_ORDERS:-2048}"
 CROSSING_ORDERS="${CROSSING_ORDERS:-2048}"
 CONCURRENCY_LEVELS="${CONCURRENCY_LEVELS:-8,16,24,32,48,64,96,128,192,256,384,512}"
+HTTP_BATCH_SIZE="${HTTP_BATCH_SIZE:-1}"
+HTTP_SUBMIT_ENDPOINT_BUDGET="${HTTP_SUBMIT_ENDPOINT_BUDGET:-512}"
 MAIN_CLASS="io.github.ike.ullmatcher.example.SingleNodeServerCrossingBenchmark"
 
 mkdir -p "$REPORT_DIR"
@@ -40,6 +42,8 @@ for concurrency in "${LEVELS[@]}"; do
     --resting-orders "$RESTING_ORDERS" \
     --crossing-orders "$CROSSING_ORDERS" \
     --concurrency "$concurrency" \
+    --batch-size "$HTTP_BATCH_SIZE" \
+    --http-submit-endpoint-budget "$HTTP_SUBMIT_ENDPOINT_BUDGET" \
     > "$out"
   rate="$(python3 - <<'PY' "$out"
 import json, re, sys

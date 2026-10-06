@@ -50,6 +50,7 @@ public final class SingleNodeServerCrossingBenchmark {
 
         MatcherServerConfig config = MatcherServerConfig.defaults("node-a", 1, parsed.dataRoot()).toBuilder()
                 .httpWorkerThreads(parsed.httpWorkerThreads())
+                .httpSubmitEndpointMaxConcurrentRequests(parsed.httpSubmitEndpointBudget())
                 .walSegmentSizeBytes(parsed.walSegmentBytes())
                 .walDurabilityMode(parsed.durabilityMode())
                 .walForceBatchSize(parsed.forceBatchSize())
@@ -141,7 +142,10 @@ public final class SingleNodeServerCrossingBenchmark {
             BenchmarkSupport.waitForTrades(nodeService, 0L, 5_000L);
 
             HttpClient client = MatcherHttpTransport.newClientBuilder(Duration.ofSeconds(5)).build();
-            URI ordersUri = URI.create("http://127.0.0.1:" + server.port() + "/api/v1/orders");
+            boolean batchMode = parsed.batchSize() > 1;
+            URI ordersUri = URI.create(batchMode
+                    ? "http://127.0.0.1:" + server.port() + "/api/v1/orders/batch"
+                    : "http://127.0.0.1:" + server.port() + "/api/v1/orders");
 
             MatcherNodeMetricsSnapshot before = nodeService.metricsSnapshot();
             long beforeAccepted = before.submitPathMetrics().walAcceptedTotal();
@@ -153,19 +157,28 @@ public final class SingleNodeServerCrossingBenchmark {
                     parsed.concurrency(),
                     Thread.ofVirtual().name("single-node-http-bench-", 0).factory());
             CountDownLatch start = new CountDownLatch(1);
-            List<java.util.concurrent.Future<ResultSample>> futures = new ArrayList<>(parsed.crossingOrders());
+            int httpRequests = batchMode
+                    ? (parsed.crossingOrders() + parsed.batchSize() - 1) / parsed.batchSize()
+                    : parsed.crossingOrders();
+            List<java.util.concurrent.Future<ResultSample>> futures = new ArrayList<>(httpRequests);
             long orderIdBase = 2_000_000L;
-            for (int i = 0; i < parsed.crossingOrders(); i++) {
-                final long orderId = orderIdBase + i;
-                final String payload = requestBody(orderId);
+            for (int batchIndex = 0; batchIndex < httpRequests; batchIndex++) {
+                final int firstOrderIndex = batchIndex * parsed.batchSize();
+                final int ordersInBatch = Math.min(parsed.batchSize(), parsed.crossingOrders() - firstOrderIndex);
+                final String payload = batchMode
+                        ? batchRequestBody(orderIdBase + firstOrderIndex, ordersInBatch)
+                        : requestBody(orderIdBase + firstOrderIndex);
                 futures.add(workers.submit(() -> {
                     start.await();
                     long started = System.nanoTime();
-                    HttpRequest request = HttpRequest.newBuilder()
+                    HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                             .uri(ordersUri)
                             .timeout(Duration.ofSeconds(5))
-                            .header("Content-Type", "application/json")
-                            .header("Idempotency-Key", "bench:" + orderId)
+                            .header("Content-Type", "application/json");
+                    if (!batchMode) {
+                        requestBuilder.header("Idempotency-Key", "bench:" + (orderIdBase + firstOrderIndex));
+                    }
+                    HttpRequest request = requestBuilder
                             .POST(HttpRequest.BodyPublishers.ofString(payload))
                             .build();
                     HttpResponse<Void> response = client.send(request, HttpResponse.BodyHandlers.discarding());
@@ -210,6 +223,8 @@ public final class SingleNodeServerCrossingBenchmark {
             System.out.printf(Locale.ROOT, "  \"restingOrders\": %d,%n", parsed.restingOrders());
             System.out.printf(Locale.ROOT, "  \"crossingOrders\": %d,%n", parsed.crossingOrders());
             System.out.printf(Locale.ROOT, "  \"concurrency\": %d,%n", parsed.concurrency());
+            System.out.printf(Locale.ROOT, "  \"httpBatchSize\": %d,%n", parsed.batchSize());
+            System.out.printf(Locale.ROOT, "  \"httpRequests\": %d,%n", httpRequests);
             System.out.printf(Locale.ROOT, "  \"elapsedSeconds\": %.6f,%n", elapsedSeconds);
             System.out.printf(Locale.ROOT, "  \"acceptedOrders\": %d,%n", acceptedOrders);
             System.out.printf(Locale.ROOT, "  \"processedCommands\": %d,%n", processedCommands);
@@ -234,12 +249,29 @@ public final class SingleNodeServerCrossingBenchmark {
                 + ",\"side\":\"BUY\",\"orderType\":\"LIMIT\",\"timeInForce\":\"IOC\",\"price\":101,\"quantity\":1}";
     }
 
+    private static String batchRequestBody(long firstOrderId, int count) {
+        StringBuilder payload = new StringBuilder(count * 96 + 16);
+        payload.append("{\"orders\":[");
+        for (int i = 0; i < count; i++) {
+            if (i > 0) {
+                payload.append(',');
+            }
+            long orderId = firstOrderId + i;
+            payload.append("{\"userId\":1,\"orderId\":").append(orderId)
+                    .append(",\"side\":\"BUY\",\"orderType\":\"LIMIT\",\"timeInForce\":\"IOC\",\"price\":101,\"quantity\":1}");
+        }
+        payload.append("]}");
+        return payload.toString();
+    }
+
     private record ResultSample(int statusCode, double latencyMs) {
     }
 
     private record Arguments(int restingOrders,
                              int crossingOrders,
                              int concurrency,
+                             int batchSize,
+                             int httpSubmitEndpointBudget,
                              int httpWorkerThreads,
                              long walSegmentBytes,
                              WalDurabilityMode durabilityMode,
@@ -250,6 +282,8 @@ public final class SingleNodeServerCrossingBenchmark {
             int restingOrders = 2_048;
             int crossingOrders = 2_048;
             int concurrency = 24;
+            int batchSize = 1;
+            int httpSubmitEndpointBudget = MatcherServerConfig.DEFAULT_HTTP_SUBMIT_ENDPOINT_MAX_CONCURRENT_REQUESTS;
             int httpWorkerThreads = MatcherServerConfig.defaultHttpWorkerThreads();
             long walSegmentBytes = 64L * 1024L * 1024L;
             WalDurabilityMode durabilityMode = WalDurabilityMode.SYNC_PER_BATCH;
@@ -264,6 +298,8 @@ public final class SingleNodeServerCrossingBenchmark {
                     case "--resting-orders" -> restingOrders = Integer.parseInt(value);
                     case "--crossing-orders" -> crossingOrders = Integer.parseInt(value);
                     case "--concurrency" -> concurrency = Integer.parseInt(value);
+                    case "--batch-size" -> batchSize = Integer.parseInt(value);
+                    case "--http-submit-endpoint-budget" -> httpSubmitEndpointBudget = Integer.parseInt(value);
                     case "--http-worker-threads" -> httpWorkerThreads = Integer.parseInt(value);
                     case "--wal-segment-bytes" -> walSegmentBytes = Long.parseLong(value);
                     case "--durability-mode" -> durabilityMode = WalDurabilityMode.valueOf(value);
@@ -273,10 +309,15 @@ public final class SingleNodeServerCrossingBenchmark {
                     default -> throw new IllegalArgumentException("unknown argument: " + key);
                 }
             }
+            if (batchSize <= 0) {
+                throw new IllegalArgumentException("batch-size must be positive");
+            }
             return new Arguments(
                     restingOrders,
                     crossingOrders,
                     concurrency,
+                    batchSize,
+                    httpSubmitEndpointBudget,
                     httpWorkerThreads,
                     walSegmentBytes,
                     durabilityMode,
