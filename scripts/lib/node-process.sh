@@ -57,6 +57,7 @@ start_matcher_node() {
   local http_write_max_concurrent_requests="${HTTP_WRITE_MAX_CONCURRENT_REQUESTS:-}"
   local http_submit_endpoint_max_concurrent_requests="${HTTP_SUBMIT_ENDPOINT_MAX_CONCURRENT_REQUESTS:-}"
   local http_worker_threads="${HTTP_WORKER_THREADS:-}"
+  local http_shard_write_max_concurrent_requests="${HTTP_SHARD_WRITE_MAX_CONCURRENT_REQUESTS:-}"
   local cp_build_maven_args="${CP_BUILD_MAVEN_ARGS:?CP_BUILD_MAVEN_ARGS is required}"
   local java_opts=()
 
@@ -169,6 +170,9 @@ start_matcher_node() {
   fi
   if [[ -n "${http_worker_threads:-}" ]]; then
     cmd+=(-Dmatcher.httpWorkerThreads="$http_worker_threads")
+  fi
+  if [[ -n "${http_shard_write_max_concurrent_requests:-}" ]]; then
+    cmd+=(-Dmatcher.httpShardWriteMaxConcurrentRequests="$http_shard_write_max_concurrent_requests")
   fi
 
   if [[ "$allow_insecure_remote_http" == "true" ]]; then

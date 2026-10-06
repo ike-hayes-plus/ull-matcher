@@ -16,9 +16,9 @@
 | `matcher.binaryIngressHandshakeTimeoutMillis` | 5000 | 未鉴权连接超时 |
 | `matcher.binaryIngressIdleTimeoutMillis` | 300000 | 空闲连接回收 |
 
-## 2. HTTP 读路径：虚拟线程 + 保留 budget
+## 2. HTTP 调度：Undertow IO → 虚拟线程 + 保留 budget
 
-自 3.0 开发线起，**HTTP 读**（GET 查询、health/readiness 等）默认在 **虚拟线程** 上执行，避免「平台线程池 + 小队列」人为压低可读并发。
+**读/写** handler 均经 `exchange.dispatch(虚拟线程池, …)` 执行，Undertow worker 不再在 `future.get` 或长 WAL 等待上被占满。写路径同样受 **route 超时** 约束（与读一致）。
 
 **背压不变**：全局 / 读·写·管理路由 / 端点 Semaphore 仍生效（503 overload），保护 ring、WAL 与内存。
 
@@ -26,11 +26,14 @@
 | --- | --- | --- |
 | （默认） | 虚拟线程 | 每读请求一条虚拟线程 |
 | `-Dmatcher.httpPlatformReadExecutor=true` | 关闭 VT | 恢复旧版有界平台线程池（排障用） |
-| `matcher.httpMaxConcurrentRequests` | 256 | 全局在途 HTTP 上限 |
-| `matcher.httpReadMaxConcurrentRequests` | 96 | 读路由 budget |
-| `matcher.httpWriteMaxConcurrentRequests` | 128 | 写路由 budget |
-| `matcher.httpSubmitEndpointMaxConcurrentRequests` | 96 | POST 下单端点 |
-| `matcher.httpWorkerThreads` | max(4, CPU) | Undertow worker（写路径 `directBlocking` 等） |
+| `matcher.httpMaxConcurrentRequests` | **2048** | 全局在途 HTTP 上限 |
+| `matcher.httpReadMaxConcurrentRequests` | **1024** | 读路由 budget |
+| `matcher.httpWriteMaxConcurrentRequests` | **1024** | 写路由 budget |
+| `matcher.httpSubmitEndpointMaxConcurrentRequests` | **512** | POST 下单端点 |
+| `matcher.httpShardWriteMaxConcurrentRequests` | **1024** | 分片写准入（与写 budget 对齐） |
+| `matcher.httpWorkerThreads` | **max(32, 2×CPU)** | Undertow worker/IO 规模基线 |
+
+拐点扫频：`scripts/lab/run-http-concurrency-sweep.sh`（内置 `SingleNodeServerCrossingBenchmark`）。
 
 REST **写**仍在 Undertow worker 上阻塞等待撮合/WAL；提高写并发请回到 §1。
 

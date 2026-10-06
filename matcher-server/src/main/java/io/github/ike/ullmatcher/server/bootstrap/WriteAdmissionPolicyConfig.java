@@ -29,7 +29,7 @@ public record WriteAdmissionPolicyConfig(
 
     public static WriteAdmissionPolicyConfig defaults() {
         return new WriteAdmissionPolicyConfig(
-                128,
+                MatcherServerConfig.DEFAULT_HTTP_WRITE_MAX_CONCURRENT_REQUESTS,
                 0,
                 "X-Ull-Tenant-Key",
                 0.0d,

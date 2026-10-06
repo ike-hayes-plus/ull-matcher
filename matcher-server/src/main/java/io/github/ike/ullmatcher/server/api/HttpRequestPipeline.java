@@ -10,11 +10,8 @@ import io.undertow.server.HttpServerExchange;
 import java.io.IOException;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 /**
  * Applies budget, auth and dispatch around a blocking handler.
@@ -28,18 +25,18 @@ final class HttpRequestPipeline {
     private final HttpBudgetGuard budgets;
     private final HttpAuthFilter auth;
     private final HttpJsonCodec json;
-    private final HttpReadRequestExecutor readRequestExecutor;
+    private final HttpDispatchExecutor dispatchExecutor;
     private final Map<String, EndpointStats> endpointStats;
 
     HttpRequestPipeline(HttpBudgetGuard budgets,
                         HttpAuthFilter auth,
                         HttpJsonCodec json,
-                        HttpReadRequestExecutor readRequestExecutor,
+                        HttpDispatchExecutor dispatchExecutor,
                         Map<String, EndpointStats> endpointStats) {
         this.budgets = Objects.requireNonNull(budgets, "budgets");
         this.auth = Objects.requireNonNull(auth, "auth");
         this.json = Objects.requireNonNull(json, "json");
-        this.readRequestExecutor = Objects.requireNonNull(readRequestExecutor, "readRequestExecutor");
+        this.dispatchExecutor = Objects.requireNonNull(dispatchExecutor, "dispatchExecutor");
         this.endpointStats = Objects.requireNonNull(endpointStats, "endpointStats");
     }
 
@@ -49,37 +46,7 @@ final class HttpRequestPipeline {
                                HttpEndpointBudget endpointBudget,
                                boolean requireIngressAuth,
                                BlockingExchangeHandler handler) {
-        return exchange -> {
-            EndpointStats endpoint = endpointFor(endpointMetricKey, routeBudget, endpointBudget);
-            if (!budgets.tryAcquire(exchange, operation, routeBudget, endpointBudget, endpoint, false)) {
-                return;
-            }
-            if (auth.rejectUnauthorized(exchange, requireIngressAuth)) {
-                budgets.release(routeBudget, endpointBudget);
-                return;
-            }
-            exchange.dispatch(() -> {
-                json.responseGuard(exchange);
-                long startedAt = System.nanoTime();
-                long endpointInflight = endpoint.inflight().incrementAndGet();
-                endpoint.maxInflight().accumulateAndGet(endpointInflight, Math::max);
-                try {
-                    routeBudget.requestCount().incrementAndGet();
-                    endpoint.requestCount().incrementAndGet();
-                    handler.handle(exchange);
-                } catch (IOException e) {
-                    endpoint.failureCount().incrementAndGet();
-                    json.writeBestEffort(exchange, e);
-                } catch (RuntimeException e) {
-                    endpoint.failureCount().incrementAndGet();
-                    json.writeBestEffort(exchange, e);
-                } finally {
-                    recordEndpointLatency(endpoint, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
-                    endpoint.inflight().decrementAndGet();
-                    budgets.release(routeBudget, endpointBudget);
-                }
-            });
-        };
+        return dispatching(endpointMetricKey, operation, routeBudget, endpointBudget, requireIngressAuth, false, handler);
     }
 
     HttpHandler blocking(String endpointMetricKey,
@@ -88,70 +55,78 @@ final class HttpRequestPipeline {
                          HttpEndpointBudget endpointBudget,
                          boolean requireIngressAuth,
                          BlockingExchangeHandler handler) {
+        return dispatching(endpointMetricKey, operation, routeBudget, endpointBudget, requireIngressAuth, true, handler);
+    }
+
+    private HttpHandler dispatching(String endpointMetricKey,
+                                    String operation,
+                                    RouteBudget routeBudget,
+                                    HttpEndpointBudget endpointBudget,
+                                    boolean requireIngressAuth,
+                                    boolean checkPlatformExecutorBeforeDispatch,
+                                    BlockingExchangeHandler handler) {
         return exchange -> {
             EndpointStats endpoint = endpointFor(endpointMetricKey, routeBudget, endpointBudget);
-            if (!budgets.tryAcquire(exchange, operation, routeBudget, endpointBudget, endpoint, true)) {
+            if (!budgets.tryAcquire(
+                    exchange,
+                    operation,
+                    routeBudget,
+                    endpointBudget,
+                    endpoint,
+                    checkPlatformExecutorBeforeDispatch)) {
                 return;
             }
             if (auth.rejectUnauthorized(exchange, requireIngressAuth)) {
                 budgets.release(routeBudget, endpointBudget);
                 return;
             }
-            exchange.dispatch(() -> {
-                Future<?> future = null;
-                json.responseGuard(exchange);
-                long startedAt = System.nanoTime();
-                long endpointInflight = endpoint.inflight().incrementAndGet();
-                endpoint.maxInflight().accumulateAndGet(endpointInflight, Math::max);
-                try {
-                    routeBudget.requestCount().incrementAndGet();
-                    endpoint.requestCount().incrementAndGet();
-                    future = readRequestExecutor.submit(() -> {
-                        try {
-                            handler.handle(exchange);
-                        } catch (IOException e) {
-                            throw new WrappedIOException(e);
-                        }
-                    });
-                    future.get(routeBudget.timeoutMillis(), TimeUnit.MILLISECONDS);
-                } catch (TimeoutException e) {
-                    if (future != null) {
-                        future.cancel(true);
-                    }
-                    routeBudget.timeoutCount().incrementAndGet();
-                    endpoint.timeoutCount().incrementAndGet();
-                    if (!exchange.isResponseStarted()) {
-                        json.writeBestEffort(exchange, new RequestTimeoutException(
-                                operation + " exceeded timeout " + routeBudget.timeoutMillis() + "ms"
-                        ));
-                    }
-                } catch (RejectedExecutionException e) {
-                    if (!exchange.isResponseStarted()) {
-                        json.writeBestEffort(exchange, new OverloadedException("request executor is not accepting work"));
-                    }
-                } catch (ExecutionException e) {
-                    Throwable cause = e.getCause();
-                    endpoint.failureCount().incrementAndGet();
-                    if (cause instanceof WrappedIOException wrapped) {
-                        json.writeBestEffort(exchange, wrapped.cause);
-                    } else if (cause instanceof RuntimeException runtime) {
-                        json.writeBestEffort(exchange, runtime);
-                    } else if (!exchange.isResponseStarted()) {
-                        json.writeBestEffort(exchange, new InternalServerException("http handler failed", cause));
-                    }
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    endpoint.failureCount().incrementAndGet();
-                    if (!exchange.isResponseStarted()) {
-                        json.writeBestEffort(exchange, new ServiceUnavailableException("http handler interrupted", e));
-                    }
-                } finally {
-                    recordEndpointLatency(endpoint, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
-                    endpoint.inflight().decrementAndGet();
-                    budgets.release(routeBudget, endpointBudget);
-                }
-            });
+            try {
+                exchange.dispatch(dispatchExecutor.executor(), () -> runOnDispatchThread(
+                        exchange,
+                        operation,
+                        routeBudget,
+                        endpointBudget,
+                        endpoint,
+                        handler));
+            } catch (RejectedExecutionException e) {
+                budgets.release(routeBudget, endpointBudget);
+                json.writeBestEffort(exchange, new OverloadedException("http dispatch executor rejected work"));
+            }
         };
+    }
+
+    private void runOnDispatchThread(HttpServerExchange exchange,
+                                     String operation,
+                                     RouteBudget routeBudget,
+                                     HttpEndpointBudget endpointBudget,
+                                     EndpointStats endpoint,
+                                     BlockingExchangeHandler handler) {
+        json.responseGuard(exchange);
+        long startedAt = System.nanoTime();
+        long endpointInflight = endpoint.inflight().incrementAndGet();
+        endpoint.maxInflight().accumulateAndGet(endpointInflight, Math::max);
+        try {
+            routeBudget.requestCount().incrementAndGet();
+            endpoint.requestCount().incrementAndGet();
+            HttpRouteTimeoutGuard.run(
+                    exchange,
+                    routeBudget.timeoutMillis(),
+                    operation,
+                    json,
+                    routeBudget,
+                    endpoint,
+                    () -> handler.handle(exchange));
+        } catch (IOException e) {
+            endpoint.failureCount().incrementAndGet();
+            json.writeBestEffort(exchange, e);
+        } catch (RuntimeException e) {
+            endpoint.failureCount().incrementAndGet();
+            json.writeBestEffort(exchange, e);
+        } finally {
+            recordEndpointLatency(endpoint, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
+            endpoint.inflight().decrementAndGet();
+            budgets.release(routeBudget, endpointBudget);
+        }
     }
 
     private EndpointStats endpointFor(String endpointMetricKey, RouteBudget routeBudget, HttpEndpointBudget endpointBudget) {
@@ -176,13 +151,4 @@ final class HttpRequestPipeline {
         }
     }
 
-    private static final class WrappedIOException extends RuntimeException {
-        private static final long serialVersionUID = 1L;
-        private final IOException cause;
-
-        private WrappedIOException(IOException cause) {
-            super(cause);
-            this.cause = cause;
-        }
-    }
 }

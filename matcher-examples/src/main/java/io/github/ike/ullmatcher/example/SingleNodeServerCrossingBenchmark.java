@@ -1,20 +1,12 @@
 package io.github.ike.ullmatcher.example;
 
-import io.github.ike.ullmatcher.core.MatcherConfig;
-import io.github.ike.ullmatcher.ha.coordination.HaRole;
-import io.github.ike.ullmatcher.ha.grpc.server.GrpcReplicationServerConfig;
 import io.github.ike.ullmatcher.ha.grpc.telemetry.GrpcTransportMetrics;
 import io.github.ike.ullmatcher.hft.WalDurabilityMode;
 import io.github.ike.ullmatcher.server.api.HttpApiServer;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerConfig;
-import io.github.ike.ullmatcher.server.bootstrap.MatcherServerMode;
-import io.github.ike.ullmatcher.server.bootstrap.WriteAdmissionPolicyConfig;
 import io.github.ike.ullmatcher.server.cluster.ClusterSupervisorMetricsSnapshot;
 import io.github.ike.ullmatcher.ha.transport.TransportMetricsSnapshot;
 import io.github.ike.ullmatcher.server.engine.MatcherNodeService;
-import io.github.ike.ullmatcher.server.engine.TtlCancelConfig;
-import io.github.ike.ullmatcher.server.security.ServerSecurityConfig;
-import io.github.ike.ullmatcher.server.security.IngressAuthConfig;
 import io.github.ike.ullmatcher.server.telemetry.MatcherNodeMetricsSnapshot;
 import io.github.ike.ullmatcher.server.telemetry.ReadinessSnapshot;
 
@@ -54,73 +46,35 @@ public final class SingleNodeServerCrossingBenchmark {
         Arguments parsed = Arguments.parse(args);
         Files.createDirectories(parsed.dataRoot());
 
-        MatcherServerConfig config = new MatcherServerConfig(
-                MatcherServerMode.DEV,
-                "node-a",
-                "symbol-1",
-                MatcherConfig.defaults(1),
-                parsed.dataRoot().resolve("wal"),
-                "symbol-1",
-                parsed.walSegmentBytes(),
-                parsed.durabilityMode(),
-                parsed.forceBatchSize(),
-                parsed.forceMaxDelayMicros(),
-                parsed.dataRoot().resolve("snapshots").resolve("symbol-1.snap"),
-                1 << 16,
-                10_000,
-                TimeUnit.MILLISECONDS.toNanos(500),
-                0,
-                "127.0.0.1",
-                parsed.httpWorkerThreads(),
-                1 << 20,
-                512,
-                2_000L,
-                128,
-                96,
-                16,
-                2_000L,
-                1_000L,
-                5_000L,
-                96,
-                64,
-                2,
-                16,
-                8,
-                WriteAdmissionPolicyConfig.defaults(),
-                false,
-                IngressAuthConfig.disabled(),
-                0,
-                GrpcReplicationServerConfig.defaults(0),
-                ServerSecurityConfig.insecureDefaults(),
-                TtlCancelConfig.disabled(),
-                HaRole.PRIMARY,
-                io.github.ike.ullmatcher.runtime.MatchLoopConfig.defaults(),
-                io.github.ike.ullmatcher.ha.standby.StandbySyncConfig.defaults(),
-                io.github.ike.ullmatcher.server.orchestrator.OrchestratorRegistrationConfig.disabled(),
-                null
-        );
+        MatcherServerConfig config = MatcherServerConfig.defaults("node-a", 1, parsed.dataRoot()).toBuilder()
+                .httpWorkerThreads(parsed.httpWorkerThreads())
+                .walSegmentSizeBytes(parsed.walSegmentBytes())
+                .walDurabilityMode(parsed.durabilityMode())
+                .walForceBatchSize(parsed.forceBatchSize())
+                .walForceMaxDelayMicros(parsed.forceMaxDelayMicros())
+                .build();
 
         try (MatcherNodeService nodeService = new MatcherNodeService(config);
              HttpApiServer server = new HttpApiServer(
                      0,
-                     "127.0.0.1",
-                     parsed.httpWorkerThreads(),
-                     1 << 20,
-                     512,
-                     2_000L,
-                     128,
-                     96,
-                     16,
-                     2_000L,
-                     1_000L,
-                     5_000L,
-                     96,
-                     64,
-                     2,
-                     16,
-                     8,
-                     "symbol-1",
-                     WriteAdmissionPolicyConfig.defaults(),
+                     config.httpBindHost(),
+                     config.httpWorkerThreads(),
+                     config.httpMaxBodyBytes(),
+                     config.httpMaxConcurrentRequests(),
+                     config.httpRequestTimeoutMillis(),
+                     config.httpWriteMaxConcurrentRequests(),
+                     config.httpReadMaxConcurrentRequests(),
+                     config.httpAdminMaxConcurrentRequests(),
+                     config.httpWriteTimeoutMillis(),
+                     config.httpReadTimeoutMillis(),
+                     config.httpAdminTimeoutMillis(),
+                     config.httpSubmitEndpointMaxConcurrentRequests(),
+                     config.httpCancelEndpointMaxConcurrentRequests(),
+                     config.httpSnapshotEndpointMaxConcurrentRequests(),
+                     config.httpReadinessEndpointMaxConcurrentRequests(),
+                     config.httpMetricsEndpointMaxConcurrentRequests(),
+                     config.shardKey(),
+                     config.writeAdmissionPolicyConfig(),
                      nodeService,
                      new GrpcTransportMetrics(),
                      () -> new ClusterSupervisorMetricsSnapshot(
@@ -295,7 +249,7 @@ public final class SingleNodeServerCrossingBenchmark {
             int restingOrders = 2_048;
             int crossingOrders = 2_048;
             int concurrency = 24;
-            int httpWorkerThreads = Math.max(4, Runtime.getRuntime().availableProcessors());
+            int httpWorkerThreads = MatcherServerConfig.defaultHttpWorkerThreads();
             long walSegmentBytes = 64L * 1024L * 1024L;
             WalDurabilityMode durabilityMode = WalDurabilityMode.SYNC_PER_BATCH;
             int forceBatchSize = 32;

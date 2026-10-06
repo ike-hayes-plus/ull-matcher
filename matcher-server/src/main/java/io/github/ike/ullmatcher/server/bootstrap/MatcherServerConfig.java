@@ -74,6 +74,19 @@ public record MatcherServerConfig(
     public static final WalDurabilityMode DEFAULT_WAL_DURABILITY_MODE = WalDurabilityMode.SYNC_PER_COMMAND;
     public static final int DEFAULT_WAL_FORCE_BATCH_SIZE = 1;
     public static final long DEFAULT_WAL_FORCE_MAX_DELAY_MICROS = 0L;
+    public static final int DEFAULT_HTTP_MAX_CONCURRENT_REQUESTS = 2048;
+    public static final int DEFAULT_HTTP_READ_MAX_CONCURRENT_REQUESTS = 1024;
+    public static final int DEFAULT_HTTP_WRITE_MAX_CONCURRENT_REQUESTS = 1024;
+    public static final int DEFAULT_HTTP_ADMIN_MAX_CONCURRENT_REQUESTS = 32;
+    public static final int DEFAULT_HTTP_SUBMIT_ENDPOINT_MAX_CONCURRENT_REQUESTS = 512;
+    public static final int DEFAULT_HTTP_CANCEL_ENDPOINT_MAX_CONCURRENT_REQUESTS = 384;
+    public static final int DEFAULT_HTTP_SNAPSHOT_ENDPOINT_MAX_CONCURRENT_REQUESTS = 4;
+    public static final int DEFAULT_HTTP_READINESS_ENDPOINT_MAX_CONCURRENT_REQUESTS = 64;
+    public static final int DEFAULT_HTTP_METRICS_ENDPOINT_MAX_CONCURRENT_REQUESTS = 32;
+
+    public static int defaultHttpWorkerThreads() {
+        return Math.max(32, Runtime.getRuntime().availableProcessors() * 2);
+    }
 
     /** Build output directory names that are wiped by {@code mvn clean} and must never hold prod state. */
     private static final java.util.Set<String> EPHEMERAL_PATH_SEGMENTS = java.util.Set.of("target", "build", "out");
@@ -152,26 +165,26 @@ public record MatcherServerConfig(
                 TimeUnit.MILLISECONDS.toNanos(500),
                 8080,
                 "127.0.0.1",
-                Math.max(4, Runtime.getRuntime().availableProcessors()),
+                defaultHttpWorkerThreads(),
                 1 << 20,
-                256,
+                DEFAULT_HTTP_MAX_CONCURRENT_REQUESTS,
                 2_000L,
                 false,
                 10080,
                 "127.0.0.1",
                 256,
                 BinaryIngressLimits.defaults(),
-                128,
-                96,
-                16,
+                DEFAULT_HTTP_WRITE_MAX_CONCURRENT_REQUESTS,
+                DEFAULT_HTTP_READ_MAX_CONCURRENT_REQUESTS,
+                DEFAULT_HTTP_ADMIN_MAX_CONCURRENT_REQUESTS,
                 2_000L,
                 1_000L,
                 5_000L,
-                96,
-                64,
-                2,
-                16,
-                8,
+                DEFAULT_HTTP_SUBMIT_ENDPOINT_MAX_CONCURRENT_REQUESTS,
+                DEFAULT_HTTP_CANCEL_ENDPOINT_MAX_CONCURRENT_REQUESTS,
+                DEFAULT_HTTP_SNAPSHOT_ENDPOINT_MAX_CONCURRENT_REQUESTS,
+                DEFAULT_HTTP_READINESS_ENDPOINT_MAX_CONCURRENT_REQUESTS,
+                DEFAULT_HTTP_METRICS_ENDPOINT_MAX_CONCURRENT_REQUESTS,
                 WriteAdmissionPolicyConfig.defaults(),
                 false,
                 IngressAuthConfig.disabled(),

@@ -15,18 +15,18 @@ import java.util.concurrent.atomic.AtomicLong;
  * request never leaks a permit.
  */
 final class HttpBudgetGuard {
-    private final HttpReadRequestExecutor readRequestExecutor;
+    private final HttpDispatchExecutor dispatchExecutor;
     private final Semaphore requestSlots;
     private final int maxConcurrentRequests;
     private final AtomicLong globalOverloadCount;
     private final HttpJsonCodec json;
 
-    HttpBudgetGuard(HttpReadRequestExecutor readRequestExecutor,
+    HttpBudgetGuard(HttpDispatchExecutor dispatchExecutor,
                     Semaphore requestSlots,
                     int maxConcurrentRequests,
                     AtomicLong globalOverloadCount,
                     HttpJsonCodec json) {
-        this.readRequestExecutor = Objects.requireNonNull(readRequestExecutor, "readRequestExecutor");
+        this.dispatchExecutor = Objects.requireNonNull(dispatchExecutor, "dispatchExecutor");
         this.requestSlots = Objects.requireNonNull(requestSlots, "requestSlots");
         this.maxConcurrentRequests = maxConcurrentRequests;
         this.globalOverloadCount = Objects.requireNonNull(globalOverloadCount, "globalOverloadCount");
@@ -40,14 +40,14 @@ final class HttpBudgetGuard {
                        EndpointStats endpoint,
                        boolean requireExecutorCapacity) {
         if (requireExecutorCapacity
-                && readRequestExecutor.platformExecutorSaturationChecksEnabled()
-                && readRequestExecutor.isPlatformExecutorSaturated()) {
+                && dispatchExecutor.platformExecutorSaturationChecksEnabled()
+                && dispatchExecutor.isPlatformExecutorSaturated()) {
             globalOverloadCount.incrementAndGet();
             routeBudget.overloadCount().incrementAndGet();
             endpoint.overloadCount().incrementAndGet();
             json.writeBestEffort(exchange, new OverloadedException(
-                    "http request executor is saturated; workers=" + readRequestExecutor.platformWorkerCount()
-                            + " queueCapacity=" + readRequestExecutor.executorQueueCapacity()
+                    "http request executor is saturated; workers=" + dispatchExecutor.platformWorkerCount()
+                            + " queueCapacity=" + dispatchExecutor.executorQueueCapacity()
             ));
             return false;
         }
@@ -97,11 +97,11 @@ final class HttpBudgetGuard {
     }
 
     int executorQueueDepth() {
-        return readRequestExecutor.executorQueueDepth();
+        return dispatchExecutor.executorQueueDepth();
     }
 
     int executorQueueCapacity() {
-        return readRequestExecutor.executorQueueCapacity();
+        return dispatchExecutor.executorQueueCapacity();
     }
 
     int maxConcurrentRequests() {

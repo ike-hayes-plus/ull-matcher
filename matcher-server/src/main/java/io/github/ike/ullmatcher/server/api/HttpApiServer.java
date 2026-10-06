@@ -95,7 +95,7 @@ public final class HttpApiServer implements Closeable {
     private final ObjectReader newOrderRequestReader = objectMapper.readerFor(NewOrderRequest.class);
     private final ObjectReader newOrderBatchRequestReader = objectMapper.readerFor(NewOrderBatchRequest.class);
     private final ObjectReader cancelOrderRequestReader = objectMapper.readerFor(CancelOrderRequest.class);
-    private final HttpReadRequestExecutor readRequestExecutor;
+    private final HttpDispatchExecutor dispatchExecutor;
     private final Semaphore requestSlots;
     private final AtomicLong globalOverloadCount = new AtomicLong();
     private final Map<String, EndpointStats> endpointStats = new ConcurrentHashMap<>();
@@ -235,12 +235,12 @@ public final class HttpApiServer implements Closeable {
         this.snapshotBudget = HttpEndpointBudget.create("create_snapshot", snapshotEndpointMaxConcurrentRequests);
         this.readinessBudget = HttpEndpointBudget.create("runtime_readiness", readinessEndpointMaxConcurrentRequests);
         this.metricsBudget = HttpEndpointBudget.create("metrics", metricsEndpointMaxConcurrentRequests);
-        this.readRequestExecutor = HttpReadRequestExecutor.create(workerThreads, maxConcurrentRequests);
+        this.dispatchExecutor = HttpDispatchExecutor.create(workerThreads, maxConcurrentRequests);
         this.requestSlots = new Semaphore(maxConcurrentRequests);
         this.budgetGuard = new HttpBudgetGuard(
-                readRequestExecutor, requestSlots, maxConcurrentRequests, globalOverloadCount, jsonCodec);
+                dispatchExecutor, requestSlots, maxConcurrentRequests, globalOverloadCount, jsonCodec);
         HttpAuthFilter authFilter = new HttpAuthFilter(this.ingressAuthConfig, jsonCodec);
-        this.requestPipeline = new HttpRequestPipeline(budgetGuard, authFilter, jsonCodec, readRequestExecutor, endpointStats);
+        this.requestPipeline = new HttpRequestPipeline(budgetGuard, authFilter, jsonCodec, dispatchExecutor, endpointStats);
         RoutingHandler routes = Handlers.routing()
                 .get(ROUTE_ORDERS, requestPipeline.blocking("recent_orders", "recent orders", readBudget, null, true, this::handleRecentOrders))
                 .get(ROUTE_ORDER_BY_ID, requestPipeline.blocking("get_order", "get order", readBudget, null, true, this::handleGetOrder))
@@ -266,10 +266,11 @@ public final class HttpApiServer implements Closeable {
         }
         routes = routes.get(ROUTE_METRICS, requestPipeline.blocking("metrics", "metrics", readBudget, metricsBudget, true, this::handleMetrics))
                 .setFallbackHandler(this::handleNotFound);
-        int ioThreads = Math.max(2, Math.min(workerThreads, Runtime.getRuntime().availableProcessors()));
+        int ioThreads = Math.max(4, Math.min(16, Math.max(2, workerThreads / 4)));
+        int undertowWorkers = Math.max(workerThreads, ioThreads);
         this.server = Undertow.builder()
                 .setIoThreads(ioThreads)
-                .setWorkerThreads(Math.max(workerThreads, ioThreads))
+                .setWorkerThreads(undertowWorkers)
                 .addHttpListener(port, bindHost)
                 .setHandler(routes)
                 .build();
@@ -291,7 +292,7 @@ public final class HttpApiServer implements Closeable {
     @Override
     public void close() {
         server.stop();
-        readRequestExecutor.close();
+        dispatchExecutor.close();
     }
 
     private void handleSubmitOrder(HttpServerExchange exchange) throws IOException {
