@@ -149,7 +149,8 @@ public final class SingleNodeServerCrossingBenchmark {
             long beforeTrades = before.matchingMetrics().tradeCount();
             long beforeCommitted = before.submissionMetrics().committedCount();
 
-            ExecutorService workers = Executors.newThreadPerTaskExecutor(
+            ExecutorService workers = Executors.newFixedThreadPool(
+                    parsed.concurrency(),
                     Thread.ofVirtual().name("single-node-http-bench-", 0).factory());
             CountDownLatch start = new CountDownLatch(1);
             List<java.util.concurrent.Future<ResultSample>> futures = new ArrayList<>(parsed.crossingOrders());
