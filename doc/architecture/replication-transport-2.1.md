@@ -46,7 +46,7 @@
 
 - [ ] 共享复制语义单测（batch / committed ack）对 GRPC + AERON 双跑
 - [ ] `scripts/ops/run-ha-benchmark-suite.sh` floor 不回归
-- [x] PREVIEW 在 PROD 闸门内 `@Deprecated`；配置见 [INTEGRATION.md](../INTEGRATION.md)
+- [x] PREVIEW 在 PROD 闸门内 `@Deprecated`；配置见 [production-deployment-and-capacity.md](../operations/production-deployment-and-capacity.md)
 
 ## 关联
 

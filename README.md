@@ -99,7 +99,17 @@
   7. 通过 submission 查询接口获取最终复制确认状态
 - 高可用模型是 `1 primary + N standbys`
 
-集成见 [doc/INTEGRATION.md](doc/INTEGRATION.md)。生产安全边界见 [doc/operations/security-boundary.md](doc/operations/security-boundary.md)。
+Maven 坐标见下节「依赖坐标」。生产安全边界见 [doc/operations/security-boundary.md](doc/operations/security-boundary.md)。
+
+## 依赖坐标（3.0.0）
+
+|  artifact | 用途 |
+| --- | --- |
+| `io.github.ike:ull-matcher-server-dist:3.0.0` | 可执行 JAR（`MatcherServerMain`） |
+| `io.github.ike:ull-matcher-sdk-java:3.0.0` | HTTP + binary ingress 客户端 |
+| `io.github.ike:ull-matcher-net:3.0.0` | 共享 JDK HTTP 客户端（`MatcherHttpTransport`） |
+
+构建与部署细节见 [production-deployment-and-capacity.md](doc/operations/production-deployment-and-capacity.md)。
 
 ## 快速开始
 
@@ -620,9 +630,7 @@ Standalone 与 Spring Boot starter 共享 WAL 默认值：`SYNC_PER_COMMAND`、`
   - [安全策略](SECURITY.md)
   - [行为准则](CODE_OF_CONDUCT.md)
   - [变更日志](CHANGELOG.md)
-  - [3.0 集成基线](doc/INTEGRATION.md)
-  - [3.0 CTO Sign-off](doc/operations/cto-signoff-3.0.md)
-  - [3.0 CTO 审查报告（100/100）](doc/operations/cto-review-3.0.md)
+  - [生产部署与容量](doc/operations/production-deployment-and-capacity.md)
 - 架构：
   - [Shard 模型设计](doc/architecture/shard-model-design.md)
   - [多分片容量规划](doc/architecture/shard-capacity-planning.md)

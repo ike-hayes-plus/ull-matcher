@@ -1,7 +1,7 @@
 # 3.0 多分片编排（ADR）
 
 **状态：** 已采纳（2026-10-05）  
-**基线：** 3.0 绿田发布（见 [cto-signoff-3.0.md](../operations/cto-signoff-3.0.md)）。
+**基线：** 3.0（见 [README.md](../../README.md)）。
 
 ## 1. 目标
 
@@ -43,7 +43,7 @@
 
 ### Phase A — 设计与契约（3.0.0-alpha）
 
-- [x] 本 ADR + [INTEGRATION.md](../INTEGRATION.md)
+- [x] 本 ADR + [README.md](../../README.md) 依赖坐标
 - [ ] 路由表键空间规范（`shardKey`、`symbolId`、primary 端点、generation）
 - [ ] OpenAPI / 内部 JSON 运维 API 草案（register、lookup、drain）
 
@@ -86,7 +86,7 @@
 - `./mvnw -Pstyle-check verify` 全绿
 - 新增 orchestrator 模块 line ≥ 0.80 / branch ≥ 0.70（与父 POM 一致）
 - Lab：至少 3 shard × 1P2S failover smoke + 路由切换测试
-- 文档：INTEGRATION、production-deployment 增补「多 shard 拓扑」
+- 文档：README、production-deployment 增补「多 shard 拓扑」
 
 ## 7. 关联文档
 

@@ -25,8 +25,8 @@ gh release view v2.0.0 --repo "$repo" >/dev/null 2>&1 || \
 
 - JDK 25 / Maven 4，`./mvnw`
 - 生产默认 gRPC 复制、ingress 鉴权、etcd mTLS、PROD 安全闸门
-- Java SDK 3.0；见 [INTEGRATION.md](../INTEGRATION.md)
-- CTO sign-off：[cto-signoff-3.0.md](cto-signoff-3.0.md)
+- Java SDK 3.0；见 [README.md](../../README.md)
+- 部署：[production-deployment-and-capacity.md](production-deployment-and-capacity.md)
 
 **不含** 3.0 `matcher-orchestrator`（在 `v2.0.0` 之后的 master 提交）。
 

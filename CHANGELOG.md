@@ -7,7 +7,7 @@
 
 ## [3.0.0] - 2026-10-06
 
-**绿田 3.0 基线**（无 1.x/2.x 迁移路径）。集成说明见 [doc/INTEGRATION.md](doc/INTEGRATION.md)。
+**3.0 绿田基线**（无历史版本迁移路径）。坐标与快速开始见 [README.md](README.md)。
 
 ### Added
 
