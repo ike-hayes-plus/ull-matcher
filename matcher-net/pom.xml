@@ -9,10 +9,10 @@
         <version>3.0.0</version>
     </parent>
 
-    <artifactId>ull-matcher-core</artifactId>
+    <artifactId>ull-matcher-net</artifactId>
     <packaging>jar</packaging>
-    <name>ULL Matcher Core</name>
-    <description>Zero-external-dependency matching core and in-memory data structures.</description>
+    <name>ULL Matcher Net</name>
+    <description>Shared JDK HTTP client transport (NIO, HTTP/2, virtual threads).</description>
 
     <dependencies>
         <dependency>
@@ -35,14 +35,6 @@
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-            </plugin>
-<plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-source-plugin</artifactId>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-javadoc-plugin</artifactId>
             </plugin>
         </plugins>
     </build>

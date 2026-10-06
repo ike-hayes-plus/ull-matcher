@@ -6,6 +6,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
 import java.net.URI;
+import io.github.ike.ullmatcher.net.MatcherHttpTransport;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -24,9 +25,7 @@ public final class MatcherOrchestratorClient {
     private final HttpClient client;
 
     public MatcherOrchestratorClient(MatcherClientConfig config) {
-        this(config, HttpClient.newBuilder()
-                .connectTimeout(config.requestTimeout())
-                .build());
+        this(config, MatcherHttpTransport.newClient(config.requestTimeout()));
     }
 
     public MatcherOrchestratorClient(MatcherClientConfig config, HttpClient client) {

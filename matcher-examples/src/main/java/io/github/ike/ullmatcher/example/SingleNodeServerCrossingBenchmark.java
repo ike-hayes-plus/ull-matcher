@@ -10,6 +10,8 @@ import io.github.ike.ullmatcher.server.engine.MatcherNodeService;
 import io.github.ike.ullmatcher.server.telemetry.MatcherNodeMetricsSnapshot;
 import io.github.ike.ullmatcher.server.telemetry.ReadinessSnapshot;
 
+import io.github.ike.ullmatcher.net.MatcherHttpTransport;
+
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -138,10 +140,7 @@ public final class SingleNodeServerCrossingBenchmark {
 
             BenchmarkSupport.waitForTrades(nodeService, 0L, 5_000L);
 
-            HttpClient client = HttpClient.newBuilder()
-                    .connectTimeout(Duration.ofSeconds(5))
-                    .version(HttpClient.Version.HTTP_1_1)
-                    .build();
+            HttpClient client = MatcherHttpTransport.newClientBuilder(Duration.ofSeconds(5)).build();
             URI ordersUri = URI.create("http://127.0.0.1:" + server.port() + "/api/v1/orders");
 
             MatcherNodeMetricsSnapshot before = nodeService.metricsSnapshot();
@@ -150,7 +149,8 @@ public final class SingleNodeServerCrossingBenchmark {
             long beforeTrades = before.matchingMetrics().tradeCount();
             long beforeCommitted = before.submissionMetrics().committedCount();
 
-            ExecutorService workers = Executors.newFixedThreadPool(parsed.concurrency(), Thread.ofPlatform().name("single-node-http-bench-", 0).factory());
+            ExecutorService workers = Executors.newThreadPerTaskExecutor(
+                    Thread.ofVirtual().name("single-node-http-bench-", 0).factory());
             CountDownLatch start = new CountDownLatch(1);
             List<java.util.concurrent.Future<ResultSample>> futures = new ArrayList<>(parsed.crossingOrders());
             long orderIdBase = 2_000_000L;

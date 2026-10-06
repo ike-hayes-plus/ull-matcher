@@ -37,10 +37,10 @@ java \
   -Dmatcher.httpBindHost=10.0.0.21 \
   -Dmatcher.allowInsecureRemoteHttp=true \
   -Dmatcher.grpcBindHost=10.0.0.21 \
-  -Dmatcher.grpcTlsCertChain=/etc/ull-matcher/tls/server.crt \
-  -Dmatcher.grpcTlsPrivateKey=/etc/ull-matcher/tls/server.key \
-  -Dmatcher.grpcTlsTrustChain=/etc/ull-matcher/tls/ca.crt \
-  -Dmatcher.grpcMtlsRequired=true \
+  -Dmatcher.transportTlsCertChain=/etc/ull-matcher/tls/server.crt \
+  -Dmatcher.transportTlsPrivateKey=/etc/ull-matcher/tls/server.key \
+  -Dmatcher.transportTlsTrustChain=/etc/ull-matcher/tls/ca.crt \
+  -Dmatcher.transportMtlsRequired=true \
   io.github.ike.ullmatcher.server.bootstrap.MatcherServerMain
 ```
 

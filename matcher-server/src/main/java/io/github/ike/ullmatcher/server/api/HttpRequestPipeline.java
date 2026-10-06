@@ -40,31 +40,12 @@ final class HttpRequestPipeline {
         this.endpointStats = Objects.requireNonNull(endpointStats, "endpointStats");
     }
 
-    HttpHandler directBlocking(String endpointMetricKey,
-                               String operation,
-                               RouteBudget routeBudget,
-                               HttpEndpointBudget endpointBudget,
-                               boolean requireIngressAuth,
-                               BlockingExchangeHandler handler) {
-        return dispatching(endpointMetricKey, operation, routeBudget, endpointBudget, requireIngressAuth, false, handler);
-    }
-
     HttpHandler blocking(String endpointMetricKey,
                          String operation,
                          RouteBudget routeBudget,
                          HttpEndpointBudget endpointBudget,
                          boolean requireIngressAuth,
                          BlockingExchangeHandler handler) {
-        return dispatching(endpointMetricKey, operation, routeBudget, endpointBudget, requireIngressAuth, true, handler);
-    }
-
-    private HttpHandler dispatching(String endpointMetricKey,
-                                    String operation,
-                                    RouteBudget routeBudget,
-                                    HttpEndpointBudget endpointBudget,
-                                    boolean requireIngressAuth,
-                                    boolean checkPlatformExecutorBeforeDispatch,
-                                    BlockingExchangeHandler handler) {
         return exchange -> {
             EndpointStats endpoint = endpointFor(endpointMetricKey, routeBudget, endpointBudget);
             if (!budgets.tryAcquire(
@@ -73,7 +54,7 @@ final class HttpRequestPipeline {
                     routeBudget,
                     endpointBudget,
                     endpoint,
-                    checkPlatformExecutorBeforeDispatch)) {
+                    true)) {
                 return;
             }
             if (auth.rejectUnauthorized(exchange, requireIngressAuth)) {

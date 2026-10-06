@@ -9,6 +9,7 @@ import tools.jackson.databind.node.ObjectNode;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
+import io.github.ike.ullmatcher.net.MatcherHttpTransport;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -24,9 +25,7 @@ public final class MatcherHttpClient {
     private final HttpClient client;
 
     public MatcherHttpClient(MatcherClientConfig config) {
-        this(config, HttpClient.newBuilder()
-                .connectTimeout(config.requestTimeout())
-                .build());
+        this(config, MatcherHttpTransport.newClient(config.requestTimeout()));
     }
 
     public MatcherHttpClient(MatcherClientConfig config, HttpClient client) {

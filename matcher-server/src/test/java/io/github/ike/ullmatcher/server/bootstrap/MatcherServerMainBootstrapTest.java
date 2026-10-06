@@ -32,29 +32,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class MatcherServerMainBootstrapTest {
     @Test
-    void clusterNamePrefersMatcherClusterThenLegacyAliasThenDefault() {
+    void clusterUsesMatcherClusterOrDefault() {
         String previousCluster = System.getProperty("matcher.cluster");
-        String previousLegacy = System.getProperty("matcher.clusterName");
         try {
             System.clearProperty("matcher.cluster");
-            System.clearProperty("matcher.clusterName");
-            assertEquals("default", MatcherServerMain.clusterName());
+            assertEquals("default", MatcherServerMain.cluster());
 
-            System.setProperty("matcher.clusterName", "  legacy-cluster  ");
-            assertEquals("legacy-cluster", MatcherServerMain.clusterName());
+            System.setProperty("matcher.cluster", "  prod-cluster  ");
+            assertEquals("prod-cluster", MatcherServerMain.cluster());
 
             System.setProperty("matcher.cluster", "   ");
-            assertEquals("legacy-cluster", MatcherServerMain.clusterName());
-
-            System.setProperty("matcher.cluster", "  preferred-cluster  ");
-            assertEquals("preferred-cluster", MatcherServerMain.clusterName());
-
-            System.clearProperty("matcher.clusterName");
-            System.setProperty("matcher.cluster", " ");
-            assertEquals("default", MatcherServerMain.clusterName());
+            assertEquals("default", MatcherServerMain.cluster());
         } finally {
             restoreProperty("matcher.cluster", previousCluster);
-            restoreProperty("matcher.clusterName", previousLegacy);
         }
     }
 

@@ -2,6 +2,18 @@
 
 按 **接入层 → 背压 → 撮合/WAL** 分层规划；不要只调大 HTTP 线程或连接数。
 
+## 0. HTTP(S) 栈原则（NIO / 虚拟线程 / 零拷贝边界）
+
+| 角色 | 实现 | 说明 |
+| --- | --- | --- |
+| **服务端 ingress** | Undertow（XNIO NIO 多路复用） | 不在 REST 层再叠 Netty；IO 线程收包，`exchange.dispatch` 把 handler 放到共享虚拟线程池 |
+| **服务端 handler** | `MatcherHttpExecutors` + budget | 阻塞等待 WAL/committed 在虚拟线程上挂起，不占满 Undertow worker |
+| **出站客户端** | `ull-matcher-net` / `MatcherHttpTransport` | 底层 NIO；默认 **HTTP/2** 多路复用；`send`/`sendAsync` 回调走共享虚拟线程 `matcher-http-client-*` |
+| **高频写** | Binary ingress | 定长帧 + DirectBuffer，才是零拷贝与万级 QPS 方向；JSON REST 必然有序列化拷贝 |
+| **响应体** | `ResponseSender.send(ByteBuffer)` | metrics / receipt 等尽量 `byte[]`→`ByteBuffer` 一次发送，避免中间 `String` |
+
+客户端版本：`-Dmatcher.httpClientVersion=HTTP_1_1`（压测对照 HTTP/1.1 时使用）。服务端仍用 Undertow HTTP/1.1 keep-alive；客户端 HTTP/2 对单 host 多并发读 API 更省连接。
+
 ## 1. 写流量：Binary ingress（首选）
 
 - 高频下单、撤单、committed ack 走 **binary**（定长帧 + DirectBuffer），不要指望 REST 过万 QPS。
@@ -35,7 +47,7 @@
 
 拐点扫频：`scripts/lab/run-http-concurrency-sweep.sh`（内置 `SingleNodeServerCrossingBenchmark`）。
 
-REST **写**仍在 Undertow worker 上阻塞等待撮合/WAL；提高写并发请回到 §1。
+REST **写**与读一样经虚拟线程 dispatch，但在 handler 内仍会阻塞等待撮合/WAL；吞吐天花板见 §1，请用 binary 承载高频写。
 
 ## 3. 容量与观测
 

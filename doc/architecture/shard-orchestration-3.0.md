@@ -1,8 +1,7 @@
 # 3.0 多分片编排（ADR）
 
 **状态：** 已采纳（2026-10-05）  
-**前置：** 2.0 单分片节点已可生产部署（见 [cto-signoff-2.0.md](../operations/cto-signoff-2.0.md)）  
-**版本策略：** **跳过 2.1 独立发版线**；已合并的 2.1 能力（WAL 冷备、传输 ADR）计入 3.0 基线；传输 codec 统一与 `AERON_PREVIEW` 移除并入 3.0 里程碑或 3.0.x 补丁。
+**基线：** 3.0 绿田发布（见 [cto-signoff-3.0.md](../operations/cto-signoff-3.0.md)）。
 
 ## 1. 目标
 
@@ -44,7 +43,7 @@
 
 ### Phase A — 设计与契约（3.0.0-alpha）
 
-- [ ] 本 ADR + [MIGRATION-3.0.md](../MIGRATION-3.0.md)
+- [x] 本 ADR + [INTEGRATION.md](../INTEGRATION.md)
 - [ ] 路由表键空间规范（`shardKey`、`symbolId`、primary 端点、generation）
 - [ ] OpenAPI / 内部 JSON 运维 API 草案（register、lookup、drain）
 
@@ -61,7 +60,7 @@
 - [x] `matcher-server`：`matcher.orchestratorEnabled` + etcd 自注册 / heartbeat / shutdown drain
 - [x] Java SDK：`MatcherOrchestratorClient` / `SymbolRouteView`（经 HTTP 解析 symbol → 分片端点）
 - [x] 只读 HTTP：`GET /api/v1/orchestrator/routes/symbols/{symbolId}`（`matcher.orchestratorEnabled` 时挂载）
-- [ ] 移除 `matcher.clusterName`（2.x 已弃用）
+- [x] 仅 `matcher.cluster`（无历史别名）
 - [ ] Runbook：滚动新增 shard、drain、故障域
 
 ### Phase D — 与 2.1 剩余项的关系
@@ -87,7 +86,7 @@
 - `./mvnw -Pstyle-check verify` 全绿
 - 新增 orchestrator 模块 line ≥ 0.80 / branch ≥ 0.70（与父 POM 一致）
 - Lab：至少 3 shard × 1P2S failover smoke + 路由切换测试
-- 文档：MIGRATION-3.0、production-deployment 增补「多 shard 拓扑」
+- 文档：INTEGRATION、production-deployment 增补「多 shard 拓扑」
 
 ## 7. 关联文档
 

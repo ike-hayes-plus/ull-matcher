@@ -5,7 +5,7 @@
 
     <groupId>io.github.ike</groupId>
     <artifactId>ull-matcher-parent</artifactId>
-    <version>2.0.0</version>
+    <version>3.0.0</version>
     <packaging>pom</packaging>
 
     <name>Ultra Low Latency HFT Matching Engine</name>
@@ -37,6 +37,7 @@
 
     <modules>
         <module>matcher-core</module>
+        <module>matcher-net</module>
         <module>matcher-storage</module>
         <module>matcher-runtime</module>
         <module>matcher-ha</module>

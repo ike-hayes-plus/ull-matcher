@@ -7,6 +7,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.io.Closeable;
 import java.io.IOException;
 import java.net.URI;
+import io.github.ike.ullmatcher.net.MatcherHttpTransport;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -31,7 +32,7 @@ final class EtcdClient implements Closeable {
         Objects.requireNonNull(config, "config");
         this.endpoints = parseEndpoints(config.endpoint());
         this.timeout = Duration.ofMillis(config.timeoutMillis());
-        HttpClient.Builder builder = HttpClient.newBuilder().connectTimeout(this.timeout);
+        HttpClient.Builder builder = MatcherHttpTransport.newClientBuilder(this.timeout);
         if (config.trustChainFile() != null || config.certificateChainFile() != null || config.privateKeyFile() != null) {
             SSLContext sslContext = EtcdTlsSupport.sslContext(
                     config.trustChainFile(),

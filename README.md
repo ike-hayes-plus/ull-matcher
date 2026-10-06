@@ -46,18 +46,9 @@
 
 如果你需要的是「一个进程撮合全部交易对」，这个项目不适合你。
 
-## 路线图
+## 产品基线（3.0）
 
-| 版本 | 范围 |
-| --- | --- |
-| 2.0 | JDK 25 / Maven 4 基线；入口鉴权与连接治理；etcd mTLS；生产安全默认值收敛（**当前稳定节点**） |
-| 2.1 | **不再单独发版**；WAL 冷备等已合入主线；传输统一 / PREVIEW 移除随 **3.0** 或 3.0.x |
-| 3.0（**开发中**） | 多分片编排：分片注册与 symbol 路由、跨分片快照元数据、分片级扩缩容；移除 `matcher.clusterName` — 见 [shard-orchestration-3.0.md](doc/architecture/shard-orchestration-3.0.md) |
-
-3.0 的多分片仍然**不会**把多个 symbol 放进同一个状态机。要做的是把「若干单分片节点」
-编排成一个可运维的整体：分片发现、路由表、滚动扩缩容和统一的运维面，
-每个分片内部依旧是单 symbol 单线程。
-- 不是多交易对混跑的大一统状态机
+当前唯一维护版本为 **3.0.0**：JDK 25 / Maven 4 单分片撮合节点，可选 **etcd 多分片编排**（register / symbol 路由 / drain）。编排不会把多个 symbol 放进同一状态机；见 [shard-orchestration-3.0.md](doc/architecture/shard-orchestration-3.0.md)。
 
 ## 模块地图
 
@@ -76,6 +67,8 @@
 | `matcher-ha-aeron` | Aeron 编解码、preview ingress、secure envelope、Aeron 传输指标 | `AERON` / `AERON_PREVIEW` 传输 |
 | `matcher-server` | 独立节点进程：HTTP API、binary ingress、HA supervisor、transport provider 装配、readiness/metrics | 生产服务部署 |
 | `matcher-server-dist` | shaded 可执行 JAR，入口为 `MatcherServerMain` | 发布和生产启动 |
+| `matcher-net` | 共享 JDK HTTP 客户端（NIO + HTTP/2 + 虚拟线程） | SDK、etcd 控制面 HTTP |
+| `matcher-orchestrator` | 分片注册、symbol 路由表、etcd store | 多分片部署、`matcher.orchestratorEnabled` |
 | `matcher-sdk-java` | Java 客户端 SDK，封装 HTTP 与 binary ingress 协议 | 上游业务服务、策略服务 |
 | `matcher-spring-boot-starter` | Spring Boot 自动配置，把 matcher 节点嵌入 Spring 应用 | Spring 内嵌部署 |
 | `matcher-examples` | 可执行示例和脚本 classpath 辅助 | 快速体验、压测入口 |
@@ -106,7 +99,7 @@
   7. 通过 submission 查询接口获取最终复制确认状态
 - 高可用模型是 `1 primary + N standbys`
 
-集成与 2.0 基线见 [doc/MIGRATION-2.0.md](doc/MIGRATION-2.0.md)（**仅维护 2.0 服务端与 Java SDK**）。生产安全边界见 [doc/operations/security-boundary.md](doc/operations/security-boundary.md)。
+集成见 [doc/INTEGRATION.md](doc/INTEGRATION.md)。生产安全边界见 [doc/operations/security-boundary.md](doc/operations/security-boundary.md)。
 
 ## 快速开始
 
@@ -139,7 +132,7 @@ sdk env
 java -Dmatcher.nodeId=node-a \
      -Dmatcher.symbolId=1 \
      -Dmatcher.dataDir=target/matcher-server \
-     -jar matcher-server-dist/target/ull-matcher-server-dist-2.0.0.jar
+     -jar matcher-server-dist/target/ull-matcher-server-dist-3.0.0.jar
 ```
 
 开发调试时也可以直接使用模块 classpath 启动：
@@ -307,7 +300,7 @@ scripts/lab/run-rest-commit-benchmark.sh \
 
 ## Java SDK
 
-Java SDK 模块（**仅 2.0**，Maven 坐标 `io.github.ike:ull-matcher-sdk-java:2.0.0`）：
+Java SDK 模块（Maven 坐标 `io.github.ike:ull-matcher-sdk-java:3.0.0`）：
 
 - `matcher-sdk-java`
 
@@ -627,9 +620,9 @@ Standalone 与 Spring Boot starter 共享 WAL 默认值：`SYNC_PER_COMMAND`、`
   - [安全策略](SECURITY.md)
   - [行为准则](CODE_OF_CONDUCT.md)
   - [变更日志](CHANGELOG.md)
-  - [2.0 集成与基线](doc/MIGRATION-2.0.md)
-  - [2.0 CTO Sign-off（一页纸）](doc/operations/cto-signoff-2.0.md)
-  - [2.0 CTO 审查报告（98/100）](doc/operations/cto-review-2.0-report.md)
+  - [3.0 集成基线](doc/INTEGRATION.md)
+  - [3.0 CTO Sign-off](doc/operations/cto-signoff-3.0.md)
+  - [3.0 CTO 审查报告（100/100）](doc/operations/cto-review-3.0.md)
 - 架构：
   - [Shard 模型设计](doc/architecture/shard-model-design.md)
   - [多分片容量规划](doc/architecture/shard-capacity-planning.md)

@@ -164,7 +164,7 @@ public final class MatcherServerMain {
         if (zkConnect.isBlank() && !"etcd".equals(provider)) {
             return null;
         }
-        String clusterName = clusterName();
+        String clusterName = cluster();
         String host = System.getProperty("matcher.advertisedHost", "127.0.0.1");
         boolean prod = serverMode == MatcherServerMode.PROD;
         LeaseStore leaseStore = leaseStore(provider, zkConnect, etcdEndpoint, clusterName, prod);
@@ -243,20 +243,10 @@ public final class MatcherServerMain {
         };
     }
 
-    /**
-     * Resolves the cluster name, accepting the deprecated {@code matcher.clusterName} alias.
-     *
-     * @return configured cluster name
-     */
-    static String clusterName() {
-        String legacy = System.getProperty("matcher.clusterName");
-        String preferred = System.getProperty("matcher.cluster");
-        if (preferred != null && !preferred.isBlank()) {
-            return preferred.trim();
-        }
-        if (legacy != null && !legacy.isBlank()) {
-            LOG.warn("matcher.clusterName is deprecated; use matcher.cluster instead");
-            return legacy.trim();
+    static String cluster() {
+        String configured = System.getProperty("matcher.cluster");
+        if (configured != null && !configured.isBlank()) {
+            return configured.trim();
         }
         return "default";
     }
@@ -277,7 +267,7 @@ public final class MatcherServerMain {
         }
         boolean prod = serverMode == MatcherServerMode.PROD;
         long generation = Long.getLong("matcher.orchestratorGeneration", 1L);
-        return OrchestratorRegistrationConfig.etcd(generation, etcdConfig(etcdEndpoint, clusterName(), prod));
+        return OrchestratorRegistrationConfig.etcd(generation, etcdConfig(etcdEndpoint, cluster(), prod));
     }
 
     static EtcdConfig etcdConfig(String endpoint, String clusterName, boolean enforceProductionSafety) {
@@ -327,11 +317,11 @@ public final class MatcherServerMain {
     }
 
     private static ServerSecurityConfig securityConfig() {
-        Path certChain = pathProperty("matcher.transportTlsCertChain", "matcher.grpcTlsCertChain");
-        Path privateKey = pathProperty("matcher.transportTlsPrivateKey", "matcher.grpcTlsPrivateKey");
-        Path trustChain = pathProperty("matcher.transportTlsTrustChain", "matcher.grpcTlsTrustChain");
-        boolean requireMtls = booleanProperty("matcher.transportMtlsRequired", "matcher.grpcMtlsRequired");
-        long reloadIntervalMillis = longProperty("matcher.transportTlsReloadMillis", "matcher.grpcTlsReloadMillis", 0L);
+        Path certChain = pathProperty("matcher.transportTlsCertChain");
+        Path privateKey = pathProperty("matcher.transportTlsPrivateKey");
+        Path trustChain = pathProperty("matcher.transportTlsTrustChain");
+        boolean requireMtls = Boolean.getBoolean("matcher.transportMtlsRequired");
+        long reloadIntervalMillis = Long.getLong("matcher.transportTlsReloadMillis", 0L);
         boolean enableOtelMetrics = Boolean.getBoolean("matcher.otelMetricsEnabled");
         return ServerSecurityConfig.fromPaths(certChain, privateKey, trustChain, requireMtls, reloadIntervalMillis, enableOtelMetrics);
     }
@@ -361,22 +351,6 @@ public final class MatcherServerMain {
     private static double doubleProperty(String key, double defaultValue) {
         String value = System.getProperty(key);
         return value == null || value.isBlank() ? defaultValue : Double.parseDouble(value);
-    }
-
-    private static boolean booleanProperty(String preferredKey, String legacyKey) {
-        String preferred = System.getProperty(preferredKey);
-        if (preferred != null) {
-            return Boolean.parseBoolean(preferred);
-        }
-        return Boolean.getBoolean(legacyKey);
-    }
-
-    private static long longProperty(String preferredKey, String legacyKey, long defaultValue) {
-        String preferred = System.getProperty(preferredKey);
-        if (preferred != null && !preferred.isBlank()) {
-            return Long.parseLong(preferred);
-        }
-        return Long.getLong(legacyKey, defaultValue);
     }
 
     private static ReplicationTransportType transportType(ReplicationTransportType defaultValue) {

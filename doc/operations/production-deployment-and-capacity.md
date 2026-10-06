@@ -19,7 +19,7 @@
 - **GRPC** 作为生产默认复制传输
 - **AERON** 为开源高级选项；生产启用前须 `transport-compare` + 长稳 soak（无近期 rollout 计划时，文档与验证以 GRPC 为准）
 - REST HA 表示外部客户端通过 REST 写入 primary，主备复制仍然只走 `GRPC` 或 `AERON`，不走 HTTP
-- **客户端：** 仅 **`matcher-sdk-java` 2.0**（见 [MIGRATION-2.0.md](../MIGRATION-2.0.md)）
+- **客户端：** **`matcher-sdk-java` 3.0.0**（见 [INTEGRATION.md](../INTEGRATION.md)）
 
 ## 2. 文档索引
 
