@@ -3,33 +3,31 @@ package io.github.ike.ullmatcher.server.api;
 import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Executor;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Executor for HTTP handler work. Default: virtual-thread-per-task.
- * {@code -Dmatcher.httpPlatformReadExecutor=true} selects a bounded platform pool (legacy).
+ * HTTP handler 执行绑定。默认走 {@link MatcherHttpExecutors} 共享虚拟线程池；
+ * {@code -Dmatcher.httpPlatformReadExecutor=true} 时为该实例创建有界平台线程池。
  */
 final class HttpDispatchExecutor implements AutoCloseable {
-    private final ExecutorService delegate;
-    private final ThreadPoolExecutor platformPool;
+    private final Executor delegate;
+    private final ThreadPoolExecutor ownedPlatformPool;
     private final boolean platformBoundedPool;
     private final int platformQueueCapacity;
-
-    private HttpDispatchExecutor(ExecutorService delegate,
-                                   ThreadPoolExecutor platformPool,
+    private HttpDispatchExecutor(Executor delegate,
+                                   ThreadPoolExecutor ownedPlatformPool,
                                    boolean platformBoundedPool,
                                    int platformQueueCapacity) {
         this.delegate = Objects.requireNonNull(delegate, "delegate");
-        this.platformPool = platformPool;
+        this.ownedPlatformPool = ownedPlatformPool;
         this.platformBoundedPool = platformBoundedPool;
         this.platformQueueCapacity = platformQueueCapacity;
     }
 
     static HttpDispatchExecutor create(int undertowWorkerThreads, int maxConcurrentRequests) {
         if (Boolean.getBoolean("matcher.httpPlatformReadExecutor")) {
+            MatcherHttpExecutors.onHttpServerOpened(false);
             int requestThreads = Math.max(2, undertowWorkerThreads);
             int queueCapacity = Math.max(
                     requestThreads,
@@ -47,12 +45,12 @@ final class HttpDispatchExecutor implements AutoCloseable {
             pool.prestartAllCoreThreads();
             return new HttpDispatchExecutor(pool, pool, true, queueCapacity);
         }
+        MatcherHttpExecutors.onHttpServerOpened(true);
         return new HttpDispatchExecutor(
-                Executors.newVirtualThreadPerTaskExecutor(),
+                MatcherHttpExecutors.sharedVirtualDispatchExecutor(),
                 null,
                 false,
-                0
-        );
+                0);
     }
 
     Executor executor() {
@@ -64,19 +62,19 @@ final class HttpDispatchExecutor implements AutoCloseable {
     }
 
     boolean isPlatformExecutorSaturated() {
-        if (platformPool == null) {
+        if (ownedPlatformPool == null) {
             return false;
         }
-        return platformPool.getActiveCount() >= platformPool.getMaximumPoolSize()
-                && platformPool.getQueue().remainingCapacity() == 0;
+        return ownedPlatformPool.getActiveCount() >= ownedPlatformPool.getMaximumPoolSize()
+                && ownedPlatformPool.getQueue().remainingCapacity() == 0;
     }
 
     int platformWorkerCount() {
-        return platformPool == null ? 0 : platformPool.getMaximumPoolSize();
+        return ownedPlatformPool == null ? 0 : ownedPlatformPool.getMaximumPoolSize();
     }
 
     int executorQueueDepth() {
-        return platformPool == null ? 0 : platformPool.getQueue().size();
+        return ownedPlatformPool == null ? 0 : ownedPlatformPool.getQueue().size();
     }
 
     int executorQueueCapacity() {
@@ -85,11 +83,14 @@ final class HttpDispatchExecutor implements AutoCloseable {
 
     @Override
     public void close() {
-        delegate.shutdownNow();
-        try {
-            delegate.awaitTermination(5L, TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+        MatcherHttpExecutors.onHttpServerClosed();
+        if (ownedPlatformPool != null) {
+            ownedPlatformPool.shutdownNow();
+            try {
+                ownedPlatformPool.awaitTermination(5L, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 }

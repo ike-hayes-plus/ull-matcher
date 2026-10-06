@@ -3,15 +3,10 @@ package io.github.ike.ullmatcher.server.api;
 import io.undertow.server.HttpServerExchange;
 
 import java.io.IOException;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 final class HttpRouteTimeoutGuard {
-    private static final ScheduledExecutorService TIMEOUT_SCHEDULER = Executors.newSingleThreadScheduledExecutor(
-            Thread.ofPlatform().name("matcher-http-timeout-", 0).daemon().factory());
-
     @FunctionalInterface
     interface BlockingWork {
         void run() throws IOException;
@@ -31,7 +26,7 @@ final class HttpRouteTimeoutGuard {
             work.run();
             return;
         }
-        ScheduledFuture<?> timeoutTask = TIMEOUT_SCHEDULER.schedule(() -> {
+        ScheduledFuture<?> timeoutTask = MatcherHttpExecutors.routeTimeoutScheduler().schedule(() -> {
             if (exchange.isResponseStarted()) {
                 return;
             }

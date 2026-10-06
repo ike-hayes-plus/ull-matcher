@@ -18,7 +18,7 @@
 
 ## 2. HTTP 调度：Undertow IO → 虚拟线程 + 保留 budget
 
-**读/写** handler 均经 `exchange.dispatch(虚拟线程池, …)` 执行，Undertow worker 不再在 `future.get` 或长 WAL 等待上被占满。写路径同样受 **route 超时** 约束（与读一致）。
+**读/写** handler 均经 `exchange.dispatch(共享虚拟线程池, …)` 执行（`MatcherHttpExecutors`，线程名 `matcher-http-*`）；最后一个 `HttpApiServer` 关闭时回收。Undertow worker 不再在 `future.get` 或长 WAL 等待上被占满。写路径同样受 **route 超时** 约束（共享 `matcher-http-timeout-*` 调度线程）。
 
 **背压不变**：全局 / 读·写·管理路由 / 端点 Semaphore 仍生效（503 overload），保护 ring、WAL 与内存。
 

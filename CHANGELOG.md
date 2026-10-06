@@ -16,7 +16,7 @@
 - 3.0 Phase B：`matcher-orchestrator` + `EtcdOrchestratorStore`（symbol 路由与 shard 注册/drain）。
 - 3.0 Phase C（进行中）：`matcher-server` 可选 `matcher.orchestratorEnabled` 启动自注册与 heartbeat，关闭时 drain。
 - 3.0 Phase C：只读编排 HTTP `GET /api/v1/orchestrator/routes/symbols/{symbolId}`；Java SDK `MatcherOrchestratorClient` + `SymbolRouteView`。
-- HTTP 读/写均 dispatch 到虚拟线程池（`-Dmatcher.httpPlatformReadExecutor=true` 可恢复有界平台池）；默认 HTTP budget 提升（2048/1024/512）；`run-http-concurrency-sweep.sh` 扫拐点；见 [doc/operations/http-and-binary-concurrency.md](doc/operations/http-and-binary-concurrency.md)。
+- HTTP 读/写均 dispatch 到进程级共享虚拟线程池 `MatcherHttpExecutors`（`-Dmatcher.httpPlatformReadExecutor=true` 可恢复每实例有界平台池）；默认 HTTP budget 提升（2048/1024/512）；`run-http-concurrency-sweep.sh` 扫拐点；见 [doc/operations/http-and-binary-concurrency.md](doc/operations/http-and-binary-concurrency.md)。
 - 传输 ADR（后续 3.0.x）：[doc/architecture/replication-transport-2.1.md](doc/architecture/replication-transport-2.1.md)；`AERON_PREVIEW` 已 `@Deprecated`。
 
 ## [2.0.0] - 2026-10-05
