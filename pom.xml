@@ -80,7 +80,7 @@
         <jacocoArgLine/>
         <jacoco.line.minimum>0.80</jacoco.line.minimum>
         <jacoco.branch.minimum>0.70</jacoco.branch.minimum>
-        <pitest.version>1.20.5</pitest.version>
+        <pitest.version>1.30.0</pitest.version>
         <pitest.junit5.version>1.2.3</pitest.junit5.version>
         <pitest.mutation.minimum>70</pitest.mutation.minimum>
         <pitest.coverage.minimum>80</pitest.coverage.minimum>
