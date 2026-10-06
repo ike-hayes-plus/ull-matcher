@@ -157,7 +157,7 @@ jobs:
           if-no-files-found: error
 
       - name: Restore dependency-check database cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.m2/repository/org/owasp/dependency-check-data
           key: dependency-check-${{ github.run_id }}
