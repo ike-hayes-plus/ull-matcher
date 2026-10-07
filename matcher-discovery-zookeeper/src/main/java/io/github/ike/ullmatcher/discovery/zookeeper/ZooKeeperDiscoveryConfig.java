@@ -1,5 +1,7 @@
 package io.github.ike.ullmatcher.discovery.zookeeper;
 
+import io.github.ike.ullmatcher.ha.coordination.ControlPlaneHostSafety;
+
 import java.util.Objects;
 
 public record ZooKeeperDiscoveryConfig(
@@ -24,5 +26,9 @@ public record ZooKeeperDiscoveryConfig(
 
     public static ZooKeeperDiscoveryConfig defaults(String connectString, String clusterName) {
         return new ZooKeeperDiscoveryConfig(connectString, "/ull-matcher/discovery/" + clusterName + "/nodes", 15_000, 5_000);
+    }
+
+    public void validateProductionSafety() {
+        ControlPlaneHostSafety.requireLoopbackConnectStringInProduction(connectString, "ZooKeeper");
     }
 }

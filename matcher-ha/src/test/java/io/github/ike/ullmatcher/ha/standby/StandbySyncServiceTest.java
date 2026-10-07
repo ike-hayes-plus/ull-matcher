@@ -91,6 +91,20 @@ final class StandbySyncServiceTest {
     }
 
     @Test
+    void closeStopsApplyWaitWithoutMatchLoop() throws Exception {
+        RecordingWalWriter wal = new RecordingWalWriter();
+        SpscRingBuffer<Command> ring = new SpscRingBuffer<>(16);
+        UltraLowLatencyMatcher matcher = new UltraLowLatencyMatcher(MatcherConfig.defaults(1), new NoopHandler());
+        StandbySyncService service = new StandbySyncService("standby-a", wal, ring, matcher, StandbySyncConfig.defaults());
+
+        service.replicate(command(1L), TimeUnit.MILLISECONDS.toNanos(10));
+        service.close();
+
+        assertEquals(new ReplicationCursor(1L, 1L, 0L, 0L), service.cursor());
+        assertEquals(0L, matcher.lastSequence());
+    }
+
+    @Test
     void replicateBatchForcesOnceAndAdvancesCursorToLastSequence() throws Exception {
         RecordingWalWriter wal = new RecordingWalWriter();
         SpscRingBuffer<Command> ring = new SpscRingBuffer<>(16);

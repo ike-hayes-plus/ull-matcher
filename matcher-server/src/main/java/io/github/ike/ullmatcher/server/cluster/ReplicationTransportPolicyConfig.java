@@ -7,15 +7,14 @@ import java.util.Objects;
  */
 public record ReplicationTransportPolicyConfig(
         boolean allowTransportChange,
-        String transportChangeWindowId,
-        boolean allowPreviewTransportInProd
+        String transportChangeWindowId
 ) {
     public ReplicationTransportPolicyConfig {
         Objects.requireNonNull(transportChangeWindowId, "transportChangeWindowId");
     }
 
     public static ReplicationTransportPolicyConfig defaults() {
-        return new ReplicationTransportPolicyConfig(false, "", false);
+        return new ReplicationTransportPolicyConfig(false, "");
     }
 
     public boolean changeWindowActive() {

@@ -54,7 +54,7 @@ final class DiscoveryDrivenReplicatorTest {
             assertEquals(0, second.wal.appendCount);
 
             replicator.refresh(List.of(new DiscoveredNode("standby-a", "127.0.0.1", second.port(), HaRole.STANDBY, java.util.Map.of())));
-            replicator.replicate(command(2L), TimeUnit.SECONDS.toNanos(1));
+            replicator.replicate(command(1L), TimeUnit.SECONDS.toNanos(1));
 
             assertEquals(1, first.wal.appendCount);
             assertEquals(1, second.wal.appendCount);

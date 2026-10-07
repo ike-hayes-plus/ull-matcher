@@ -58,6 +58,9 @@ final class SnapshotCoordinator {
                 offerTimeoutNanos
         );
         if (result != SubmitResult.ACCEPTED) {
+            if (!result.walAppended()) {
+                nextSequence.compareAndSet(markerSequence + 1L, markerSequence);
+            }
             throw new IOException("failed to enqueue snapshot marker: " + result);
         }
         awaitSequenceApplied(engine.matcher(), markerSequence, engine.ring());

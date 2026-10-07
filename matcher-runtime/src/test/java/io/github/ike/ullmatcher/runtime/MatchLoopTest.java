@@ -57,6 +57,8 @@ final class MatchLoopTest {
         );
         Thread thread = Thread.ofPlatform().name("matcher-idle-test").start(loop);
 
+        assertTrue(loop.isRunning());
+        assertTrue(loop.isAcceptingCommands());
         awaitTrue(() -> loop.idleParkCount() > 0, Duration.ofSeconds(1));
 
         long parksBeforeTraffic = loop.idleParkCount();

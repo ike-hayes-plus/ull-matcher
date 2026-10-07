@@ -92,7 +92,7 @@ final class MatcherNodeServiceClusterPeriodicSnapshotTest {
                 ReplicationMode.LOCAL_ONLY,
                 TimeUnit.MILLISECONDS.toNanos(50),
                 ReplicationTransportType.GRPC,
-                new AeronPreviewTransportConfig(dir.resolve("aeron-preview"), 15_390, 11_291),
+                new AeronTransportConfig(dir.resolve("aeron"), 15_390, 11_291),
                 ReplicationTransportPolicyConfig.defaults()
         );
     }

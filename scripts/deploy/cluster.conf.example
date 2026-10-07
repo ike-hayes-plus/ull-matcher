@@ -21,13 +21,15 @@ SYMBOL_ID="1"
 # QUOTE_SCALE=100000000
 # PREVENT_SELF_TRADE=true
 
-ZK_CONNECT="10.0.0.10:2181,10.0.0.11:2181,10.0.0.12:2181"
+# Remote PROD control plane must be etcd https. ZooKeeper is loopback-only
+# until TLS exists in this repo; a remote ZK_CONNECT fails cluster.sh validate.
+ZK_CONNECT="127.0.0.1:2181,127.0.0.1:2182,127.0.0.1:2183"
 ETCD_ENDPOINT="https://10.0.0.10:2379,https://10.0.0.11:2379,https://10.0.0.12:2379"
 ENABLE_TRANSPORT_TLS="true"
 
 # Use one control plane per cluster: both providers must be zk, or both etcd.
-LEASE_PROVIDER="zk"
-DISCOVERY_PROVIDER="zk"
+LEASE_PROVIDER="etcd"
+DISCOVERY_PROVIDER="etcd"
 
 # The same checkout or release directory must exist on every remote host.
 REMOTE_ROOT="/opt/ull-matcher"

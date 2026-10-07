@@ -10,7 +10,7 @@
 - 本地 SSD
 - **JDK Temurin 25.0.3**（与本文「压测结果」口径一致）
 
-正式 JSON 报告目录：`target/benchmark/3.0-full/`（2026-10-06 参考机复现，Temurin 25 / `.sdkmanrc`）。一键复现见下文「复现」。
+正式 JSON 报告目录：`target/benchmark/3.0-full/`（2026-10-06 参考机复现，Temurin 25 / `.sdkmanrc`）。与主表数字一致的机器可读副本在 `doc/operations/benchmark-reports/`，CI 每次用它对齐本文主表。一键复现见下文「复现」。
 
 ## 标准场景
 
@@ -201,12 +201,13 @@ COOLDOWN_SECONDS=45 OUT_DIR=target/benchmark/3.0-full \
   scripts/ops/run-3.0-full-benchmark-matrix.sh
 ```
 
-主表 JSON 与文档数字对齐检查（参考机全量报告就绪后）：
+主表 JSON 与文档数字对齐检查：
 
 ```bash
+# CI：对照已提交的主表副本，缺任一报告即失败
+scripts/ops/validate-benchmark-baseline.py --report-root doc/operations/benchmark-reports
+# 参考机复现后，对照新生成的报告
 scripts/ops/validate-benchmark-baseline.py --report-root target/benchmark/3.0-full
-# CI：只校验主表行是否齐全；有 JSON 才比数字（不在 CI 跑全量 matrix）
-scripts/ops/validate-benchmark-baseline.py --skip-missing-reports
 ```
 
 Lab 节点默认 `scripts/deploy/lab-bench.defaults.sh`（`BENCH` WAL、关闭周期 RDB），与绿田基线口径一致；生产部署仍用 `default.conf` 的 `PROD` 预设。

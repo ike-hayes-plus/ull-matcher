@@ -124,7 +124,7 @@ is_positive_integer() {
 
 is_local_host() {
   case "$1" in
-    127.0.0.1|localhost|"$(hostname)"|"$(hostname -s 2>/dev/null || true)")
+    127.0.0.1|localhost|::1|"$(hostname)"|"$(hostname -s 2>/dev/null || true)")
       return 0
       ;;
   esac
@@ -169,9 +169,9 @@ validate_provider() {
 
 validate_transport() {
   case "$1" in
-    GRPC|AERON|AERON_PREVIEW) ;;
+    GRPC|AERON) ;;
     *)
-      echo "REPLICATION_TRANSPORT must be GRPC, AERON, or AERON_PREVIEW: $1" >&2
+      echo "REPLICATION_TRANSPORT must be GRPC or AERON: $1" >&2
       return 1
       ;;
   esac
@@ -199,7 +199,7 @@ validate_wal_mode() {
 
 is_loopback_bind_host() {
   case "$1" in
-    127.*|localhost|::1) return 0 ;;
+    127.0.0.1|localhost|::1) return 0 ;;
   esac
   return 1
 }
@@ -594,6 +594,23 @@ validate_config() {
   if [[ "${SERVER_MODE_VALUE}" == "PROD" ]] && is_remote_bind_host "$GRPC_BIND_HOST" && [[ "$ENABLE_TRANSPORT_TLS" != "true" ]]; then
     echo "PROD GRPC_BIND_HOST=$GRPC_BIND_HOST is non-loopback; set ENABLE_TRANSPORT_TLS=true" >&2
     status=1
+  fi
+  if [[ "${SERVER_MODE_VALUE}" == "PROD" && "${lease_provider}" == "zk" ]]; then
+    local zk_endpoint
+    local zk_host
+    local zk_connect="${ZK_CONNECT%%/*}"
+    IFS=',' read -ra zk_endpoints <<< "${zk_connect}"
+    for zk_endpoint in "${zk_endpoints[@]}"; do
+      zk_endpoint="${zk_endpoint#"${zk_endpoint%%[![:space:]]*}"}"
+      zk_endpoint="${zk_endpoint%"${zk_endpoint##*[![:space:]]}"}"
+      zk_host="${zk_endpoint%%:*}"
+      zk_host="${zk_host#[}"
+      zk_host="${zk_host%]}"
+      if [[ -n "$zk_host" ]] && is_remote_bind_host "$zk_host"; then
+        echo "PROD ZooKeeper must be loopback until TLS is implemented; use etcd https for remote control plane: $zk_endpoint" >&2
+        status=1
+      fi
+    done
   fi
   if [[ "${SERVER_MODE_VALUE}" == "PROD" && "${lease_provider}" == "etcd" ]]; then
     local etcd_endpoint

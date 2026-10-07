@@ -24,4 +24,11 @@ final class ZooKeeperDiscoveryConfigTest {
         assertThrows(IllegalArgumentException.class, () -> new ZooKeeperDiscoveryConfig("127.0.0.1:2181", "/ull/nodes", 0, 5_000));
         assertThrows(IllegalArgumentException.class, () -> new ZooKeeperDiscoveryConfig("127.0.0.1:2181", "/ull/nodes", 15_000, 0));
     }
+
+    @Test
+    void productionSafetyRejectsRemoteHosts() {
+        ZooKeeperDiscoveryConfig remote = ZooKeeperDiscoveryConfig.defaults("10.0.0.8:2181", "cluster-a");
+        assertThrows(IllegalStateException.class, remote::validateProductionSafety);
+        ZooKeeperDiscoveryConfig.defaults("127.0.0.1:2181", "cluster-a").validateProductionSafety();
+    }
 }

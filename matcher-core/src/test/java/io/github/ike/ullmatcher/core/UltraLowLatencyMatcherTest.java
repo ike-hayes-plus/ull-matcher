@@ -58,6 +58,97 @@ class UltraLowLatencyMatcherTest {
         assertEquals(2, m.liveOrderCount(), "sell 102 has 4 remaining and sell 103 is untouched");
     }
 
+    @Test
+    void bidPriceTimePriorityMatchesOldestRestingBuyFirst() {
+        RecordingHandler h = new RecordingHandler();
+        UltraLowLatencyMatcher m = matcher(h);
+
+        m.onCommand(limit(1, 101, 11, Side.BUY, 100, 5));
+        m.onCommand(limit(2, 102, 12, Side.BUY, 100, 7));
+        m.onCommand(limit(3, 103, 13, Side.BUY, 99, 9));
+        m.onCommand(limit(4, 201, 21, Side.SELL, 100, 8));
+
+        assertEquals(2, h.trades.size());
+        assertEquals(101, h.trades.get(0).buyOrderId());
+        assertEquals(5, h.trades.get(0).quantity());
+        assertEquals(102, h.trades.get(1).buyOrderId());
+        assertEquals(3, h.trades.get(1).quantity());
+        assertEquals(2, m.liveOrderCount(), "buy 102 has 4 remaining and buy 103 is untouched");
+    }
+
+    @Test
+    void gtcBuyFillsAskLevelsInPriceThenTimeOrder() {
+        RecordingHandler h = new RecordingHandler();
+        UltraLowLatencyMatcher m = matcher(h);
+
+        m.onCommand(limit(1, 101, 11, Side.SELL, 100, 4));
+        m.onCommand(limit(2, 102, 12, Side.SELL, 100, 2));
+        m.onCommand(limit(3, 103, 13, Side.SELL, 101, 5));
+        m.onCommand(limit(4, 201, 21, Side.BUY, 101, 8));
+
+        assertEquals(3, h.trades.size());
+        assertEquals(101, h.trades.get(0).sellOrderId());
+        assertEquals(4, h.trades.get(0).quantity());
+        assertEquals(100, h.trades.get(0).price());
+        assertEquals(102, h.trades.get(1).sellOrderId());
+        assertEquals(2, h.trades.get(1).quantity());
+        assertEquals(100, h.trades.get(1).price());
+        assertEquals(103, h.trades.get(2).sellOrderId());
+        assertEquals(2, h.trades.get(2).quantity());
+        assertEquals(101, h.trades.get(2).price());
+        assertEquals(1, m.liveOrderCount());
+        assertEquals(3, h.orders.stream()
+                .filter(o -> o.orderId() == 103 && o.status().equals("PARTIALLY_FILLED"))
+                .findFirst()
+                .orElseThrow()
+                .remaining());
+    }
+
+    @Test
+    void cancelMiddleFifoOrderPreservesOlderHead() {
+        RecordingHandler h = new RecordingHandler();
+        UltraLowLatencyMatcher m = matcher(h);
+
+        m.onCommand(limit(1, 101, 11, Side.SELL, 100, 5));
+        m.onCommand(limit(2, 102, 12, Side.SELL, 100, 5));
+        m.onCommand(limit(3, 103, 13, Side.SELL, 100, 5));
+        m.onCommand(Command.cancel(4, 102, SYMBOL));
+        m.onCommand(limit(5, 201, 21, Side.BUY, 100, 6));
+
+        assertEquals(2, h.trades.size());
+        assertEquals(101, h.trades.get(0).sellOrderId());
+        assertEquals(5, h.trades.get(0).quantity());
+        assertEquals(103, h.trades.get(1).sellOrderId());
+        assertEquals(1, h.trades.get(1).quantity());
+        assertEquals(1, m.liveOrderCount());
+    }
+
+    @Test
+    void sellSideFokIocAndSelfTradeMatchBuyBook() {
+        RecordingHandler h = new RecordingHandler();
+        UltraLowLatencyMatcher m = matcher(h);
+
+        m.onCommand(limit(1, 101, 11, Side.BUY, 101, 4));
+        m.onCommand(limit(2, 102, 12, Side.BUY, 100, 6));
+        m.onCommand(Command.newOrder(3, 201, 21, SYMBOL, Side.SELL, OrderType.LIMIT, TimeInForce.FOK, 100, 10));
+        assertEquals(2, h.trades.size());
+        assertEquals(101, h.trades.get(0).buyOrderId());
+        assertEquals(102, h.trades.get(1).buyOrderId());
+        assertEquals(0, m.liveOrderCount());
+
+        m.onCommand(limit(4, 103, 11, Side.BUY, 100, 5));
+        m.onCommand(Command.newOrder(5, 202, 22, SYMBOL, Side.SELL, OrderType.LIMIT, TimeInForce.IOC, 100, 9));
+        assertEquals(3, h.trades.size());
+        assertEquals(0, m.liveOrderCount());
+        assertTrue(h.orders.stream().anyMatch(o -> o.orderId() == 202 && o.status().equals("CANCELLED") && o.remaining() == 4));
+
+        m.onCommand(limit(6, 104, 33, Side.BUY, 100, 5));
+        m.onCommand(limit(7, 203, 33, Side.SELL, 100, 5));
+        assertTrue(h.orders.stream().anyMatch(o -> o.orderId() == 203 && o.status().equals("REJECTED")
+                && o.rejectReason().equals("SELF_TRADE_PREVENTED")));
+        assertEquals(1, m.liveOrderCount());
+    }
+
     /**
      * 验证撤单会在后续撮合前移除挂单。
      */

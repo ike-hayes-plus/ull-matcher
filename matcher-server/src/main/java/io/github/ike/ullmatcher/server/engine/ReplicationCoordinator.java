@@ -79,6 +79,10 @@ final class ReplicationCoordinator implements Closeable {
         this.timeoutNanos = 0L;
     }
 
+    boolean replicationRequired() {
+        return mode != ReplicationMode.LOCAL_ONLY;
+    }
+
     void onLocalAccepted(Command command, SubmissionTracker.TrackedSubmission submission) {
         Objects.requireNonNull(command, "command");
         ReplicationMode requiredMode = mode;
@@ -400,6 +404,10 @@ final class ReplicationCoordinator implements Closeable {
             if (queue.offer(work)) {
                 updateMax(maxObservedQueueDepth, queue.size());
                 return;
+            }
+            if (Thread.interrupted()) {
+                Thread.currentThread().interrupt();
+                break;
             }
             Thread.onSpinWait();
         }

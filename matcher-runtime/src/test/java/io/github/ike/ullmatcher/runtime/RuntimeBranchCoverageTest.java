@@ -81,7 +81,7 @@ final class RuntimeBranchCoverageTest {
     }
 
     @Test
-    void gatewayReportsStoppedAfterWalWhenAcceptingFlips() throws Exception {
+    void gatewayPublishesCommandAppendedBeforeAcceptingFlips() throws Exception {
         InMemoryWal wal = new InMemoryWal();
         SpscRingBuffer<Command> ring = new SpscRingBuffer<>(4);
         AtomicBoolean accepting = new AtomicBoolean(true);
@@ -89,9 +89,9 @@ final class RuntimeBranchCoverageTest {
                 wal, ring, 1, 0, accepting::get, WalDurabilityMode.SYNC_PER_COMMAND, 1, 0L);
         wal.afterAppend = () -> accepting.set(false);
 
-        assertEquals(SubmitResult.MATCHER_STOPPED_AFTER_WAL_APPEND,
-                gateway.trySubmit(Command.shutdown(1), 0));
-        assertEquals(1, gateway.failedAfterWalCount());
+        assertEquals(SubmitResult.ACCEPTED, gateway.trySubmit(Command.shutdown(1), 0));
+        assertEquals(0, gateway.failedAfterWalCount());
+        assertEquals(1, ring.size());
     }
 
     @Test

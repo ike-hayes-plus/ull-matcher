@@ -72,7 +72,7 @@ start_matcher_node() {
     fi
   }
 
-  if [[ "$replication_transport" == "AERON_PREVIEW" || "$replication_transport" == "AERON" ]]; then
+  if [[ "$replication_transport" == "AERON" ]]; then
     java_opts+=(--add-exports=java.base/jdk.internal.misc=ALL-UNNAMED)
     java_opts+=(--add-opens=java.base/sun.nio.ch=ALL-UNNAMED)
   fi
@@ -81,6 +81,7 @@ start_matcher_node() {
 
   assert_port_free "$http_port"
   assert_port_free "$grpc_port"
+  assert_port_free "$aeron_port"
   if [[ -n "$binary_port" ]]; then
     assert_port_free "$binary_port"
   fi
@@ -131,8 +132,8 @@ start_matcher_node() {
     -Dmatcher.cluster="$cluster_name"
     -Dmatcher.advertisedHost="$advertised_host"
     -Dmatcher.replicationTransport="$replication_transport"
-    -Dmatcher.aeronPreviewDirectory="$data_dir/aeron-preview"
-    -Dmatcher.aeronPreviewPort="$aeron_port"
+    -Dmatcher.aeronDirectory="$data_dir/aeron"
+    -Dmatcher.aeronPort="$aeron_port"
   )
 
   if [[ -n "$expected_price_levels" ]]; then

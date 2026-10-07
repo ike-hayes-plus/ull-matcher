@@ -1,0 +1,10 @@
+{
+  "success": true,
+  "acceptedCommandsPerSecond": 188907,
+  "tradeEventsPerSecond": 188907,
+  "replicationCommittedSubmissionsPerSecond": 179250,
+  "commitCatchupSeconds": 0.009,
+  "latency": {
+    "p99Ms": 0.27
+  }
+}

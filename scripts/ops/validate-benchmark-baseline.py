@@ -158,14 +158,11 @@ def main() -> int:
                         help="relative tolerance for throughput metrics below the documented value")
     parser.add_argument("--latency-tolerance", type=float, default=0.05,
                         help="relative tolerance for catch-up and p99 metrics above the documented value")
-    parser.add_argument("--skip-missing-reports", action="store_true",
-                        help="skip scenarios whose JSON report file is absent (useful on CI without lab hardware)")
     args = parser.parse_args()
 
     rows = baseline_rows(args.doc)
     failures: list[str] = []
     checked = 0
-    skipped = 0
 
     for scenario in SCENARIOS:
         cells = rows.get(scenario.name)
@@ -183,9 +180,6 @@ def main() -> int:
             continue
         report_path = args.report_root / scenario.report
         if not report_path.exists():
-            if args.skip_missing_reports:
-                skipped += 1
-                continue
             failures.append(f"{scenario.name}: missing report {report_path}")
             continue
         try:
@@ -212,7 +206,7 @@ def main() -> int:
             print(f"- {failure}", file=sys.stderr)
         return 1
 
-    print(f"benchmark baseline validation passed: {checked} scenarios checked, {skipped} skipped")
+    print(f"benchmark baseline validation passed: {checked} scenarios checked")
     return 0
 
 

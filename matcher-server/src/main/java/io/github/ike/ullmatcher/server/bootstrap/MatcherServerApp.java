@@ -44,10 +44,10 @@ public final class MatcherServerApp implements Closeable {
     private final OrchestratorShardLifecycle orchestratorShardLifecycle;
 
     public MatcherServerApp(MatcherServerConfig config) throws IOException {
-        this(config, HttpSubmitAckMode.parse(System.getProperty("matcher.httpSubmitAckMode"), HttpSubmitAckMode.LOCAL));
+        this(config, config.httpSubmitAckMode());
     }
 
-    public MatcherServerApp(MatcherServerConfig config, HttpSubmitAckMode defaultSubmitAckMode) throws IOException {
+    private MatcherServerApp(MatcherServerConfig config, HttpSubmitAckMode defaultSubmitAckMode) throws IOException {
         this.config = config;
         config.validateDeploymentSafety();
         ReplicationTransportPolicyEnforcer.validateAndLock(config);

@@ -590,6 +590,7 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
             return;
         }
         closed = true;
+        submitWorker.interrupt();
         IOException closeError = null;
         Future<Void> closeFuture;
         try {
@@ -629,6 +630,17 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
                 closeError = e;
             } else {
                 closeError.addSuppressed(e);
+            }
+        }
+        try {
+            submitWorker.join(5_000L);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            IOException interrupted = new IOException("interrupted while joining submit worker", e);
+            if (closeError == null) {
+                closeError = interrupted;
+            } else {
+                closeError.addSuppressed(interrupted);
             }
         }
         try {
@@ -818,6 +830,18 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
             }
             nextPrimaryLeaseSubmitCheckNanos = nowNanos + primaryLeaseSubmitCheckIntervalNanos();
         }
+        fencePrimaryLeaseBeforeWal();
+    }
+
+    private void fencePrimaryLeaseBeforeWal() throws IOException {
+        if (config.clusterConfig() == null) {
+            return;
+        }
+        MatcherEngine current = state;
+        if (current == null || current.runtime().role() != HaRole.PRIMARY) {
+            return;
+        }
+        long nowNanos = System.nanoTime();
         if (config.clusterConfig().leaseStore().isHeldBy(config.nodeId(), current.runtime().fencingToken(), nowNanos)) {
             return;
         }
@@ -942,56 +966,91 @@ public final class MatcherNodeService implements Closeable, NodeControlStateSour
                     Thread.onSpinWait();
                 }
             }
-                lifecycleLock.readLock().lock();
-                int replicationCount = 0;
-                try {
-                    SubmissionCoordinator.BatchSubmitOutcome batchResult = submissionCoordinator.submitBatch(requireStarted(), requests, batchContext);
-                    SubmitResult result = batchContext.result;
-                    for (int i = 0; i < batch.size(); i++) {
-                        SubmissionTracker.TrackedSubmission trackedSubmission = batch.get(i).trackedSubmission();
-                        SubmissionRequest.PreparedSubmission prepared = i < batchResult.preparedCount()
-                                ? batchContext.prepared[i]
-                                : null;
-                        long sequence = prepared == null ? 0L : prepared.sequence();
-                        if (trackedSubmission != null) {
-                            trackedSubmission.markLocalOutcome(
-                                    sequence,
-                                    result,
-                                    System.currentTimeMillis(),
-                                    result == io.github.ike.ullmatcher.hft.SubmitResult.ACCEPTED && batchResult.replicationRequired(),
-                                    batchResult.requiredAcks(),
-                                    batchResult.totalTargets()
-                            );
-                        }
-                        if (prepared != null && result == io.github.ike.ullmatcher.hft.SubmitResult.ACCEPTED) {
-                            replicationPrepared[replicationCount] = prepared;
-                            replicationSubmissions[replicationCount] = trackedSubmission;
-                            replicationCount++;
-                        }
-                        batch.get(i).complete(result, sequence);
+            try {
+                fencePrimaryLeaseBeforeWal();
+            } catch (IOException leaseLost) {
+                failSubmitBatch(batch, leaseLost);
+                continue;
+            }
+            int replicationCount = 0;
+            lifecycleLock.readLock().lock();
+            try {
+                boolean replicationRequired = clusterRoleCoordinator.replicationCoordinator().replicationRequired();
+                SubmissionCoordinator.BatchSubmitOutcome batchResult = submissionCoordinator.submitBatch(
+                        requireStarted(), requests, batchContext, replicationRequired);
+                SubmitResult result = batchContext.result;
+                boolean durable = result.walAppended();
+                for (int i = 0; i < batch.size(); i++) {
+                    SubmissionTracker.TrackedSubmission trackedSubmission = batch.get(i).trackedSubmission();
+                    SubmissionRequest.PreparedSubmission prepared = i < batchResult.preparedCount()
+                            ? batchContext.prepared[i]
+                            : null;
+                    long sequence = prepared == null || !durable ? 0L : prepared.sequence();
+                    if (trackedSubmission != null) {
+                        trackedSubmission.markLocalOutcome(
+                                sequence,
+                                result,
+                                System.currentTimeMillis(),
+                                result == io.github.ike.ullmatcher.hft.SubmitResult.ACCEPTED && batchResult.replicationRequired(),
+                                batchResult.requiredAcks(),
+                                batchResult.totalTargets()
+                        );
                     }
-                    if (replicationCount > 0) {
-                        clusterRoleCoordinator.replicationCoordinator().onLocalAcceptedBatch(replicationPrepared, replicationSubmissions, replicationCount);
+                    if (prepared != null && result == io.github.ike.ullmatcher.hft.SubmitResult.ACCEPTED) {
+                        replicationPrepared[replicationCount] = prepared;
+                        replicationSubmissions[replicationCount] = trackedSubmission;
+                        replicationCount++;
                     }
-                } catch (Throwable error) {
-                    for (SubmitTask task : batch) {
-                        if (task.trackedSubmission() != null) {
-                            task.trackedSubmission().markClosedFailure(error.getMessage(), System.currentTimeMillis());
-                        }
-                        task.fail(error);
-                    }
-                } finally {
-                    if (replicationCount > 0) {
-                        clearReplicationBatch(replicationPrepared, replicationSubmissions, replicationCount);
-                    }
-                    lifecycleLock.readLock().unlock();
+                    batch.get(i).complete(result, sequence);
                 }
+            } catch (Throwable error) {
+                failSubmitBatch(batch, error);
+                if (replicationCount > 0) {
+                    clearReplicationBatch(replicationPrepared, replicationSubmissions, replicationCount);
+                    replicationCount = 0;
+                }
+                if (isRingInvariantFailure(error) || error instanceof IOException) {
+                    closed = true;
+                    LOG.error("stopping submit loop after durable-log failure", error);
+                    if (deferred != null) {
+                        failSubmitBatch(deferred.tasks(), error);
+                        deferred = null;
+                    }
+                    break;
+                }
+            } finally {
+                lifecycleLock.readLock().unlock();
+            }
+            if (replicationCount > 0) {
+                try {
+                    clusterRoleCoordinator.replicationCoordinator().onLocalAcceptedBatch(
+                            replicationPrepared, replicationSubmissions, replicationCount);
+                } finally {
+                    clearReplicationBatch(replicationPrepared, replicationSubmissions, replicationCount);
+                }
+            }
         }
         SubmitEnvelope remaining;
         while ((remaining = submitQueue.poll()) != null) {
             for (SubmitTask task : remaining.tasks()) {
                 task.fail(new IllegalStateException("matcher node service is closed"));
             }
+        }
+    }
+
+    private static boolean isRingInvariantFailure(Throwable error) {
+        String message = error.getMessage();
+        return error instanceof IllegalStateException
+                && message != null
+                && message.contains("ring capacity changed");
+    }
+
+    private static void failSubmitBatch(List<SubmitTask> batch, Throwable error) {
+        for (SubmitTask task : batch) {
+            if (task.trackedSubmission() != null) {
+                task.trackedSubmission().markClosedFailure(error.getMessage(), System.currentTimeMillis());
+            }
+            task.fail(error);
         }
     }
 

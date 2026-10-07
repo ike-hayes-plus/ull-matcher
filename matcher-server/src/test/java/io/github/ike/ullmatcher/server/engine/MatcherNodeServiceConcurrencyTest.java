@@ -24,7 +24,7 @@ import io.github.ike.ullmatcher.hft.WalDurabilityMode;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerConfig;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerMode;
 import io.github.ike.ullmatcher.server.bootstrap.WriteAdmissionPolicyConfig;
-import io.github.ike.ullmatcher.server.cluster.AeronPreviewTransportConfig;
+import io.github.ike.ullmatcher.server.cluster.AeronTransportConfig;
 import io.github.ike.ullmatcher.server.cluster.MatcherClusterConfig;
 import io.github.ike.ullmatcher.server.cluster.ReplicationTransportPolicyConfig;
 import io.github.ike.ullmatcher.ha.transport.ReplicationTransportType;
@@ -182,6 +182,39 @@ final class MatcherNodeServiceConcurrencyTest {
             assertTrue(error.getMessage().contains("primary lease is not held"));
             assertEquals(HaRole.FENCED, service.currentState().role());
             assertFalse(service.currentState().acceptingClientCommands());
+        }
+    }
+
+    @Test
+    void queuedSubmitFencesBeforeWalWhenLeaseIsLostInsideTheEnqueueThrottle() throws Exception {
+        Path dir = Files.createTempDirectory("matcher-node-submit-lease-fence-queued");
+        String previous = System.getProperty("matcher.primaryLeaseSubmitCheckMicros");
+        System.setProperty("matcher.primaryLeaseSubmitCheckMicros", "60000000");
+        MutableLeaseStore leaseStore = new MutableLeaseStore(
+                new ClusterLease("node-a", new FencingToken(1L), System.nanoTime() + TimeUnit.SECONDS.toNanos(30))
+        );
+        try (MatcherNodeService service = new MatcherNodeService(testConfigWithCluster(dir, leaseStore))) {
+            service.start();
+            assertEquals(io.github.ike.ullmatcher.hft.SubmitResult.ACCEPTED, service.submitNewOrder(
+                    1L, 51_000L, Side.BUY, OrderType.LIMIT, TimeInForce.GTC, 100L, 1L
+            ).result());
+
+            leaseStore.setLease(new ClusterLease(
+                    "node-b", new FencingToken(2L), System.nanoTime() + TimeUnit.SECONDS.toNanos(30)
+            ));
+            IOException error = assertThrows(IOException.class, () -> service.submitNewOrder(
+                    1L, 52_000L, Side.BUY, OrderType.LIMIT, TimeInForce.GTC, 100L, 1L
+            ));
+
+            assertTrue(error.getMessage().contains("primary lease is not held"));
+            assertEquals(HaRole.FENCED, service.currentState().role());
+            assertNull(service.orderState(52_000L));
+        } finally {
+            if (previous == null) {
+                System.clearProperty("matcher.primaryLeaseSubmitCheckMicros");
+            } else {
+                System.setProperty("matcher.primaryLeaseSubmitCheckMicros", previous);
+            }
         }
     }
 
@@ -363,7 +396,7 @@ final class MatcherNodeServiceConcurrencyTest {
                 ReplicationMode.LOCAL_ONLY,
                 TimeUnit.MILLISECONDS.toNanos(50),
                 ReplicationTransportType.GRPC,
-                new AeronPreviewTransportConfig(dir.resolve("aeron-preview"), 15_290, 11_191),
+                new AeronTransportConfig(dir.resolve("aeron"), 15_290, 11_191),
                 ReplicationTransportPolicyConfig.defaults()
         );
         return new MatcherServerConfig(
@@ -470,6 +503,10 @@ final class MatcherNodeServiceConcurrencyTest {
         private volatile ClusterLease lease;
 
         private MutableLeaseStore(ClusterLease lease) {
+            this.lease = lease;
+        }
+
+        private void setLease(ClusterLease lease) {
             this.lease = lease;
         }
 

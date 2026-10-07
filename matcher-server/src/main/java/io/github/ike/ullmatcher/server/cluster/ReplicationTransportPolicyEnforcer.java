@@ -1,8 +1,6 @@
 package io.github.ike.ullmatcher.server.cluster;
 
-import io.github.ike.ullmatcher.ha.transport.ReplicationTransportType;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerConfig;
-import io.github.ike.ullmatcher.server.bootstrap.MatcherServerMode;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -31,12 +29,6 @@ public final class ReplicationTransportPolicyEnforcer {
             return;
         }
         ReplicationTransportPolicyConfig policy = clusterConfig.replicationTransportPolicyConfig();
-        if (config.serverMode() == MatcherServerMode.PROD
-                && clusterConfig.replicationTransportType() == ReplicationTransportType.AERON_PREVIEW
-                && !policy.allowPreviewTransportInProd()) {
-            throw new IllegalStateException(
-                    "prod mode forbids matcher.replicationTransport=AERON_PREVIEW unless matcher.allowPreviewTransportInProd=true");
-        }
         Path lockFile = config.walDirectory().resolveSibling(LOCK_FILE_NAME);
         Files.createDirectories(lockFile.getParent());
         if (!Files.exists(lockFile)) {

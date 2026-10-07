@@ -7,10 +7,10 @@ import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-final class AeronPreviewTransportConfigTest {
+final class AeronTransportConfigTest {
     @Test
     void channelsDeriveDistinctPortsFromTheBasePort() {
-        AeronPreviewTransportConfig config = new AeronPreviewTransportConfig(Path.of("target", "aeron"), 15_000, 11_000);
+        AeronTransportConfig config = new AeronTransportConfig(Path.of("target", "aeron"), 15_000, 11_000);
 
         assertEquals("aeron:udp?endpoint=127.0.0.1:15000", config.commandChannel("127.0.0.1"));
         assertEquals("aeron:udp?endpoint=127.0.0.1:15100", config.snapshotRequestChannel("127.0.0.1"));
@@ -24,7 +24,7 @@ final class AeronPreviewTransportConfigTest {
 
     @Test
     void streamIdsDeriveDistinctValuesFromTheBaseStreamId() {
-        AeronPreviewTransportConfig config = new AeronPreviewTransportConfig(Path.of("target", "aeron"), 15_000, 11_000);
+        AeronTransportConfig config = new AeronTransportConfig(Path.of("target", "aeron"), 15_000, 11_000);
 
         assertEquals(11_000, config.streamId());
         assertEquals(11_100, config.snapshotRequestStreamId());
@@ -40,18 +40,18 @@ final class AeronPreviewTransportConfigTest {
     void nonPositivePortOrStreamIdIsRejected() {
         Path directory = Path.of("target", "aeron");
 
-        assertEquals("Aeron preview port and streamId must be positive",
+        assertEquals("Aeron port and streamId must be positive",
                 assertThrows(IllegalArgumentException.class,
-                        () -> new AeronPreviewTransportConfig(directory, 0, 11_000)).getMessage());
-        assertEquals("Aeron preview port and streamId must be positive",
+                        () -> new AeronTransportConfig(directory, 0, 11_000)).getMessage());
+        assertEquals("Aeron port and streamId must be positive",
                 assertThrows(IllegalArgumentException.class,
-                        () -> new AeronPreviewTransportConfig(directory, 15_000, 0)).getMessage());
-        assertThrows(NullPointerException.class, () -> new AeronPreviewTransportConfig(null, 15_000, 11_000));
+                        () -> new AeronTransportConfig(directory, 15_000, 0)).getMessage());
+        assertThrows(NullPointerException.class, () -> new AeronTransportConfig(null, 15_000, 11_000));
     }
 
     @Test
     void blankHostIsRejectedWhenBuildingAChannel() {
-        AeronPreviewTransportConfig config = new AeronPreviewTransportConfig(Path.of("target", "aeron"), 15_000, 11_000);
+        AeronTransportConfig config = new AeronTransportConfig(Path.of("target", "aeron"), 15_000, 11_000);
 
         assertEquals("host must not be blank",
                 assertThrows(IllegalArgumentException.class, () -> config.commandChannel(" ")).getMessage());

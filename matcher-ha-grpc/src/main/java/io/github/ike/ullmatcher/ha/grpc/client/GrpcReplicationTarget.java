@@ -385,16 +385,33 @@ public final class GrpcReplicationTarget implements ReplicationTarget, Replicati
 
         @Override
         public void close() {
-            if (!closed) {
-                try {
-                    if (!pendingBatch.isEmpty()) {
-                        flushBatch();
-                    }
-                } catch (IOException ignored) {
-                }
-                closed = true;
-                requestObserver.onCompleted();
+            if (closed) {
+                return;
             }
+            IOException flushFailure = flushPending();
+            finishClose(flushFailure);
+        }
+
+        private IOException flushPending() {
+            if (pendingBatch.isEmpty()) {
+                return null;
+            }
+            try {
+                flushBatch();
+                return null;
+            } catch (IOException e) {
+                return e;
+            }
+        }
+
+        private void finishClose(IOException flushFailure) {
+            closed = true;
+            if (flushFailure != null) {
+                failure.compareAndSet(null, flushFailure);
+                requestObserver.onError(flushFailure);
+                return;
+            }
+            requestObserver.onCompleted();
         }
 
         void closeQuietly() {
@@ -410,11 +427,11 @@ public final class GrpcReplicationTarget implements ReplicationTarget, Replicati
 
         private CompletableFuture<ReplicationCursor> closeAsync() throws IOException {
             if (!closed) {
-                if (!pendingBatch.isEmpty()) {
-                    flushBatch();
+                IOException flushFailure = flushPending();
+                finishClose(flushFailure);
+                if (flushFailure != null) {
+                    throw flushFailure;
                 }
-                closed = true;
-                requestObserver.onCompleted();
             }
             return completion.whenComplete((cursor, error) -> {
                 if (error != null) {

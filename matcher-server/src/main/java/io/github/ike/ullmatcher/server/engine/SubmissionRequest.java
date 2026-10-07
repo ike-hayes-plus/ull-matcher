@@ -43,11 +43,10 @@ sealed interface SubmissionRequest permits SubmissionRequest.NewOrderRequest, Su
                                           TtlCancelGuard ttlCancelGuard,
                                           OrderStateTracker orderStateTracker,
                                           long nowEpochMillis) {
-            long sequence = nextSequence.getAndIncrement();
             long expireAtEpochMillis = config.ttlCancelConfig()
                     .resolveExpireAtEpochMillis(tif, ttlMillis, nowEpochMillis);
             Command command = commandPool.borrowNewOrder(
-                    sequence,
+                    0L,
                     orderId,
                     userId,
                     config.matcherConfig().symbolId(),
@@ -61,6 +60,8 @@ sealed interface SubmissionRequest permits SubmissionRequest.NewOrderRequest, Su
             if (command == null) {
                 throw new CommandPoolExhaustedException();
             }
+            long sequence = nextSequence.getAndIncrement();
+            command.sequence = sequence;
             return new PreparedSubmission(
                     command,
                     sequence,
@@ -80,11 +81,12 @@ sealed interface SubmissionRequest permits SubmissionRequest.NewOrderRequest, Su
                                           TtlCancelGuard ttlCancelGuard,
                                           OrderStateTracker orderStateTracker,
                                           long nowEpochMillis) {
-            long sequence = nextSequence.getAndIncrement();
-            Command command = commandPool.borrowCancel(sequence, orderId, config.matcherConfig().symbolId());
+            Command command = commandPool.borrowCancel(0L, orderId, config.matcherConfig().symbolId());
             if (command == null) {
                 throw new CommandPoolExhaustedException();
             }
+            long sequence = nextSequence.getAndIncrement();
+            command.sequence = sequence;
             return new PreparedSubmission(
                     command,
                     sequence,

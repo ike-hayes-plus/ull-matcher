@@ -14,13 +14,14 @@ import io.github.ike.ullmatcher.ha.grpc.server.GrpcReplicationServerConfig;
 import io.github.ike.ullmatcher.ha.replication.ReplicationMode;
 import io.github.ike.ullmatcher.ha.zookeeper.ZooKeeperLeaseStore;
 import io.github.ike.ullmatcher.ha.zookeeper.ZooKeeperLeaseStoreConfig;
-import io.github.ike.ullmatcher.server.cluster.AeronPreviewTransportConfig;
+import io.github.ike.ullmatcher.server.cluster.AeronTransportConfig;
 import io.github.ike.ullmatcher.server.cluster.MatcherClusterConfig;
 import io.github.ike.ullmatcher.server.cluster.ReplicationTransportPolicyConfig;
 import io.github.ike.ullmatcher.ha.transport.ReplicationTransportType;
 import io.github.ike.ullmatcher.server.engine.TtlCancelConfig;
 import io.github.ike.ullmatcher.server.orchestrator.OrchestratorRegistrationConfig;
 import io.github.ike.ullmatcher.server.api.BinaryIngressLimits;
+import io.github.ike.ullmatcher.server.api.HttpSubmitAckMode;
 import io.github.ike.ullmatcher.server.security.IngressAuthConfig;
 import io.github.ike.ullmatcher.server.security.ServerSecurityConfig;
 import io.github.ike.ullmatcher.storage.wal.WalArchiveConfig;
@@ -80,7 +81,9 @@ public final class MatcherServerMain {
                 .ttlCancelConfig(ttlCancelConfig())
                 .initialRole(initialRole(defaults.initialRole(), clusterConfig))
                 .orchestratorRegistrationConfig(orchestratorRegistrationConfig(serverMode, clusterConfig))
-                .clusterConfig(clusterConfig);
+                .clusterConfig(clusterConfig)
+                .httpSubmitAckMode(HttpSubmitAckMode.parse(
+                        System.getProperty("matcher.httpSubmitAckMode"), HttpSubmitAckMode.LOCAL));
         PersistenceSettings.apply(builder, serverMode, defaults);
         MatcherServerConfig config = builder.build();
         MatcherServerApp app = new MatcherServerApp(config);
@@ -184,7 +187,7 @@ public final class MatcherServerMain {
                         )
                 ),
                 transportType(defaults.replicationTransportType()),
-                aeronPreviewTransportConfig(defaults.aeronPreviewTransportConfig()),
+                aeronTransportConfig(defaults.aeronTransportConfig()),
                 transportPolicyConfig(defaults.replicationTransportPolicyConfig())
         );
     }
@@ -210,9 +213,16 @@ public final class MatcherServerMain {
                 if (zkConnect.isBlank()) {
                     throw new ServerBootstrapException("matcher.zkConnect is required when matcher.leaseProvider=zk");
                 }
-                yield new ZooKeeperLeaseStore(
-                        new ZooKeeperLeaseStoreConfig(zkConnect, "/ull-matcher/lease/" + clusterName, 15_000, 5_000)
-                );
+                ZooKeeperLeaseStoreConfig zkConfig = new ZooKeeperLeaseStoreConfig(
+                        zkConnect, "/ull-matcher/lease/" + clusterName, 15_000, 5_000);
+                if (enforceProductionSafety) {
+                    try {
+                        zkConfig.validateProductionSafety();
+                    } catch (IllegalStateException e) {
+                        throw new ServerBootstrapException(e.getMessage());
+                    }
+                }
+                yield new ZooKeeperLeaseStore(zkConfig);
             }
             case "etcd" -> new EtcdLeaseStore(etcdConfig(etcdEndpoint, clusterName, enforceProductionSafety));
             default -> throw new ServerBootstrapException("unsupported lease provider: " + provider);
@@ -229,7 +239,15 @@ public final class MatcherServerMain {
                 if (zkConnect.isBlank()) {
                     throw new ServerBootstrapException("matcher.zkConnect is required when matcher.discoveryProvider=zk");
                 }
-                yield new ZooKeeperNodeRegistry(ZooKeeperDiscoveryConfig.defaults(zkConnect, clusterName));
+                ZooKeeperDiscoveryConfig zkDiscovery = ZooKeeperDiscoveryConfig.defaults(zkConnect, clusterName);
+                if (enforceProductionSafety) {
+                    try {
+                        zkDiscovery.validateProductionSafety();
+                    } catch (IllegalStateException e) {
+                        throw new ServerBootstrapException(e.getMessage());
+                    }
+                }
+                yield new ZooKeeperNodeRegistry(zkDiscovery);
             }
             case "etcd" -> new EtcdNodeRegistry(etcdConfig(etcdEndpoint, clusterName, enforceProductionSafety));
             default -> throw new ServerBootstrapException("unsupported discovery provider: " + provider);
@@ -351,13 +369,13 @@ public final class MatcherServerMain {
         );
     }
 
-    private static AeronPreviewTransportConfig aeronPreviewTransportConfig(AeronPreviewTransportConfig defaults) {
-        String configuredDirectory = System.getProperty("matcher.aeronPreviewDirectory", "");
+    private static AeronTransportConfig aeronTransportConfig(AeronTransportConfig defaults) {
+        String configuredDirectory = System.getProperty("matcher.aeronDirectory", "");
         Path directory = configuredDirectory.isBlank() ? defaults.directory() : Path.of(configuredDirectory);
-        return new AeronPreviewTransportConfig(
+        return new AeronTransportConfig(
                 directory,
-                Integer.getInteger("matcher.aeronPreviewPort", defaults.port()),
-                Integer.getInteger("matcher.aeronPreviewStreamId", defaults.streamId())
+                Integer.getInteger("matcher.aeronPort", defaults.port()),
+                Integer.getInteger("matcher.aeronStreamId", defaults.streamId())
         );
     }
 
@@ -365,9 +383,7 @@ public final class MatcherServerMain {
         return new ReplicationTransportPolicyConfig(
                 Boolean.parseBoolean(System.getProperty("matcher.allowTransportChange",
                         Boolean.toString(defaults.allowTransportChange()))),
-                System.getProperty("matcher.transportChangeWindowId", defaults.transportChangeWindowId()),
-                Boolean.parseBoolean(System.getProperty("matcher.allowPreviewTransportInProd",
-                        Boolean.toString(defaults.allowPreviewTransportInProd())))
+                System.getProperty("matcher.transportChangeWindowId", defaults.transportChangeWindowId())
         );
     }
 }

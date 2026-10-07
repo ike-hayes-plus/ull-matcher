@@ -13,11 +13,7 @@ import io.github.ike.ullmatcher.ha.failover.FailoverPolicy;
 import io.github.ike.ullmatcher.ha.readiness.PromotionReadinessPolicy;
 import io.github.ike.ullmatcher.ha.replication.ReplicationMode;
 import io.github.ike.ullmatcher.ha.transport.ReplicationTransportType;
-import io.github.ike.ullmatcher.ha.transport.TransportMetricsSnapshot;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerConfig;
-import io.github.ike.ullmatcher.server.bootstrap.MatcherServerMode;
-import io.github.ike.ullmatcher.server.bootstrap.PersistenceProfile;
-import io.github.ike.ullmatcher.storage.wal.WalArchiveConfig;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -25,7 +21,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -41,32 +36,32 @@ final class ServerClusterBranchCoverageTest {
         assertThrows(NullPointerException.class, () -> new MatcherClusterConfig(
                 null, registry, "s", "h", 1, 1, 1, FailoverPolicy.defaults(),
                 PromotionReadinessPolicy.strict(), 0, 1, ReplicationMode.WAIT_FOR_ANY_STANDBY, 1,
-                ReplicationTransportType.GRPC, valid.aeronPreviewTransportConfig(),
+                ReplicationTransportType.GRPC, valid.aeronTransportConfig(),
                 ReplicationTransportPolicyConfig.defaults()));
         assertThrows(NullPointerException.class, () -> new MatcherClusterConfig(
                 leaseStore, null, "s", "h", 1, 1, 1, FailoverPolicy.defaults(),
                 PromotionReadinessPolicy.strict(), 0, 1, ReplicationMode.WAIT_FOR_ANY_STANDBY, 1,
-                ReplicationTransportType.GRPC, valid.aeronPreviewTransportConfig(),
+                ReplicationTransportType.GRPC, valid.aeronTransportConfig(),
                 ReplicationTransportPolicyConfig.defaults()));
         assertThrows(NullPointerException.class, () -> new MatcherClusterConfig(
                 leaseStore, registry, "s", "h", 1, 1, 1, null,
                 PromotionReadinessPolicy.strict(), 0, 1, ReplicationMode.WAIT_FOR_ANY_STANDBY, 1,
-                ReplicationTransportType.GRPC, valid.aeronPreviewTransportConfig(),
+                ReplicationTransportType.GRPC, valid.aeronTransportConfig(),
                 ReplicationTransportPolicyConfig.defaults()));
         assertThrows(NullPointerException.class, () -> new MatcherClusterConfig(
                 leaseStore, registry, "s", "h", 1, 1, 1, FailoverPolicy.defaults(),
                 null, 0, 1, ReplicationMode.WAIT_FOR_ANY_STANDBY, 1,
-                ReplicationTransportType.GRPC, valid.aeronPreviewTransportConfig(),
+                ReplicationTransportType.GRPC, valid.aeronTransportConfig(),
                 ReplicationTransportPolicyConfig.defaults()));
         assertThrows(NullPointerException.class, () -> new MatcherClusterConfig(
                 leaseStore, registry, "s", "h", 1, 1, 1, FailoverPolicy.defaults(),
                 PromotionReadinessPolicy.strict(), 0, 1, null, 1,
-                ReplicationTransportType.GRPC, valid.aeronPreviewTransportConfig(),
+                ReplicationTransportType.GRPC, valid.aeronTransportConfig(),
                 ReplicationTransportPolicyConfig.defaults()));
         assertThrows(NullPointerException.class, () -> new MatcherClusterConfig(
                 leaseStore, registry, "s", "h", 1, 1, 1, FailoverPolicy.defaults(),
                 PromotionReadinessPolicy.strict(), 0, 1, ReplicationMode.WAIT_FOR_ANY_STANDBY, 1,
-                null, valid.aeronPreviewTransportConfig(),
+                null, valid.aeronTransportConfig(),
                 ReplicationTransportPolicyConfig.defaults()));
         assertThrows(NullPointerException.class, () -> new MatcherClusterConfig(
                 leaseStore, registry, "s", "h", 1, 1, 1, FailoverPolicy.defaults(),
@@ -76,57 +71,57 @@ final class ServerClusterBranchCoverageTest {
         assertThrows(NullPointerException.class, () -> new MatcherClusterConfig(
                 leaseStore, registry, "s", "h", 1, 1, 1, FailoverPolicy.defaults(),
                 PromotionReadinessPolicy.strict(), 0, 1, ReplicationMode.WAIT_FOR_ANY_STANDBY, 1,
-                ReplicationTransportType.GRPC, valid.aeronPreviewTransportConfig(),
+                ReplicationTransportType.GRPC, valid.aeronTransportConfig(),
                 null));
         assertThrows(IllegalArgumentException.class, () -> new MatcherClusterConfig(
                 leaseStore, registry, " ", "h", 1, 1, 1, FailoverPolicy.defaults(),
                 PromotionReadinessPolicy.strict(), 0, 1, ReplicationMode.WAIT_FOR_ANY_STANDBY, 1,
-                ReplicationTransportType.GRPC, valid.aeronPreviewTransportConfig(),
+                ReplicationTransportType.GRPC, valid.aeronTransportConfig(),
                 ReplicationTransportPolicyConfig.defaults()));
         assertThrows(IllegalArgumentException.class, () -> new MatcherClusterConfig(
                 leaseStore, registry, "s", " ", 1, 1, 1, FailoverPolicy.defaults(),
                 PromotionReadinessPolicy.strict(), 0, 1, ReplicationMode.WAIT_FOR_ANY_STANDBY, 1,
-                ReplicationTransportType.GRPC, valid.aeronPreviewTransportConfig(),
+                ReplicationTransportType.GRPC, valid.aeronTransportConfig(),
                 ReplicationTransportPolicyConfig.defaults()));
         assertThrows(IllegalArgumentException.class, () -> new MatcherClusterConfig(
                 leaseStore, registry, "s", "h", 0, 1, 1, FailoverPolicy.defaults(),
                 PromotionReadinessPolicy.strict(), 0, 1, ReplicationMode.WAIT_FOR_ANY_STANDBY, 1,
-                ReplicationTransportType.GRPC, valid.aeronPreviewTransportConfig(),
+                ReplicationTransportType.GRPC, valid.aeronTransportConfig(),
                 ReplicationTransportPolicyConfig.defaults()));
         assertThrows(IllegalArgumentException.class, () -> new MatcherClusterConfig(
                 leaseStore, registry, "s", "h", 1, 0, 1, FailoverPolicy.defaults(),
                 PromotionReadinessPolicy.strict(), 0, 1, ReplicationMode.WAIT_FOR_ANY_STANDBY, 1,
-                ReplicationTransportType.GRPC, valid.aeronPreviewTransportConfig(),
+                ReplicationTransportType.GRPC, valid.aeronTransportConfig(),
                 ReplicationTransportPolicyConfig.defaults()));
         assertThrows(IllegalArgumentException.class, () -> new MatcherClusterConfig(
                 leaseStore, registry, "s", "h", 1, 1, 0, FailoverPolicy.defaults(),
                 PromotionReadinessPolicy.strict(), 0, 1, ReplicationMode.WAIT_FOR_ANY_STANDBY, 1,
-                ReplicationTransportType.GRPC, valid.aeronPreviewTransportConfig(),
+                ReplicationTransportType.GRPC, valid.aeronTransportConfig(),
                 ReplicationTransportPolicyConfig.defaults()));
         assertThrows(IllegalArgumentException.class, () -> new MatcherClusterConfig(
                 leaseStore, registry, "s", "h", 1, 1, 1, FailoverPolicy.defaults(),
                 PromotionReadinessPolicy.strict(), 0, 1, ReplicationMode.WAIT_FOR_ANY_STANDBY, -1,
-                ReplicationTransportType.GRPC, valid.aeronPreviewTransportConfig(),
+                ReplicationTransportType.GRPC, valid.aeronTransportConfig(),
                 ReplicationTransportPolicyConfig.defaults()));
         assertThrows(IllegalArgumentException.class, () -> new MatcherClusterConfig(
                 leaseStore, registry, "s", "h", 1, 1, 1, FailoverPolicy.defaults(),
                 PromotionReadinessPolicy.strict(), -1, 1, ReplicationMode.WAIT_FOR_ANY_STANDBY, 1,
-                ReplicationTransportType.GRPC, valid.aeronPreviewTransportConfig(),
+                ReplicationTransportType.GRPC, valid.aeronTransportConfig(),
                 ReplicationTransportPolicyConfig.defaults()));
         assertThrows(IllegalArgumentException.class, () -> new MatcherClusterConfig(
                 leaseStore, registry, "s", "h", 1, 1, 1, FailoverPolicy.defaults(),
                 PromotionReadinessPolicy.strict(), 0, 0, ReplicationMode.WAIT_FOR_ANY_STANDBY, 1,
-                ReplicationTransportType.GRPC, valid.aeronPreviewTransportConfig(),
+                ReplicationTransportType.GRPC, valid.aeronTransportConfig(),
                 ReplicationTransportPolicyConfig.defaults()));
 
         MatcherClusterConfig aeron = valid.withReplicationTransport(
                 ReplicationTransportType.AERON,
-                valid.aeronPreviewTransportConfig(),
-                new ReplicationTransportPolicyConfig(true, "w1", false));
+                valid.aeronTransportConfig(),
+                new ReplicationTransportPolicyConfig(true, "w1"));
         assertEquals(ReplicationTransportType.AERON, aeron.replicationTransportType());
         assertTrue(aeron.replicationTransportPolicyConfig().changeWindowActive());
         assertFalse(ReplicationTransportPolicyConfig.defaults().changeWindowActive());
-        assertFalse(new ReplicationTransportPolicyConfig(true, " ", false).changeWindowActive());
+        assertFalse(new ReplicationTransportPolicyConfig(true, " ").changeWindowActive());
     }
 
     @Test
@@ -140,19 +135,6 @@ final class ServerClusterBranchCoverageTest {
         ReplicationTransportPolicyEnforcer.validateAndLock(clustered);
         ReplicationTransportPolicyEnforcer.validateAndLock(clustered);
 
-        MatcherServerConfig previewForbidden = MatcherServerConfig.builder("node-a", 1, dir)
-                .serverMode(MatcherServerMode.PROD)
-                .persistenceProfile(PersistenceProfile.PROD)
-                .snapshotIntervalMillis(PersistenceProfile.PROD_SNAPSHOT_INTERVAL_MILLIS)
-                .walArchiveConfig(WalArchiveConfig.ofDirectory(dir.resolve("wal-cold")))
-                .clusterConfig(grpc.withReplicationTransport(
-                        ReplicationTransportType.AERON_PREVIEW,
-                        grpc.aeronPreviewTransportConfig(),
-                        ReplicationTransportPolicyConfig.defaults()))
-                .build();
-        assertThrows(IllegalStateException.class,
-                () -> ReplicationTransportPolicyEnforcer.validateAndLock(previewForbidden));
-
         Path lockFile = clustered.walDirectory().resolveSibling("replication-transport.lock");
         Files.writeString(lockFile, "transport=\nwindowId=\n");
         ReplicationTransportPolicyEnforcer.validateAndLock(clustered);
@@ -163,30 +145,11 @@ final class ServerClusterBranchCoverageTest {
 
         MatcherServerConfig allowedChange = clustered.withClusterConfig(grpc.withReplicationTransport(
                 ReplicationTransportType.GRPC,
-                grpc.aeronPreviewTransportConfig(),
-                new ReplicationTransportPolicyConfig(true, "window-2", false)));
+                grpc.aeronTransportConfig(),
+                new ReplicationTransportPolicyConfig(true, "window-2")));
         Files.writeString(lockFile, "transport=AERON\nwindowId=old\n");
         ReplicationTransportPolicyEnforcer.validateAndLock(allowedChange);
         assertTrue(Files.readString(lockFile).contains("GRPC"));
-    }
-
-    @Test
-    void previewReconciliationCoversIdleLagAheadAndOutOfOrder() {
-        AtomicLong authoritative = new AtomicLong();
-        AeronPreviewReconciliationTracker tracker = new AeronPreviewReconciliationTracker(authoritative::get);
-        assertEquals("IDLE", tracker.enrich(TransportMetricsSnapshot.none("AERON_PREVIEW")).reconciliationStatus());
-
-        authoritative.set(4L);
-        tracker.recordPreviewSequence(2L);
-        assertEquals("PREVIEW_LAGGING", tracker.enrich(TransportMetricsSnapshot.none("AERON_PREVIEW")).reconciliationStatus());
-
-        tracker.recordPreviewSequence(1L);
-        assertEquals("DIVERGED", tracker.enrich(TransportMetricsSnapshot.none("AERON_PREVIEW")).reconciliationStatus());
-        assertEquals(1L, tracker.enrich(TransportMetricsSnapshot.none("AERON_PREVIEW")).previewOutOfOrderCount());
-
-        AeronPreviewReconciliationTracker ahead = new AeronPreviewReconciliationTracker(() -> 1L);
-        ahead.recordPreviewSequence(3L);
-        assertEquals("PREVIEW_AHEAD", ahead.enrich(TransportMetricsSnapshot.none("AERON_PREVIEW")).reconciliationStatus());
     }
 
     private static final class StubLeaseStore implements LeaseStore {

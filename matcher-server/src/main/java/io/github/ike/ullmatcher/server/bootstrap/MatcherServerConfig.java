@@ -7,6 +7,7 @@ import io.github.ike.ullmatcher.ha.standby.StandbySyncConfig;
 import io.github.ike.ullmatcher.hft.WalDurabilityMode;
 import io.github.ike.ullmatcher.runtime.MatchLoopConfig;
 import io.github.ike.ullmatcher.server.api.BinaryIngressLimits;
+import io.github.ike.ullmatcher.server.api.HttpSubmitAckMode;
 import io.github.ike.ullmatcher.server.cluster.MatcherClusterConfig;
 import io.github.ike.ullmatcher.ha.transport.ReplicationTransportType;
 import io.github.ike.ullmatcher.server.engine.TtlCancelConfig;
@@ -71,7 +72,8 @@ public record MatcherServerConfig(
         OrchestratorRegistrationConfig orchestratorRegistrationConfig,
         MatcherClusterConfig clusterConfig,
         PersistenceProfile persistenceProfile,
-        long snapshotIntervalMillis
+        long snapshotIntervalMillis,
+        HttpSubmitAckMode httpSubmitAckMode
 ) {
     public static final WalDurabilityMode DEFAULT_WAL_DURABILITY_MODE = WalDurabilityMode.SYNC_PER_COMMAND;
     public static final int DEFAULT_WAL_FORCE_BATCH_SIZE = 1;
@@ -156,6 +158,77 @@ public record MatcherServerConfig(
         if (snapshotIntervalMillis < 0L) {
             throw new IllegalArgumentException("snapshotIntervalMillis must not be negative");
         }
+        if (httpSubmitAckMode == null) {
+            httpSubmitAckMode = HttpSubmitAckMode.LOCAL;
+        }
+    }
+
+    public MatcherServerConfig(
+            MatcherServerMode serverMode,
+            String nodeId,
+            String shardKey,
+            MatcherConfig matcherConfig,
+            Path walDirectory,
+            String walPrefix,
+            long walSegmentSizeBytes,
+            WalDurabilityMode walDurabilityMode,
+            int walForceBatchSize,
+            long walForceMaxDelayMicros,
+            WalArchiveConfig walArchiveConfig,
+            Path snapshotFile,
+            int ringCapacity,
+            int gatewaySpinLimit,
+            long gatewayOfferTimeoutNanos,
+            int httpPort,
+            String httpBindHost,
+            int httpWorkerThreads,
+            int httpMaxBodyBytes,
+            int httpMaxConcurrentRequests,
+            long httpRequestTimeoutMillis,
+            boolean binaryIngressEnabled,
+            int binaryIngressPort,
+            String binaryIngressBindHost,
+            int binaryIngressMaxBatchSize,
+            BinaryIngressLimits binaryIngressLimits,
+            int httpWriteMaxConcurrentRequests,
+            int httpReadMaxConcurrentRequests,
+            int httpAdminMaxConcurrentRequests,
+            long httpWriteTimeoutMillis,
+            long httpReadTimeoutMillis,
+            long httpAdminTimeoutMillis,
+            int httpSubmitEndpointMaxConcurrentRequests,
+            int httpCancelEndpointMaxConcurrentRequests,
+            int httpSnapshotEndpointMaxConcurrentRequests,
+            int httpReadinessEndpointMaxConcurrentRequests,
+            int httpMetricsEndpointMaxConcurrentRequests,
+            WriteAdmissionPolicyConfig writeAdmissionPolicyConfig,
+            boolean allowInsecureRemoteHttp,
+            IngressAuthConfig ingressAuthConfig,
+            int grpcPort,
+            GrpcReplicationServerConfig grpcServerConfig,
+            ServerSecurityConfig securityConfig,
+            TtlCancelConfig ttlCancelConfig,
+            HaRole initialRole,
+            MatchLoopConfig loopConfig,
+            StandbySyncConfig standbySyncConfig,
+            OrchestratorRegistrationConfig orchestratorRegistrationConfig,
+            MatcherClusterConfig clusterConfig,
+            PersistenceProfile persistenceProfile,
+            long snapshotIntervalMillis
+    ) {
+        this(serverMode, nodeId, shardKey, matcherConfig, walDirectory, walPrefix, walSegmentSizeBytes,
+                walDurabilityMode, walForceBatchSize, walForceMaxDelayMicros, walArchiveConfig, snapshotFile,
+                ringCapacity, gatewaySpinLimit, gatewayOfferTimeoutNanos, httpPort, httpBindHost, httpWorkerThreads,
+                httpMaxBodyBytes, httpMaxConcurrentRequests, httpRequestTimeoutMillis, binaryIngressEnabled,
+                binaryIngressPort, binaryIngressBindHost, binaryIngressMaxBatchSize, binaryIngressLimits,
+                httpWriteMaxConcurrentRequests, httpReadMaxConcurrentRequests, httpAdminMaxConcurrentRequests,
+                httpWriteTimeoutMillis, httpReadTimeoutMillis, httpAdminTimeoutMillis,
+                httpSubmitEndpointMaxConcurrentRequests, httpCancelEndpointMaxConcurrentRequests,
+                httpSnapshotEndpointMaxConcurrentRequests, httpReadinessEndpointMaxConcurrentRequests,
+                httpMetricsEndpointMaxConcurrentRequests, writeAdmissionPolicyConfig, allowInsecureRemoteHttp,
+                ingressAuthConfig, grpcPort, grpcServerConfig, securityConfig, ttlCancelConfig, initialRole,
+                loopConfig, standbySyncConfig, orchestratorRegistrationConfig, clusterConfig, persistenceProfile,
+                snapshotIntervalMillis, HttpSubmitAckMode.LOCAL);
     }
 
     public static MatcherServerConfig defaults(String nodeId, int symbolId, Path dataDirectory) {
@@ -211,7 +284,8 @@ public record MatcherServerConfig(
                 OrchestratorRegistrationConfig.disabled(),
                 null,
                 DEFAULT_PERSISTENCE_PROFILE,
-                DEFAULT_SNAPSHOT_INTERVAL_MILLIS
+                DEFAULT_SNAPSHOT_INTERVAL_MILLIS,
+                HttpSubmitAckMode.LOCAL
         );
     }
 
@@ -400,6 +474,7 @@ public record MatcherServerConfig(
         private MatcherClusterConfig clusterConfig;
         private PersistenceProfile persistenceProfile;
         private long snapshotIntervalMillis;
+        private HttpSubmitAckMode httpSubmitAckMode;
 
         private Builder(MatcherServerConfig source) {
             this.serverMode = source.serverMode;
@@ -453,6 +528,7 @@ public record MatcherServerConfig(
             this.clusterConfig = source.clusterConfig;
             this.persistenceProfile = source.persistenceProfile;
             this.snapshotIntervalMillis = source.snapshotIntervalMillis;
+            this.httpSubmitAckMode = source.httpSubmitAckMode;
         }
 
         public Builder serverMode(MatcherServerMode value) {
@@ -710,6 +786,11 @@ public record MatcherServerConfig(
             return this;
         }
 
+        public Builder httpSubmitAckMode(HttpSubmitAckMode value) {
+            this.httpSubmitAckMode = value;
+            return this;
+        }
+
         public MatcherServerConfig build() {
             return new MatcherServerConfig(
                     serverMode,
@@ -762,7 +843,8 @@ public record MatcherServerConfig(
                     orchestratorRegistrationConfig,
                     clusterConfig,
                     persistenceProfile,
-                    snapshotIntervalMillis
+                    snapshotIntervalMillis,
+                    httpSubmitAckMode
             );
         }
     }
@@ -834,12 +916,6 @@ public record MatcherServerConfig(
                 && !isLoopbackHost(grpcServerConfig.bindHost())
                 && (securityConfig.grpcServerTls() == null || !securityConfig.grpcServerTls().requireMutualTls())) {
             throw new IllegalStateException("prod mode requires gRPC mTLS when matcher.grpcBindHost is not loopback");
-        }
-        if (clusterConfig != null
-                && clusterConfig.replicationTransportType() == ReplicationTransportType.AERON_PREVIEW
-                && !clusterConfig.replicationTransportPolicyConfig().allowPreviewTransportInProd()) {
-            throw new IllegalStateException(
-                    "prod mode forbids matcher.replicationTransport=AERON_PREVIEW unless matcher.allowPreviewTransportInProd=true");
         }
         if (clusterConfig != null
                 && clusterConfig.replicationTransportType() == ReplicationTransportType.AERON

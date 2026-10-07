@@ -50,7 +50,7 @@ final class AeronReplicationTransportProvider implements ReplicationTransportPro
     AeronReplicationTransportProvider(ServerSecurityConfig securityConfig,
                                       String localNodeId,
                                       String advertisedHost,
-                                      AeronPreviewTransportConfig config,
+                                      AeronTransportConfig config,
                                       Supplier<StandbySyncService> standbySyncServiceSupplier,
                                       SnapshotMaterialSource snapshotMaterialSource,
                                       NodeControlStateSource nodeControlStateSource) {
@@ -169,11 +169,11 @@ final class AeronReplicationTransportProvider implements ReplicationTransportPro
         AeronTransportMetrics.Snapshot snapshot = metrics.snapshot();
         return new TransportMetricsSnapshot(
                 type().name(),
-                snapshot.previewPublishedCommands(),
-                snapshot.previewPublishedBytes(),
-                snapshot.previewPublishFailures(),
-                snapshot.previewReceivedCommands(),
-                snapshot.previewReceivedBytes(),
+                snapshot.publishedCommands(),
+                snapshot.publishedBytes(),
+                snapshot.publishFailures(),
+                snapshot.receivedCommands(),
+                snapshot.receivedBytes(),
                 snapshot.snapshotRequests(),
                 snapshot.snapshotRequestFailures(),
                 snapshot.snapshotBytesSent(),
@@ -181,11 +181,8 @@ final class AeronReplicationTransportProvider implements ReplicationTransportPro
                 snapshot.controlRequests(),
                 snapshot.controlRequestFailures(),
                 0L,
-                0L,
-                0L,
-                0L,
                 "DISABLED",
-                "authoritative Aeron mode does not use preview reconciliation",
+                "sequence reconciliation is disabled for this transport mode",
                 "STABLE",
                 "transport policy is stable"
         );

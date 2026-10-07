@@ -671,8 +671,12 @@ public final class HttpApiServer implements Closeable {
             payload.put("transportPolicyConclusion", cluster.transportMetrics().policyConclusion());
             payload.put("transportReconciliationStatus", cluster.transportMetrics().reconciliationStatus());
             payload.put("transportReconciliationConclusion", cluster.transportMetrics().reconciliationConclusion());
-            payload.put("transportPreviewLastReceivedSequence", cluster.transportMetrics().previewLastReceivedSequence());
             payload.put("transportAuthoritativeLastReceivedSequence", cluster.transportMetrics().authoritativeLastReceivedSequence());
+            payload.put("transportPublishedCommands", cluster.transportMetrics().publishedCommands());
+            payload.put("transportPublishedBytes", cluster.transportMetrics().publishedBytes());
+            payload.put("transportPublishFailures", cluster.transportMetrics().publishFailures());
+            payload.put("transportReceivedCommands", cluster.transportMetrics().receivedCommands());
+            payload.put("transportReceivedBytes", cluster.transportMetrics().receivedBytes());
             payload.put("transportSnapshotRequests", cluster.transportMetrics().snapshotRequests());
             payload.put("transportSnapshotRequestFailures", cluster.transportMetrics().snapshotRequestFailures());
             payload.put("transportSnapshotBytesSent", cluster.transportMetrics().snapshotBytesSent());

@@ -10,6 +10,7 @@ import io.github.ike.ullmatcher.ha.etcd.EtcdLeaseStore;
 import io.github.ike.ullmatcher.ha.etcd.EtcdNodeRegistry;
 import io.github.ike.ullmatcher.ha.replication.ReplicationMode;
 import io.github.ike.ullmatcher.hft.WalDurabilityMode;
+import io.github.ike.ullmatcher.server.api.HttpSubmitAckMode;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerConfig;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerMode;
 import io.github.ike.ullmatcher.server.bootstrap.PersistenceProfile;
@@ -195,6 +196,7 @@ class UllMatcherServerAutoConfigurationTest {
                     assertThat(config.httpBindHost()).isEqualTo("127.0.0.1");
                     assertThat(context.getBean(UllMatcherServerProperties.class).getHttpSubmitAckMode())
                             .isEqualTo("committed");
+                    assertThat(config.httpSubmitAckMode()).isEqualTo(HttpSubmitAckMode.COMMITTED);
                     assertThat(config.grpcPort()).isEqualTo(19090);
                     assertThat(config.grpcServerConfig().bindHost()).isEqualTo("127.0.0.1");
                     assertThat(config.httpWorkerThreads()).isEqualTo(6);
@@ -260,13 +262,12 @@ class UllMatcherServerAutoConfigurationTest {
                         "ull.matcher.cluster.snapshot-sync-timeout-millis=6000",
                         "ull.matcher.cluster.replication-mode=WAIT_FOR_ALL_STANDBYS",
                         "ull.matcher.cluster.replication-timeout-millis=700",
-                        "ull.matcher.cluster.replication-transport=AERON_PREVIEW",
-                        "ull.matcher.cluster.aeron-preview.directory=target/test-aeron-preview",
-                        "ull.matcher.cluster.aeron-preview.port=15090",
-                        "ull.matcher.cluster.aeron-preview.stream-id=12001",
+                        "ull.matcher.cluster.replication-transport=AERON",
+                        "ull.matcher.cluster.aeron.directory=target/test-aeron",
+                        "ull.matcher.cluster.aeron.port=15090",
+                        "ull.matcher.cluster.aeron.stream-id=12001",
                         "ull.matcher.cluster.transport-policy.allow-transport-change=true",
-                        "ull.matcher.cluster.transport-policy.transport-change-window-id=change-20260621",
-                        "ull.matcher.cluster.transport-policy.allow-preview-transport-in-prod=true"
+                        "ull.matcher.cluster.transport-policy.transport-change-window-id=change-20260621"
                 )
                 .run(context -> {
                     assertThat(context).hasSingleBean(MatcherClusterConfig.class);
@@ -285,13 +286,12 @@ class UllMatcherServerAutoConfigurationTest {
                     assertThat(clusterConfig.snapshotSyncTimeoutNanos()).isEqualTo(6_000_000_000L);
                     assertThat(clusterConfig.replicationMode()).isEqualTo(ReplicationMode.WAIT_FOR_ALL_STANDBYS);
                     assertThat(clusterConfig.replicationTimeoutNanos()).isEqualTo(700_000_000L);
-                    assertThat(clusterConfig.replicationTransportType()).isEqualTo(ReplicationTransportType.AERON_PREVIEW);
-                    assertThat(clusterConfig.aeronPreviewTransportConfig().directory()).hasToString("target/test-aeron-preview");
-                    assertThat(clusterConfig.aeronPreviewTransportConfig().port()).isEqualTo(15090);
-                    assertThat(clusterConfig.aeronPreviewTransportConfig().streamId()).isEqualTo(12001);
+                    assertThat(clusterConfig.replicationTransportType()).isEqualTo(ReplicationTransportType.AERON);
+                    assertThat(clusterConfig.aeronTransportConfig().directory()).hasToString("target/test-aeron");
+                    assertThat(clusterConfig.aeronTransportConfig().port()).isEqualTo(15090);
+                    assertThat(clusterConfig.aeronTransportConfig().streamId()).isEqualTo(12001);
                     assertThat(clusterConfig.replicationTransportPolicyConfig().allowTransportChange()).isTrue();
                     assertThat(clusterConfig.replicationTransportPolicyConfig().transportChangeWindowId()).isEqualTo("change-20260621");
-                    assertThat(clusterConfig.replicationTransportPolicyConfig().allowPreviewTransportInProd()).isTrue();
                     assertThat(serverConfig.clusterConfig()).isSameAs(clusterConfig);
                     assertThat(serverConfig.initialRole()).isEqualTo(HaRole.STANDBY);
                 });
@@ -393,6 +393,16 @@ class UllMatcherServerAutoConfigurationTest {
                         "ull.matcher.cluster.lease-provider=etcd",
                         "ull.matcher.cluster.discovery-provider=etcd",
                         "ull.matcher.cluster.etcd-endpoint="
+                )
+                .run(context -> assertThat(context).hasFailed());
+
+        contextRunner
+                .withPropertyValues(
+                        "ull.matcher.server-mode=PROD",
+                        "ull.matcher.cluster.enabled=true",
+                        "ull.matcher.cluster.lease-provider=zk",
+                        "ull.matcher.cluster.discovery-provider=zk",
+                        "ull.matcher.cluster.zookeeper-connect=10.0.0.8:2181"
                 )
                 .run(context -> assertThat(context).hasFailed());
     }

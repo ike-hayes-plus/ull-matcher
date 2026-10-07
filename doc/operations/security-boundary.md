@@ -9,7 +9,7 @@ ull-matcher 设计为**内网撮合节点**，不替代统一 API 网关。
 | HTTP / Binary | 默认 `127.0.0.1`；远程暴露需 ingress API key + 网络隔离 |
 | gRPC 复制 | 非 loopback 必须 mTLS（PROD） |
 | Aeron | 非 loopback 必须 transport security（PROD） |
-| etcd / ZK | 控制面仅在内网；etcd 远程必须 HTTPS + 可选 mTLS |
+| etcd / ZK | 控制面仅在内网；etcd 远程必须 HTTPS + 可选 mTLS；PROD 远程 ZooKeeper 明文会被拒绝，远程控制面改用 etcd https |
 
 ## PROD 模式闸门
 

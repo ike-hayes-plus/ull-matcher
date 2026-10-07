@@ -44,8 +44,8 @@ jobs:
           ./scripts/ops/test-validate-benchmark-baseline.sh
           ./scripts/ops/test-check-ha-benchmark-floor.sh
           # Do not run the 3.0-full matrix on CI (needs dedicated lab hardware).
-          # Validate the published table shape; compare numbers only when reports exist.
-          ./scripts/ops/validate-benchmark-baseline.py --skip-missing-reports
+          # The committed JSON is the machine-readable copy of the published table.
+          ./scripts/ops/validate-benchmark-baseline.py --report-root doc/operations/benchmark-reports
 
       # Full verify: style checks, every module's tests, and the JaCoCo
       # line/branch gates defined in the parent pom.

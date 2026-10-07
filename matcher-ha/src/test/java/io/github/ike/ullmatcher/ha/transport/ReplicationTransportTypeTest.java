@@ -8,13 +8,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Whether the gRPC replication server has to be started is decided from the transport type alone;
- * getting it wrong either leaves the preview transport without its control plane or wastes a port.
+ * getting it wrong either starts a server AERON does not use or leaves GRPC without its control plane.
  */
 final class ReplicationTransportTypeTest {
     @Test
-    void grpcAndAeronPreviewStillNeedTheGrpcReplicationServer() {
+    void grpcNeedsTheGrpcReplicationServer() {
         assertTrue(ReplicationTransportType.GRPC.requiresGrpcReplicationServer());
-        assertTrue(ReplicationTransportType.AERON_PREVIEW.requiresGrpcReplicationServer());
     }
 
     @Test
@@ -32,7 +31,7 @@ final class ReplicationTransportTypeTest {
         }
 
         assertEquals(1L, grpcFree);
-        assertEquals(3, ReplicationTransportType.values().length);
+        assertEquals(2, ReplicationTransportType.values().length);
         assertEquals(ReplicationTransportType.AERON, ReplicationTransportType.valueOf("AERON"));
     }
 }

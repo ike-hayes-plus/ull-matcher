@@ -3,7 +3,7 @@ package io.github.ike.ullmatcher.server.cluster;
 import java.nio.file.Path;
 import java.util.Objects;
 
-public record AeronPreviewTransportConfig(
+public record AeronTransportConfig(
         Path directory,
         int port,
         int streamId
@@ -23,10 +23,10 @@ public record AeronPreviewTransportConfig(
     private static final int SECURITY_HANDSHAKE_RESPONSE_STREAM_ID_OFFSET = 600;
     private static final int COMMAND_ACK_STREAM_ID_OFFSET = 700;
 
-    public AeronPreviewTransportConfig {
+    public AeronTransportConfig {
         Objects.requireNonNull(directory, "directory");
         if (port <= 0 || streamId <= 0) {
-            throw new IllegalArgumentException("Aeron preview port and streamId must be positive");
+            throw new IllegalArgumentException("Aeron port and streamId must be positive");
         }
     }
 

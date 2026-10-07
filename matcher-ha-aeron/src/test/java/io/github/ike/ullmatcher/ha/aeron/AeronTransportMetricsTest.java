@@ -17,11 +17,11 @@ final class AeronTransportMetricsTest {
     void freshMetricsReportZeroForEveryCounter() {
         AeronTransportMetrics.Snapshot snapshot = new AeronTransportMetrics().snapshot();
 
-        assertEquals(0L, snapshot.previewPublishedCommands());
-        assertEquals(0L, snapshot.previewPublishedBytes());
-        assertEquals(0L, snapshot.previewPublishFailures());
-        assertEquals(0L, snapshot.previewReceivedCommands());
-        assertEquals(0L, snapshot.previewReceivedBytes());
+        assertEquals(0L, snapshot.publishedCommands());
+        assertEquals(0L, snapshot.publishedBytes());
+        assertEquals(0L, snapshot.publishFailures());
+        assertEquals(0L, snapshot.receivedCommands());
+        assertEquals(0L, snapshot.receivedBytes());
         assertEquals(0L, snapshot.snapshotRequests());
         assertEquals(0L, snapshot.snapshotRequestFailures());
         assertEquals(0L, snapshot.snapshotBytesSent());
@@ -49,11 +49,11 @@ final class AeronTransportMetricsTest {
 
         AeronTransportMetrics.Snapshot snapshot = metrics.snapshot();
 
-        assertEquals(2L, snapshot.previewPublishedCommands());
-        assertEquals(192L, snapshot.previewPublishedBytes());
-        assertEquals(1L, snapshot.previewPublishFailures());
-        assertEquals(1L, snapshot.previewReceivedCommands());
-        assertEquals(32L, snapshot.previewReceivedBytes());
+        assertEquals(2L, snapshot.publishedCommands());
+        assertEquals(192L, snapshot.publishedBytes());
+        assertEquals(1L, snapshot.publishFailures());
+        assertEquals(1L, snapshot.receivedCommands());
+        assertEquals(32L, snapshot.receivedBytes());
         assertEquals(2L, snapshot.snapshotRequests());
         assertEquals(1L, snapshot.snapshotRequestFailures());
         assertEquals(1_000L, snapshot.snapshotBytesSent());
@@ -71,10 +71,10 @@ final class AeronTransportMetricsTest {
         metrics.recordReceived(10);
         AeronTransportMetrics.Snapshot second = metrics.snapshot();
 
-        assertEquals(1L, first.previewReceivedCommands());
-        assertEquals(10L, first.previewReceivedBytes());
-        assertEquals(2L, second.previewReceivedCommands());
-        assertEquals(20L, second.previewReceivedBytes());
+        assertEquals(1L, first.receivedCommands());
+        assertEquals(10L, first.receivedBytes());
+        assertEquals(2L, second.receivedCommands());
+        assertEquals(20L, second.receivedBytes());
     }
 
     @Test
@@ -106,8 +106,8 @@ final class AeronTransportMetricsTest {
 
         AeronTransportMetrics.Snapshot snapshot = metrics.snapshot();
 
-        assertEquals((long) threads * iterations, snapshot.previewPublishedCommands());
-        assertEquals((long) threads * iterations, snapshot.previewPublishedBytes());
+        assertEquals((long) threads * iterations, snapshot.publishedCommands());
+        assertEquals((long) threads * iterations, snapshot.publishedBytes());
         assertEquals((long) threads * iterations, snapshot.controlRequests());
     }
 }

@@ -15,6 +15,7 @@ import io.github.ike.ullmatcher.ha.grpc.server.GrpcReplicationService;
 import io.github.ike.ullmatcher.ha.grpc.telemetry.GrpcTransportMetrics;
 import io.github.ike.ullmatcher.ha.state.NodeControlState;
 import io.github.ike.ullmatcher.ha.replication.ReplicationCursor;
+import io.github.ike.ullmatcher.ha.replication.ReplicationStream;
 import io.github.ike.ullmatcher.ha.standby.StandbySyncConfig;
 import io.github.ike.ullmatcher.ha.standby.StandbySyncService;
 import io.github.ike.ullmatcher.ring.SpscRingBuffer;
@@ -173,6 +174,44 @@ final class GrpcReplicationTargetTest {
             assertEquals(1, wal.forceCount);
             assertEquals(new ReplicationCursor(600L, 600L, 600L, 0L), target.fetchCursor(TEST_TIMEOUT_NANOS));
         } finally {
+            standby.close();
+            loop.stop();
+            loopThread.join(5_000L);
+            channel.shutdownNow();
+            server.shutdownNow();
+        }
+    }
+
+    @Test
+    void closeAfterPendingFlushFailureDoesNotCompleteQuietly() throws Exception {
+        RecordingWalWriter wal = new RecordingWalWriter();
+        SpscRingBuffer<Command> ring = new SpscRingBuffer<>(16);
+        UltraLowLatencyMatcher matcher = new UltraLowLatencyMatcher(MatcherConfig.defaults(1), new NoopHandler());
+        MatchLoop loop = new MatchLoop(ring, matcher);
+        Thread loopThread = Thread.ofPlatform().start(loop);
+        StandbySyncService standby = new StandbySyncService("standby-a", wal, ring, matcher, StandbySyncConfig.defaults());
+
+        String serverName = InProcessServerBuilder.generateName();
+        Server server = InProcessServerBuilder.forName(serverName)
+                .directExecutor()
+                .addService(new GrpcReplicationService(
+                        standby,
+                        () -> standbyState(standby),
+                        GrpcReplicationTargetTest::emptySnapshot
+                ))
+                .build()
+                .start();
+        ManagedChannel channel = InProcessChannelBuilder.forName(serverName).directExecutor().build();
+        GrpcReplicationTarget target = new GrpcReplicationTarget("standby-a", channel);
+        try {
+            ReplicationStream stream = target.openReplicationStream(TEST_TIMEOUT_NANOS);
+            stream.replicate(command(1L));
+            server.shutdownNow();
+            channel.shutdownNow();
+            IOException error = assertThrows(IOException.class, stream::closeAndAwaitCursor);
+            assertTrue(error.getMessage() != null && !error.getMessage().isBlank());
+        } finally {
+            target.close();
             standby.close();
             loop.stop();
             loopThread.join(5_000L);

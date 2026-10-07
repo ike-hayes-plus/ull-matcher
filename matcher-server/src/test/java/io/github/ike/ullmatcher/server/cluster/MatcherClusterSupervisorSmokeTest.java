@@ -48,7 +48,7 @@ final class MatcherClusterSupervisorSmokeTest {
                 ReplicationMode.LOCAL_ONLY,
                 TimeUnit.MILLISECONDS.toNanos(50),
                 ReplicationTransportType.GRPC,
-                new AeronPreviewTransportConfig(dir.resolve("aeron-preview"), 15_190, 11_091),
+                new AeronTransportConfig(dir.resolve("aeron"), 15_190, 11_091),
                 ReplicationTransportPolicyConfig.defaults()
         );
         MatcherServerConfig config = new MatcherServerConfig(

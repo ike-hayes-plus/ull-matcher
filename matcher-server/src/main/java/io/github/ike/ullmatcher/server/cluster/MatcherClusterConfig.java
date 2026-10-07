@@ -29,7 +29,7 @@ public record MatcherClusterConfig(
         ReplicationMode replicationMode,
         long replicationTimeoutNanos,
         ReplicationTransportType replicationTransportType,
-        AeronPreviewTransportConfig aeronPreviewTransportConfig,
+        AeronTransportConfig aeronTransportConfig,
         ReplicationTransportPolicyConfig replicationTransportPolicyConfig
 ) {
     public MatcherClusterConfig {
@@ -41,7 +41,7 @@ public record MatcherClusterConfig(
         Objects.requireNonNull(readinessPolicy, "readinessPolicy");
         Objects.requireNonNull(replicationMode, "replicationMode");
         Objects.requireNonNull(replicationTransportType, "replicationTransportType");
-        Objects.requireNonNull(aeronPreviewTransportConfig, "aeronPreviewTransportConfig");
+        Objects.requireNonNull(aeronTransportConfig, "aeronTransportConfig");
         Objects.requireNonNull(replicationTransportPolicyConfig, "replicationTransportPolicyConfig");
         if (advertisedHost.isBlank() || shardKey.isBlank()) {
             throw new IllegalArgumentException("shardKey and advertisedHost must not be blank");
@@ -68,13 +68,13 @@ public record MatcherClusterConfig(
                 ReplicationMode.WAIT_FOR_ANY_STANDBY,
                 TimeUnit.SECONDS.toNanos(5),
                 ReplicationTransportType.GRPC,
-                new AeronPreviewTransportConfig(Path.of("target", "matcher-aeron-preview"), 15_090, 11_001),
+                new AeronTransportConfig(Path.of("target", "matcher-aeron"), 15_090, 11_001),
                 ReplicationTransportPolicyConfig.defaults()
         );
     }
 
     public MatcherClusterConfig withReplicationTransport(ReplicationTransportType transportType,
-                                                         AeronPreviewTransportConfig aeronConfig,
+                                                         AeronTransportConfig aeronConfig,
                                                          ReplicationTransportPolicyConfig policyConfig) {
         return new MatcherClusterConfig(
                 leaseStore,

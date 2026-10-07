@@ -174,12 +174,6 @@ java \
 REPLICATION_TRANSPORT=AERON ./scripts/chaos/cluster.sh up
 ```
 
-如果要做 gRPC 与 Aeron 预览对比：
-
-```bash
-REPLICATION_TRANSPORT=AERON_PREVIEW ./scripts/chaos/cluster.sh up
-```
-
 节点级滚动切换使用单节点脚本，并显式打开变更窗口：
 
 ```bash

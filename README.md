@@ -64,7 +64,7 @@
 | `matcher-ha-etcd` | etcd lease store 与 etcd node registry，实现 etcd 控制面 | etcd 控制面部署 |
 | `matcher-discovery-zookeeper` | ZooKeeper node registry，实现节点发现 | ZK 控制面部署 |
 | `matcher-ha-grpc` | gRPC 复制协议、server/client、TLS 配置与 gRPC 传输指标 | `GRPC` 复制传输 |
-| `matcher-ha-aeron` | Aeron 编解码、preview ingress、secure envelope、Aeron 传输指标 | `AERON` / `AERON_PREVIEW` 传输 |
+| `matcher-ha-aeron` | Aeron 编解码、secure envelope、Aeron 传输指标 | `AERON` 传输 |
 | `matcher-server` | 独立节点进程：HTTP API、binary ingress、HA supervisor、transport provider 装配、readiness/metrics | 生产服务部署 |
 | `matcher-server-dist` | shaded 可执行 JAR，入口为 `MatcherServerMain` | 发布和生产启动 |
 | `matcher-net` | 共享 JDK HTTP 客户端（NIO + HTTP/2 + 虚拟线程） | SDK、etcd 控制面 HTTP |
@@ -208,23 +208,23 @@ scripts/deploy/cluster.sh -c conf/merchant-42.env stop
 
 `cluster.sh` 要求显式传入 `-c`，并拒绝直接使用 `scripts/deploy/cluster.conf.example`，避免把示例 IP、端口和目录当成真实生产配置执行。
 
-`scripts/deploy/cluster.sh` 支持多机器部署：配置中的 `host` 如果不是本机，会通过 SSH 到 `REMOTE_ROOT` 执行同一套 `scripts/deploy/start-node.sh` / `stop-node.sh`。每台机器需要预先准备相同 release 目录、JDK、ZooKeeper 网络连通性、数据盘和日志目录权限。
+`scripts/deploy/cluster.sh` 支持多机器部署：配置中的 `host` 如果不是本机，会通过 SSH 到 `REMOTE_ROOT` 执行同一套 `scripts/deploy/start-node.sh` / `stop-node.sh`。每台机器需要预先准备相同 release 目录、JDK、控制面网络连通性、数据盘和日志目录权限。
 
-控制面 provider 可独立切换：
+控制面只支持 `zk/zk` 或 `etcd/etcd`。PROD 远程控制面必须走 etcd https；ZooKeeper 只允许 loopback，因为本仓库尚未实现 ZooKeeper TLS。
 
 ```bash
-# 默认：ZooKeeper lease + ZooKeeper discovery
+# 本机 / 单机实验室：ZooKeeper lease + discovery
 LEASE_PROVIDER=zk
 DISCOVERY_PROVIDER=zk
-ZK_CONNECT=10.0.0.10:2181,10.0.0.11:2181,10.0.0.12:2181
+ZK_CONNECT=127.0.0.1:2181,127.0.0.1:2182,127.0.0.1:2183
 
-# 可选：etcd lease + etcd discovery
+# 远程生产：etcd lease + discovery
 LEASE_PROVIDER=etcd
 DISCOVERY_PROVIDER=etcd
 ETCD_ENDPOINT=https://10.0.0.10:2379,https://10.0.0.11:2379,https://10.0.0.12:2379
 ```
 
-etcd provider 支持逗号分隔的多 endpoint，并按请求做 endpoint failover；生产环境应配置 3 个或更多 etcd 成员地址。提交入口和控制面的 `isHeldBy` 每次都读 etcd。提交入口仍按 `matcher.primaryLeaseSubmitCheckMicros`（默认 1000µs）节流检查频率。
+etcd provider 支持逗号分隔的多 endpoint，并按请求做 endpoint failover；生产环境应配置 3 个或更多 etcd 成员地址。WAL 写入前的 `isHeldBy` 每批都读控制面。入队路径仍按 `matcher.primaryLeaseSubmitCheckMicros`（默认 1000µs）节流，只影响是否接受进提交队列，不跳过写盘前围栏。
 
 控制面只支持 `zk/zk` 或 `etcd/etcd` 两种生产组合。节点发现和 primary lease 使用同一种强一致控制面，避免发现、租约和 fencing 被拆散到不同系统。
 
@@ -232,7 +232,7 @@ etcd provider 支持逗号分隔的多 endpoint，并按请求做 endpoint failo
 
 一主多备切换时，控制面会优先选择复制进度最优的 standby：先过滤不可达、不健康、超过最大 promotion lag 的节点，再按 `promotionWatermark=min(durable, applied)`、durable、applied、received 水位和 `nodeId` 稳定排序。胜出的 standby 还必须抢到外部 lease 才能提升为 primary；未胜出的备继续作为新主的复制目标提供 HA 能力。
 
-旧主恢复或网络恢复时不会直接继续接单：primary 提交入口会低频校验本地 `nodeId + fencingToken` 是否仍持有 lease，默认最多每 `matcher.primaryLeaseSubmitCheckMicros=1000` 微秒检查一次。发现 lease 已属于新主时，本地 runtime 会立即 fence、停止接受写入并清空复制协调器，防止脑裂和乱接单；控制面 tick 仍会继续做常规续租 / fencing。
+旧主恢复或网络恢复时不会直接继续接单：提交线程在写 WAL 前会复查本地 `nodeId + fencingToken` 是否仍持有 lease。发现 lease 已属于新主时，本地 runtime 会立即 fence、停止接受写入并清空复制协调器，防止脑裂和乱接单；控制面 tick 仍会继续做常规续租 / fencing。
 
 检查集群和主节点：
 
@@ -640,7 +640,7 @@ Binary HA committed 容量行使用 `32768/32768` 订单窗口，便于更稳定
   - [WAL / 复制 / 租约故障验证矩阵](doc/operations/wal-replication-lease-chaos-matrix.md)
   - [Shard 发布 Runbook](doc/operations/shard-rollout-runbook.md)
   - [Shard 发布检查清单](doc/operations/shard-rollout-checklist.md)
-- `AERON_PREVIEW`、transport 切换窗口和预览验证请看 [HA / Sharding 验证环境手册](doc/operations/ha-sharding-lab.md)
+- transport 切换窗口请看 [HA / Sharding 验证环境手册](doc/operations/ha-sharding-lab.md)
 
 ## 最后说明
 

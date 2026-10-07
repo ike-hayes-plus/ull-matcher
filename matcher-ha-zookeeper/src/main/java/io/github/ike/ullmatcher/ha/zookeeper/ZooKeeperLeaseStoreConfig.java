@@ -1,5 +1,7 @@
 package io.github.ike.ullmatcher.ha.zookeeper;
 
+import io.github.ike.ullmatcher.ha.coordination.ControlPlaneHostSafety;
+
 import java.util.Objects;
 
 /**
@@ -35,5 +37,9 @@ public record ZooKeeperLeaseStoreConfig(
 
     public static ZooKeeperLeaseStoreConfig of(String connectString, String leasePath) {
         return new ZooKeeperLeaseStoreConfig(connectString, leasePath, 15_000, 5_000);
+    }
+
+    public void validateProductionSafety() {
+        ControlPlaneHostSafety.requireLoopbackConnectStringInProduction(connectString, "ZooKeeper");
     }
 }

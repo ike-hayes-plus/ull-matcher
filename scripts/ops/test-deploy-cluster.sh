@@ -73,6 +73,18 @@ assert_fails_with "ENABLE_TRANSPORT_TLS=true" run_cluster plan node-a
 write_config $'LEASE_PROVIDER="etcd"\nDISCOVERY_PROVIDER="etcd"\nETCD_ENDPOINT="http://10.0.0.10:2379"'
 assert_fails_with "https" run_cluster plan node-a
 
+write_config $'LEASE_PROVIDER="zk"\nDISCOVERY_PROVIDER="zk"\nZK_CONNECT="10.0.0.8:2181"'
+assert_fails_with "loopback" run_cluster plan node-a
+
+write_config 'HTTP_BIND_HOST="127.0.0.2"'
+assert_fails_with "ALLOW_INSECURE_REMOTE_HTTP=true" run_cluster plan node-a
+
+write_config $'LEASE_PROVIDER="etcd"\nDISCOVERY_PROVIDER="etcd"\nETCD_ENDPOINT="https://10.0.0.10:2379"'
+if ! run_cluster plan node-a >/dev/null; then
+  echo "remote etcd https should pass deploy validate" >&2
+  exit 1
+fi
+
 cat >"${CONFIG_FILE}" <<EOF
 REMOTE_ROOT="${ROOT_DIR}"
 NODES=(

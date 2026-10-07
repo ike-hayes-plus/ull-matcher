@@ -2,9 +2,6 @@ package io.github.ike.ullmatcher.server.engine;
 
 import io.github.ike.ullmatcher.api.Command;
 import io.github.ike.ullmatcher.api.CommandPool;
-import io.github.ike.ullmatcher.api.OrderType;
-import io.github.ike.ullmatcher.api.Side;
-import io.github.ike.ullmatcher.api.TimeInForce;
 import io.github.ike.ullmatcher.hft.SubmitResult;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerConfig;
 
@@ -33,25 +30,10 @@ final class SubmissionCoordinator {
         this.orderStateTracker = Objects.requireNonNull(orderStateTracker, "orderStateTracker");
     }
 
-    MatcherNodeService.SubmitResponse submitNewOrder(MatcherEngine current,
-                                                     long userId,
-                                                     long orderId,
-                                                     Side side,
-                                                     OrderType orderType,
-                                                     TimeInForce tif,
-                                                     long price,
-                                                     long quantity,
-                                                     Long ttlMillis) throws IOException {
-        return submit(current, new SubmissionRequest.NewOrderRequest(userId, orderId, side, orderType, tif, price, quantity, ttlMillis));
-    }
-
-    MatcherNodeService.SubmitResponse cancelOrder(MatcherEngine current, long orderId) throws IOException {
-        return submit(current, new SubmissionRequest.CancelOrderRequest(orderId));
-    }
-
     BatchSubmitOutcome submitBatch(MatcherEngine current,
                                    List<SubmissionRequest> requests,
-                                   BatchSubmitContext context) throws IOException {
+                                   BatchSubmitContext context,
+                                   boolean replicationRequired) throws IOException {
         Objects.requireNonNull(current, "current");
         Objects.requireNonNull(requests, "requests");
         Objects.requireNonNull(context, "context");
@@ -64,6 +46,7 @@ final class SubmissionCoordinator {
             return new BatchSubmitOutcome(0, false, 0, 0);
         }
         long nowEpochMillis = System.currentTimeMillis();
+        long sequenceFloor = nextSequence.get();
         try {
             for (SubmissionRequest request : requests) {
                 SubmissionRequest.PreparedSubmission item = request.prepare(
@@ -78,6 +61,7 @@ final class SubmissionCoordinator {
             }
         } catch (SubmissionRequest.CommandPoolExhaustedException exhausted) {
             releasePrepared(context.prepared, context.preparedCount);
+            nextSequence.set(sequenceFloor);
             context.clear();
             context.result = SubmitResult.COMMAND_POOL_EXHAUSTED;
             return new BatchSubmitOutcome(0, false, 0, 0);
@@ -90,6 +74,9 @@ final class SubmissionCoordinator {
             context.clear();
             throw e;
         }
+        if (!result.walAppended()) {
+            nextSequence.set(sequenceFloor);
+        }
         for (int i = 0; i < context.preparedCount; i++) {
             SubmissionRequest.PreparedSubmission item = context.prepared[i];
             if (result == SubmitResult.ACCEPTED) {
@@ -99,14 +86,7 @@ final class SubmissionCoordinator {
             }
         }
         context.result = result;
-        return new BatchSubmitOutcome(context.preparedCount, true, 0, 0);
-    }
-
-    private MatcherNodeService.SubmitResponse submit(MatcherEngine current, SubmissionRequest request) throws IOException {
-        BatchSubmitContext context = new BatchSubmitContext(1);
-        BatchSubmitOutcome outcome = submitBatch(current, List.of(request), context);
-        long sequence = outcome.preparedCount() == 0 ? 0L : context.prepared[0].sequence();
-        return new MatcherNodeService.SubmitResponse(context.result, sequence);
+        return new BatchSubmitOutcome(context.preparedCount, replicationRequired, 0, 0);
     }
 
     record BatchSubmitOutcome(int preparedCount,

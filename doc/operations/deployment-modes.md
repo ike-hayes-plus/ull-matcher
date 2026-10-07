@@ -89,7 +89,7 @@ NODES=(
 
 - `HTTP_PORT`：HTTP 管理、健康检查、metrics、可选 HTTP 写入口。
 - `GRPC_PORT`：`REPLICATION_TRANSPORT=GRPC` 时的主备复制端口。
-- `AERON_PORT`：`REPLICATION_TRANSPORT=AERON` 或 `AERON_PREVIEW` 时的复制端口。
+- `AERON_PORT`：`REPLICATION_TRANSPORT=AERON` 时的复制端口。
 - `BINARY_PORT`：binary ingress 写入口；设置为 `-` 可禁用该节点 binary ingress。
 
 执行入口：

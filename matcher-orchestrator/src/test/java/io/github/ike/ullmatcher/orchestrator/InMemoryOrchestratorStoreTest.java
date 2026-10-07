@@ -2,8 +2,11 @@ package io.github.ike.ullmatcher.orchestrator;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.concurrent.TimeUnit;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class InMemoryOrchestratorStoreTest {
@@ -68,6 +71,32 @@ final class InMemoryOrchestratorStoreTest {
             RoutingTable table = new RoutingTable(store);
             table.refresh();
             assertTrue(table.shard("merchant:42").isPresent());
+        }
+    }
+
+    @Test
+    void backgroundRefreshPublishesRoutesAndIgnoresASecondStart() throws Exception {
+        try (InMemoryOrchestratorStore store = new InMemoryOrchestratorStore()) {
+            store.registerShard(sampleShard("merchant:42", 7, ShardLifecycleState.ACTIVE));
+            store.bindSymbol(7, "merchant:42", 3L);
+            RoutingTable table = new RoutingTable(store);
+            assertThrows(IllegalArgumentException.class, () -> table.startBackgroundRefresh(0L));
+            assertThrows(IllegalArgumentException.class, () -> table.startBackgroundRefresh(-1L));
+            table.startBackgroundRefresh(20L);
+            try {
+                table.startBackgroundRefresh(20L);
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+                while (table.route(7).isEmpty()) {
+                    if (System.nanoTime() > deadline) {
+                        throw new AssertionError("background refresh did not publish the route");
+                    }
+                    Thread.sleep(10L);
+                }
+                assertEquals(3L, table.route(7).orElseThrow().generation());
+            } finally {
+                table.stopBackgroundRefresh();
+                table.stopBackgroundRefresh();
+            }
         }
     }
 

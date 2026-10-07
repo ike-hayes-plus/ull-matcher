@@ -715,7 +715,7 @@ public class UllMatcherServerProperties {
         private ReplicationMode replicationMode = ReplicationMode.WAIT_FOR_ANY_STANDBY;
         private long replicationTimeoutMillis = 5_000L;
         private ReplicationTransportType replicationTransport = ReplicationTransportType.GRPC;
-        private final AeronPreview aeronPreview = new AeronPreview();
+        private final Aeron aeron = new Aeron();
         private final TransportPolicy transportPolicy = new TransportPolicy();
 
         public boolean isEnabled() {
@@ -926,8 +926,8 @@ public class UllMatcherServerProperties {
             this.replicationTransport = replicationTransport;
         }
 
-        public AeronPreview getAeronPreview() {
-            return aeronPreview;
+        public Aeron getAeron() {
+            return aeron;
         }
 
         public TransportPolicy getTransportPolicy() {
@@ -935,8 +935,8 @@ public class UllMatcherServerProperties {
         }
     }
 
-    public static final class AeronPreview {
-        private String directory = "target/matcher-aeron-preview";
+    public static final class Aeron {
+        private String directory = "target/matcher-aeron";
         private int port = 15_090;
         private int streamId = 11_001;
 
@@ -968,7 +968,6 @@ public class UllMatcherServerProperties {
     public static final class TransportPolicy {
         private boolean allowTransportChange = ReplicationTransportPolicyConfig.defaults().allowTransportChange();
         private String transportChangeWindowId = ReplicationTransportPolicyConfig.defaults().transportChangeWindowId();
-        private boolean allowPreviewTransportInProd = ReplicationTransportPolicyConfig.defaults().allowPreviewTransportInProd();
 
         public boolean isAllowTransportChange() {
             return allowTransportChange;
@@ -984,14 +983,6 @@ public class UllMatcherServerProperties {
 
         public void setTransportChangeWindowId(String transportChangeWindowId) {
             this.transportChangeWindowId = transportChangeWindowId;
-        }
-
-        public boolean isAllowPreviewTransportInProd() {
-            return allowPreviewTransportInProd;
-        }
-
-        public void setAllowPreviewTransportInProd(boolean allowPreviewTransportInProd) {
-            this.allowPreviewTransportInProd = allowPreviewTransportInProd;
         }
     }
 }

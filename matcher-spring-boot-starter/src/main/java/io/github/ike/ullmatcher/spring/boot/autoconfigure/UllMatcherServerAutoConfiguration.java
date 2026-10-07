@@ -19,7 +19,7 @@ import io.github.ike.ullmatcher.server.bootstrap.MatcherServerConfig;
 import io.github.ike.ullmatcher.server.bootstrap.MatcherServerMode;
 import io.github.ike.ullmatcher.server.bootstrap.PersistenceSettings;
 import io.github.ike.ullmatcher.server.bootstrap.WriteAdmissionPolicyConfig;
-import io.github.ike.ullmatcher.server.cluster.AeronPreviewTransportConfig;
+import io.github.ike.ullmatcher.server.cluster.AeronTransportConfig;
 import io.github.ike.ullmatcher.server.cluster.MatcherClusterConfig;
 import io.github.ike.ullmatcher.server.cluster.ReplicationTransportPolicyConfig;
 import io.github.ike.ullmatcher.server.engine.TtlCancelConfig;
@@ -99,6 +99,7 @@ public class UllMatcherServerAutoConfiguration {
                 .ttlCancelConfig(ttlCancelConfigProvider.getIfAvailable(TtlCancelConfig::disabled))
                 .orchestratorRegistrationConfig(orchestratorRegistrationConfig(properties, clusterConfig))
                 .clusterConfig(clusterConfig)
+                .httpSubmitAckMode(HttpSubmitAckMode.parse(properties.getHttpSubmitAckMode(), HttpSubmitAckMode.LOCAL))
                 .initialRole(clusterConfig == null ? defaults.initialRole() : HaRole.STANDBY)
                 .binaryIngressEnabled(properties.isBinaryIngressEnabled())
                 .binaryIngressPort(properties.getBinaryIngressPort())
@@ -158,14 +159,18 @@ public class UllMatcherServerAutoConfiguration {
     public LeaseStore ullMatcherLeaseStore(UllMatcherServerProperties properties) throws java.io.IOException {
         UllMatcherServerProperties.Cluster cluster = properties.getCluster();
         return switch (controlPlaneProvider(cluster)) {
-            case "zk" -> new ZooKeeperLeaseStore(
-                    new ZooKeeperLeaseStoreConfig(
-                            required(cluster.getZookeeperConnect(), "ull.matcher.cluster.zookeeper-connect"),
-                            "/ull-matcher/lease/" + cluster.getName(),
-                            cluster.getZookeeperSessionTimeoutMillis(),
-                            cluster.getZookeeperConnectionTimeoutMillis()
-                    )
-            );
+            case "zk" -> {
+                ZooKeeperLeaseStoreConfig zkConfig = new ZooKeeperLeaseStoreConfig(
+                        required(cluster.getZookeeperConnect(), "ull.matcher.cluster.zookeeper-connect"),
+                        "/ull-matcher/lease/" + cluster.getName(),
+                        cluster.getZookeeperSessionTimeoutMillis(),
+                        cluster.getZookeeperConnectionTimeoutMillis()
+                );
+                if (properties.getServerMode() == MatcherServerMode.PROD) {
+                    zkConfig.validateProductionSafety();
+                }
+                yield new ZooKeeperLeaseStore(zkConfig);
+            }
             case "etcd" -> new EtcdLeaseStore(etcdConfig(properties));
             default -> throw new IllegalArgumentException("unsupported ull.matcher.cluster.lease-provider: "
                     + cluster.getLeaseProvider());
@@ -178,14 +183,18 @@ public class UllMatcherServerAutoConfiguration {
     public NodeRegistry ullMatcherNodeRegistry(UllMatcherServerProperties properties) throws java.io.IOException {
         UllMatcherServerProperties.Cluster cluster = properties.getCluster();
         return switch (controlPlaneProvider(cluster)) {
-            case "zk" -> new ZooKeeperNodeRegistry(
-                    new ZooKeeperDiscoveryConfig(
-                            required(cluster.getZookeeperConnect(), "ull.matcher.cluster.zookeeper-connect"),
-                            "/ull-matcher/discovery/" + cluster.getName() + "/nodes",
-                            cluster.getZookeeperSessionTimeoutMillis(),
-                            cluster.getZookeeperConnectionTimeoutMillis()
-                    )
-            );
+            case "zk" -> {
+                ZooKeeperDiscoveryConfig zkDiscovery = new ZooKeeperDiscoveryConfig(
+                        required(cluster.getZookeeperConnect(), "ull.matcher.cluster.zookeeper-connect"),
+                        "/ull-matcher/discovery/" + cluster.getName() + "/nodes",
+                        cluster.getZookeeperSessionTimeoutMillis(),
+                        cluster.getZookeeperConnectionTimeoutMillis()
+                );
+                if (properties.getServerMode() == MatcherServerMode.PROD) {
+                    zkDiscovery.validateProductionSafety();
+                }
+                yield new ZooKeeperNodeRegistry(zkDiscovery);
+            }
             case "etcd" -> new EtcdNodeRegistry(etcdConfig(properties));
             default -> throw new IllegalArgumentException("unsupported ull.matcher.cluster.discovery-provider: "
                     + cluster.getDiscoveryProvider());
@@ -199,7 +208,7 @@ public class UllMatcherServerAutoConfiguration {
                                                         LeaseStore leaseStore,
                                                         NodeRegistry nodeRegistry) {
         UllMatcherServerProperties.Cluster cluster = properties.getCluster();
-        UllMatcherServerProperties.AeronPreview aeronPreview = cluster.getAeronPreview();
+        UllMatcherServerProperties.Aeron aeron = cluster.getAeron();
         UllMatcherServerProperties.TransportPolicy transportPolicy = cluster.getTransportPolicy();
         return new MatcherClusterConfig(
                 leaseStore,
@@ -220,15 +229,14 @@ public class UllMatcherServerAutoConfiguration {
                 cluster.getReplicationMode(),
                 TimeUnit.MILLISECONDS.toNanos(cluster.getReplicationTimeoutMillis()),
                 cluster.getReplicationTransport(),
-                new AeronPreviewTransportConfig(
-                        Path.of(aeronPreview.getDirectory()),
-                        aeronPreview.getPort(),
-                        aeronPreview.getStreamId()
+                new AeronTransportConfig(
+                        Path.of(aeron.getDirectory()),
+                        aeron.getPort(),
+                        aeron.getStreamId()
                 ),
                 new ReplicationTransportPolicyConfig(
                         transportPolicy.isAllowTransportChange(),
-                        transportPolicy.getTransportChangeWindowId(),
-                        transportPolicy.isAllowPreviewTransportInProd()
+                        transportPolicy.getTransportChangeWindowId()
                 )
         );
     }
@@ -236,11 +244,8 @@ public class UllMatcherServerAutoConfiguration {
     @Bean(initMethod = "start", destroyMethod = "close")
     @ConditionalOnMissingBean
     @ConditionalOnProperty(prefix = "ull.matcher", name = "auto-start", havingValue = "true")
-    public MatcherServerApp ullMatcherServerApp(MatcherServerConfig config,
-                                                UllMatcherServerProperties properties) throws IOException {
-        return new MatcherServerApp(
-                config,
-                HttpSubmitAckMode.parse(properties.getHttpSubmitAckMode(), HttpSubmitAckMode.LOCAL));
+    public MatcherServerApp ullMatcherServerApp(MatcherServerConfig config) throws IOException {
+        return new MatcherServerApp(config);
     }
 
     private static Path blankToNull(String path) {

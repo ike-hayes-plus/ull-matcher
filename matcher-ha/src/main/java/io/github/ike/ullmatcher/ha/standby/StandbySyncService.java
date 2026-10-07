@@ -25,6 +25,8 @@ public final class StandbySyncService implements ReplicationTarget, Closeable {
     private static final int OFFER_SPIN_LIMIT = 1_024;
     private static final int MIN_APPLY_QUEUE_CAPACITY = 1 << 10;
     private static final int DEFAULT_APPLY_BATCH_SIZE = 256;
+    /** Ring-full offer timeout. Waiting for the match loop to apply must not use this. */
+    private static final long APPLY_OFFER_TIMEOUT_NANOS = TimeUnit.SECONDS.toNanos(1);
 
     private final String nodeId;
     private final WalWriter wal;
@@ -270,12 +272,11 @@ public final class StandbySyncService implements ReplicationTarget, Closeable {
         updateMax(maxObservedApplyQueueDepth, applyQueue.size());
     }
 
-    private void awaitAppliedSequence(long sequence, long timeoutNanos) throws IOException {
-        long deadline = timeoutNanos > 0L ? System.nanoTime() + timeoutNanos : Long.MAX_VALUE;
+    private boolean awaitAppliedSequence(long sequence) {
         int spins = 0;
         while (matcher.lastSequence() < sequence) {
-            if (System.nanoTime() >= deadline) {
-                throw new IOException("timed out waiting for standby apply sequence " + sequence);
+            if (!running) {
+                return false;
             }
             if (++spins >= OFFER_SPIN_LIMIT) {
                 Thread.yield();
@@ -284,6 +285,7 @@ public final class StandbySyncService implements ReplicationTarget, Closeable {
                 Thread.onSpinWait();
             }
         }
+        return true;
     }
 
     /**
@@ -306,7 +308,9 @@ public final class StandbySyncService implements ReplicationTarget, Closeable {
             try {
                 int batchSize = drainApplyBatch(batch, command);
                 long highestSequence = publishApplyBatch(batch, batchSize);
-                awaitAppliedSequence(highestSequence, 0L);
+                if (!awaitAppliedSequence(highestSequence)) {
+                    return;
+                }
                 markApplied(highestSequence);
                 clearBatch(batch, batchSize);
             } catch (IOException e) {
@@ -338,7 +342,7 @@ public final class StandbySyncService implements ReplicationTarget, Closeable {
         long highestSequence = 0L;
         for (int i = 0; i < batchSize; i++) {
             Command command = batch[i];
-            publishToMatchLoop(command, 0L);
+            publishToMatchLoop(command, APPLY_OFFER_TIMEOUT_NANOS);
             highestSequence = command.sequence;
         }
         return highestSequence;

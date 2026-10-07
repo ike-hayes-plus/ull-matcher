@@ -34,6 +34,19 @@ final class FastOrderBookTest {
         assertFalse(book.hasSelfTradeInFillPath(Side.BUY.code, 100L, 42L, 1L));
     }
 
+    @Test
+    void hasFillableQuantityScansBidLevelsForSellTaker() {
+        FastOrderBook book = new FastOrderBook(8, 8);
+        Order bid101 = order(1L, 10L, Side.BUY.code, 101L, 3L);
+        Order bid100 = order(2L, 11L, Side.BUY.code, 100L, 2L);
+        assertTrue(book.add(bid100));
+        assertTrue(book.add(bid101));
+
+        assertTrue(book.hasFillableQuantity(Side.SELL.code, 100L, 5L, 99L, false));
+        assertFalse(book.hasFillableQuantity(Side.SELL.code, 101L, 5L, 99L, false));
+        assertSame(bid101, book.bestBid());
+    }
+
     private static Order order(long orderId, long userId, byte side, long price, long quantity) {
         Order order = new Order();
         order.orderId = orderId;

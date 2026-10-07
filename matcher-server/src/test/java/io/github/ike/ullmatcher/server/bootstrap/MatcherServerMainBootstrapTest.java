@@ -9,7 +9,7 @@ import io.github.ike.ullmatcher.ha.discovery.DiscoveredNode;
 import io.github.ike.ullmatcher.ha.discovery.NodeRegistry;
 import io.github.ike.ullmatcher.ha.grpc.server.GrpcReplicationServerConfig;
 import io.github.ike.ullmatcher.hft.WalDurabilityMode;
-import io.github.ike.ullmatcher.server.cluster.AeronPreviewTransportConfig;
+import io.github.ike.ullmatcher.server.cluster.AeronTransportConfig;
 import io.github.ike.ullmatcher.server.cluster.MatcherClusterConfig;
 import io.github.ike.ullmatcher.server.cluster.ReplicationTransportPolicyConfig;
 import io.github.ike.ullmatcher.server.cluster.ReplicationTransportPolicyEnforcer;
@@ -168,6 +168,13 @@ final class MatcherServerMainBootstrapTest {
             restoreProperty("matcher.leaseProvider", previousLease);
             restoreProperty("matcher.discoveryProvider", previousDiscovery);
         }
+    }
+
+    @Test
+    void prodModeRejectsRemoteZooKeeperConnectString() {
+        ServerBootstrapException error = assertThrows(ServerBootstrapException.class,
+                () -> MatcherServerMain.leaseStore("zk", "10.0.0.8:2181", "", "cluster-a", true));
+        assertTrue(error.getMessage().contains("10.0.0.8"));
     }
 
     @Test
@@ -403,63 +410,6 @@ final class MatcherServerMainBootstrapTest {
     }
 
     @Test
-    void prodModeRejectsAeronPreviewWithoutExplicitOptIn() throws Exception {
-        Path dir = Files.createTempDirectory("prod-preview-reject");
-        MatcherServerConfig config = withProdPersistence(new MatcherServerConfig(
-                MatcherServerMode.PROD,
-                "node-a",
-                "merchant:42",
-                MatcherConfig.defaults(1),
-                dir.resolve("wal"),
-                "symbol-1",
-                4L * 1024L * 1024L,
-                WalDurabilityMode.SYNC_PER_COMMAND,
-                1,
-                0L,
-                dir.resolve("snapshots").resolve("symbol-1.snap"),
-                1 << 10,
-                128,
-                TimeUnit.MILLISECONDS.toNanos(200),
-                8080,
-                "127.0.0.1",
-                4,
-                1 << 20,
-                256,
-                2_000L,
-                128,
-                96,
-                16,
-                2_000L,
-                1_000L,
-                5_000L,
-                96,
-                64,
-                2,
-                16,
-                8,
-                WriteAdmissionPolicyConfig.defaults(),
-                false,
-                IngressAuthConfig.disabled(),
-                9090,
-                GrpcReplicationServerConfig.defaults(9090),
-                ServerSecurityConfig.insecureDefaults(),
-                TtlCancelConfig.disabled(),
-                HaRole.PRIMARY,
-                io.github.ike.ullmatcher.runtime.MatchLoopConfig.defaults(),
-                io.github.ike.ullmatcher.ha.standby.StandbySyncConfig.defaults(),
-                io.github.ike.ullmatcher.server.orchestrator.OrchestratorRegistrationConfig.disabled(),
-                MatcherClusterConfig.defaults(new TestLeaseStore(), new TestNodeRegistry(), "127.0.0.1", "merchant:42")
-                        .withReplicationTransport(
-                                ReplicationTransportType.AERON_PREVIEW,
-                                new AeronPreviewTransportConfig(dir.resolve("aeron-preview"), 15090, 11001),
-                                ReplicationTransportPolicyConfig.defaults())
-        ));
-        IllegalStateException error = assertThrows(IllegalStateException.class, config::validateDeploymentSafety);
-        assertEquals("prod mode forbids matcher.replicationTransport=AERON_PREVIEW unless matcher.allowPreviewTransportInProd=true",
-                error.getMessage());
-    }
-
-    @Test
     void prodModeAllowsRemoteGrpcBindWhenAuthoritativeTransportIsAeron() throws Exception {
         Path dir = Files.createTempDirectory("prod-aeron-grpc-optional");
         MatcherServerConfig config = withProdPersistence(new MatcherServerConfig(
@@ -508,7 +458,7 @@ final class MatcherServerMainBootstrapTest {
                 MatcherClusterConfig.defaults(new TestLeaseStore(), new TestNodeRegistry(), "127.0.0.1", "merchant:42")
                         .withReplicationTransport(
                                 ReplicationTransportType.AERON,
-                                new AeronPreviewTransportConfig(dir.resolve("aeron-preview"), 15090, 11001),
+                                new AeronTransportConfig(dir.resolve("aeron"), 15090, 11001),
                                 ReplicationTransportPolicyConfig.defaults()
                         )
         ));
@@ -565,7 +515,7 @@ final class MatcherServerMainBootstrapTest {
                 MatcherClusterConfig.defaults(new TestLeaseStore(), new TestNodeRegistry(), "10.0.0.10", "merchant:42")
                         .withReplicationTransport(
                                 ReplicationTransportType.AERON,
-                                new AeronPreviewTransportConfig(dir.resolve("aeron-preview"), 15090, 11001),
+                                new AeronTransportConfig(dir.resolve("aeron"), 15090, 11001),
                                 ReplicationTransportPolicyConfig.defaults()
                         )
         ));
@@ -598,18 +548,18 @@ final class MatcherServerMainBootstrapTest {
                         "merchant:42")
                 .withReplicationTransport(
                         ReplicationTransportType.GRPC,
-                        new AeronPreviewTransportConfig(dir.resolve("aeron-preview"), 15090, 11001),
+                        new AeronTransportConfig(dir.resolve("aeron"), 15090, 11001),
                         ReplicationTransportPolicyConfig.defaults());
         MatcherServerConfig grpcConfig = baseConfig(dir, clusterConfig);
         ReplicationTransportPolicyEnforcer.validateAndLock(grpcConfig);
         MatcherClusterConfig switchedConfig = clusterConfig.withReplicationTransport(
-                ReplicationTransportType.AERON_PREVIEW,
-                clusterConfig.aeronPreviewTransportConfig(),
+                ReplicationTransportType.AERON,
+                clusterConfig.aeronTransportConfig(),
                 ReplicationTransportPolicyConfig.defaults());
         IllegalStateException error = assertThrows(IllegalStateException.class,
                 () -> ReplicationTransportPolicyEnforcer.validateAndLock(baseConfig(dir, switchedConfig)));
         assertEquals(
-                "replication transport change from GRPC to AERON_PREVIEW requires matcher.allowTransportChange=true and matcher.transportChangeWindowId",
+                "replication transport change from GRPC to AERON requires matcher.allowTransportChange=true and matcher.transportChangeWindowId",
                 error.getMessage());
     }
 

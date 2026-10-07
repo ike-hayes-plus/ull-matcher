@@ -45,20 +45,11 @@ final class ReplicationTransportProvidersTest {
 
             MatcherClusterConfig aeronCluster = grpcCluster.withReplicationTransport(
                     ReplicationTransportType.AERON,
-                    new AeronPreviewTransportConfig(dir.resolve("aeron-authoritative"), 21_110, 17_110),
+                    new AeronTransportConfig(dir.resolve("aeron-authoritative"), 21_110, 17_110),
                     ReplicationTransportPolicyConfig.defaults());
             try (ReplicationTransportProvider provider =
                          ReplicationTransportProviders.create(aeronCluster, securityConfig, nodeService)) {
                 assertEquals(ReplicationTransportType.AERON, provider.type());
-            }
-
-            MatcherClusterConfig previewCluster = grpcCluster.withReplicationTransport(
-                    ReplicationTransportType.AERON_PREVIEW,
-                    new AeronPreviewTransportConfig(dir.resolve("aeron-preview"), 21_120, 17_120),
-                    ReplicationTransportPolicyConfig.defaults());
-            try (ReplicationTransportProvider provider =
-                         ReplicationTransportProviders.create(previewCluster, securityConfig, nodeService)) {
-                assertEquals(ReplicationTransportType.AERON_PREVIEW, provider.type());
             }
 
             assertEquals("clusterConfig",

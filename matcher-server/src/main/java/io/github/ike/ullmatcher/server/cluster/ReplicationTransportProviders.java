@@ -27,16 +27,10 @@ public final class ReplicationTransportProviders {
                     securityConfig,
                     nodeService.currentState().nodeId(),
                     clusterConfig.advertisedHost(),
-                    clusterConfig.aeronPreviewTransportConfig(),
+                    clusterConfig.aeronTransportConfig(),
                     nodeService::standbySyncService,
                     nodeService,
                     nodeService
-            );
-            case AERON_PREVIEW -> new AeronPreviewReplicationTransportProvider(
-                    securityConfig,
-                    clusterConfig.advertisedHost(),
-                    clusterConfig.aeronPreviewTransportConfig(),
-                    () -> nodeService.currentState().cursor().lastReceivedSequence()
             );
         };
     }

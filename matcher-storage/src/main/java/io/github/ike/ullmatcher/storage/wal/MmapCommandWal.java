@@ -230,7 +230,7 @@ public final class MmapCommandWal implements WalWriter, WalReader {
      * 从指定偏移读取一条命令，不校验记录校验和。
      *
      * @param p 记录起始偏移
-     * @return 解码后的命令；命令类型非法时返回 {@code null}
+     * @return 解码后的命令；命令类型或订单编码非法时返回 {@code null}
      */
     private Command readCommand(int p) {
         int typeOrdinal = buffer.getInt(p + 4);
@@ -279,12 +279,25 @@ public final class MmapCommandWal implements WalWriter, WalReader {
     private static Command decode(CommandType type, long sequence, long orderId, long userId, int symbolId,
                                   byte side, byte orderType, byte tif, long price, long qty, long expireAtEpochMillis) {
         return switch (type) {
-            case NEW_ORDER -> Command.newOrder(sequence, orderId, userId, symbolId,
-                    Side.from(side), OrderType.from(orderType), TimeInForce.from(tif), price, qty, expireAtEpochMillis);
+            case NEW_ORDER -> decodeNewOrder(sequence, orderId, userId, symbolId, side, orderType, tif, price, qty,
+                    expireAtEpochMillis);
             case CANCEL_ORDER -> Command.cancel(sequence, orderId, symbolId);
             case SNAPSHOT_MARKER -> Command.snapshotMarker(sequence, symbolId);
             case SHUTDOWN -> Command.shutdown(sequence);
         };
+    }
+
+    private static Command decodeNewOrder(long sequence, long orderId, long userId, int symbolId,
+                                          byte side, byte orderType, byte tif, long price, long qty,
+                                          long expireAtEpochMillis) {
+        if ((side != Side.BUY.code && side != Side.SELL.code)
+                || (orderType != OrderType.LIMIT.code && orderType != OrderType.MARKET_WITH_PROTECTION.code)
+                || (tif != TimeInForce.GTC.code && tif != TimeInForce.IOC.code
+                && tif != TimeInForce.FOK.code && tif != TimeInForce.POST_ONLY.code)) {
+            return null;
+        }
+        return Command.newOrder(sequence, orderId, userId, symbolId,
+                Side.from(side), OrderType.from(orderType), TimeInForce.from(tif), price, qty, expireAtEpochMillis);
     }
 
     /**

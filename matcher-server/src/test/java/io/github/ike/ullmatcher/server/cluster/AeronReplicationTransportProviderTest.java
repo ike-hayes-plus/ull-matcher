@@ -49,7 +49,7 @@ final class AeronReplicationTransportProviderTest {
     @Test
     void authoritativeProviderAdvertisesEveryAeronEndpointItListensOn() throws Exception {
         Path dir = Files.createTempDirectory("aeron-provider-metadata");
-        AeronPreviewTransportConfig config = new AeronPreviewTransportConfig(dir.resolve("aeron"), 21_010, 17_010);
+        AeronTransportConfig config = new AeronTransportConfig(dir.resolve("aeron"), 21_010, 17_010);
 
         try (AeronReplicationTransportProvider provider = authoritativeProvider(ServerSecurityConfig.insecureDefaults(), config)) {
             assertEquals(ReplicationTransportType.AERON, provider.type());
@@ -74,7 +74,7 @@ final class AeronReplicationTransportProviderTest {
             assertEquals("AERON", metrics.transportType());
             assertEquals("DISABLED", metrics.reconciliationStatus());
             assertEquals("STABLE", metrics.policyStatus());
-            assertEquals(0L, metrics.previewPublishedCommands());
+            assertEquals(0L, metrics.publishedCommands());
 
             assertFalse(provider.securitySnapshot().reloading());
             assertEquals(0L, provider.securitySnapshot().generation());
@@ -84,7 +84,7 @@ final class AeronReplicationTransportProviderTest {
     @Test
     void authoritativeProviderRejectsPeersWithoutAeronMetadata() throws Exception {
         Path dir = Files.createTempDirectory("aeron-provider-missing-metadata");
-        AeronPreviewTransportConfig config = new AeronPreviewTransportConfig(dir.resolve("aeron"), 21_020, 17_020);
+        AeronTransportConfig config = new AeronTransportConfig(dir.resolve("aeron"), 21_020, 17_020);
 
         try (AeronReplicationTransportProvider provider = authoritativeProvider(ServerSecurityConfig.insecureDefaults(), config)) {
             DiscoveredNode bare = new DiscoveredNode("node-b", "127.0.0.1", 1, HaRole.STANDBY, Map.of());
@@ -102,7 +102,7 @@ final class AeronReplicationTransportProviderTest {
     @Test
     void authoritativeProviderAllocatesDistinctResponseEndpointsPerPeer() throws Exception {
         Path dir = Files.createTempDirectory("aeron-provider-connect");
-        AeronPreviewTransportConfig config = new AeronPreviewTransportConfig(dir.resolve("aeron"), 21_030, 17_030);
+        AeronTransportConfig config = new AeronTransportConfig(dir.resolve("aeron"), 21_030, 17_030);
 
         try (AeronReplicationTransportProvider provider = authoritativeProvider(ServerSecurityConfig.insecureDefaults(), config)) {
             ClusterPeerClient first = provider.connect(peer("node-b", 21_031, 17_031));
@@ -123,7 +123,7 @@ final class AeronReplicationTransportProviderTest {
     @Test
     void authoritativeProviderPublishesTheSecurityContextSnapshotWhenTlsIsConfigured() throws Exception {
         Path dir = Files.createTempDirectory("aeron-provider-secure");
-        AeronPreviewTransportConfig config = new AeronPreviewTransportConfig(dir.resolve("aeron"), 21_050, 17_050);
+        AeronTransportConfig config = new AeronTransportConfig(dir.resolve("aeron"), 21_050, 17_050);
         ServerSecurityConfig securityConfig = secureConfig(dir);
 
         try (AeronReplicationTransportProvider provider = authoritativeProvider(securityConfig, config)) {
@@ -139,49 +139,14 @@ final class AeronReplicationTransportProviderTest {
         Files.writeString(dir.resolve("broken.key"), "not a key\n", StandardCharsets.UTF_8);
         ServerSecurityConfig securityConfig = ServerSecurityConfig.fromPaths(
                 dir.resolve("broken.crt"), dir.resolve("broken.key"), dir.resolve("broken.crt"), false, 0L, false);
-        AeronPreviewTransportConfig config = new AeronPreviewTransportConfig(dir.resolve("aeron"), 21_060, 17_060);
+        AeronTransportConfig config = new AeronTransportConfig(dir.resolve("aeron"), 21_060, 17_060);
 
         assertEquals("failed to initialize Aeron transport security context",
                 assertThrows(IllegalStateException.class, () -> authoritativeProvider(securityConfig, config)).getMessage());
     }
 
-    @Test
-    void previewProviderShadowsGrpcPeersThatAdvertiseAnAeronChannel() throws Exception {
-        Path dir = Files.createTempDirectory("aeron-preview-provider");
-        AeronPreviewTransportConfig config = new AeronPreviewTransportConfig(dir.resolve("aeron"), 21_070, 17_070);
-
-        try (AeronPreviewReplicationTransportProvider provider = new AeronPreviewReplicationTransportProvider(
-                ServerSecurityConfig.insecureDefaults(), "127.0.0.1", config, () -> 0L)) {
-            assertEquals(ReplicationTransportType.AERON_PREVIEW, provider.type());
-
-            Map<String, String> metadata = provider.localNodeMetadata();
-            assertEquals("AERON_PREVIEW", metadata.get(ReplicationTransportProvider.TRANSPORT_METADATA_KEY));
-            assertEquals("aeron:udp?endpoint=127.0.0.1:21070",
-                    metadata.get(ReplicationTransportProvider.AERON_CHANNEL_METADATA_KEY));
-            assertEquals("17070", metadata.get(ReplicationTransportProvider.AERON_STREAM_ID_METADATA_KEY));
-
-            TransportMetricsSnapshot metrics = provider.metricsSnapshot();
-            assertEquals("AERON_PREVIEW", metrics.transportType());
-            assertEquals("IDLE", metrics.reconciliationStatus());
-
-            DiscoveredNode grpcOnly = new DiscoveredNode("node-b", "127.0.0.1", 1, HaRole.STANDBY, Map.of());
-            try (ClusterPeerClient plain = provider.connect(grpcOnly)) {
-                assertEquals("node-b", plain.nodeId());
-            }
-
-            DiscoveredNode shadowed = new DiscoveredNode("node-c", "127.0.0.1", 1, HaRole.STANDBY, Map.of(
-                    ReplicationTransportProvider.AERON_CHANNEL_METADATA_KEY, "aeron:udp?endpoint=127.0.0.1:21071",
-                    ReplicationTransportProvider.AERON_STREAM_ID_METADATA_KEY, "17071"));
-            try (ClusterPeerClient shadow = provider.connect(shadowed)) {
-                assertEquals("node-c", shadow.nodeId());
-                assertThrows(IOException.class,
-                        () -> shadow.fetchNodeState(TimeUnit.MILLISECONDS.toNanos(200)));
-            }
-        }
-    }
-
     private static AeronReplicationTransportProvider authoritativeProvider(ServerSecurityConfig securityConfig,
-                                                                           AeronPreviewTransportConfig config) {
+                                                                           AeronTransportConfig config) {
         return new AeronReplicationTransportProvider(
                 securityConfig,
                 "node-a",

@@ -121,12 +121,14 @@ public record IngressAuthConfig(Set<String> apiKeys, String apiKeyHeader) {
     }
 
     private static boolean constantTimeEquals(byte[] left, byte[] right) {
-        if (left.length != right.length) {
-            return false;
+        int diff = left.length ^ right.length;
+        for (int i = 0; i < BINARY_HANDSHAKE_BYTES; i++) {
+            int l = i < left.length ? left[i] : 0;
+            int r = i < right.length ? right[i] : 0;
+            diff |= l ^ r;
         }
-        int diff = 0;
-        for (int i = 0; i < left.length; i++) {
-            diff |= left[i] ^ right[i];
+        if (left.length > BINARY_HANDSHAKE_BYTES || right.length > BINARY_HANDSHAKE_BYTES) {
+            diff |= 1;
         }
         return diff == 0;
     }

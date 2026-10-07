@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -145,6 +146,77 @@ class JournaledMatcherGatewayTest {
         assertEquals(0, gateway.walAppendCount());
         assertEquals(0, gateway.walForceCount());
         assertEquals(2, ring.size());
+    }
+
+    @Test
+    void syncPerCommandAppendsForcesAndMarksWalAppended() throws Exception {
+        InMemoryWal wal = new InMemoryWal();
+        SpscRingBuffer<Command> ring = new SpscRingBuffer<>(8);
+        JournaledMatcherGateway gateway = new JournaledMatcherGateway(wal, ring, 1);
+
+        Command command = newOrder(1);
+        SubmitResult result = gateway.trySubmit(command, 0);
+
+        assertEquals(SubmitResult.ACCEPTED, result);
+        assertTrue(result.walAppended());
+        assertEquals(List.of(command), wal.commands);
+        assertEquals(1, gateway.walAppendCount());
+        assertEquals(1, gateway.acceptedCount());
+        assertEquals(1, wal.forceCount);
+        assertEquals(1, gateway.walForceCount());
+        assertEquals(0, gateway.failedBeforeWalCount());
+        assertSame(command, ring.poll());
+    }
+
+    @Test
+    void batchSubmitForcesWhenThresholdIsReached() throws Exception {
+        InMemoryWal wal = new InMemoryWal();
+        SpscRingBuffer<Command> ring = new SpscRingBuffer<>(8);
+        JournaledMatcherGateway gateway = new JournaledMatcherGateway(
+                wal, ring, 1, 0, () -> true, WalDurabilityMode.SYNC_PER_BATCH, 2, 0L
+        );
+
+        List<Command> batch = List.of(newOrder(1), newOrder(2));
+        SubmitResult result = gateway.trySubmitBatch(batch, 0);
+
+        assertEquals(SubmitResult.ACCEPTED, result);
+        assertTrue(result.walAppended());
+        assertEquals(batch, wal.commands);
+        assertEquals(2, gateway.walAppendCount());
+        assertEquals(2, gateway.acceptedCount());
+        assertEquals(1, wal.forceCount);
+        assertEquals(1, gateway.walForceCount());
+    }
+
+    @Test
+    void exactRingCapacityBatchIsAccepted() throws Exception {
+        InMemoryWal wal = new InMemoryWal();
+        SpscRingBuffer<Command> ring = new SpscRingBuffer<>(2);
+        JournaledMatcherGateway gateway = new JournaledMatcherGateway(wal, ring, 1);
+
+        List<Command> batch = List.of(newOrder(1), newOrder(2));
+        assertEquals(SubmitResult.ACCEPTED, gateway.trySubmitBatch(batch, 0));
+        assertEquals(2, wal.commands.size());
+        assertEquals(1, wal.forceCount);
+    }
+
+    @Test
+    void acceptingFlipAfterCapacityWaitDoesNotAppendWal() throws Exception {
+        InMemoryWal wal = new InMemoryWal();
+        SpscRingBuffer<Command> ring = new SpscRingBuffer<>(8);
+        AtomicInteger checks = new AtomicInteger();
+        JournaledMatcherGateway gateway = new JournaledMatcherGateway(
+                wal, ring, 1, 0, () -> checks.getAndIncrement() == 0, WalDurabilityMode.SYNC_PER_COMMAND, 1, 0L
+        );
+
+        assertEquals(SubmitResult.MATCHER_NOT_RUNNING, gateway.trySubmit(newOrder(1), 0));
+        assertTrue(wal.commands.isEmpty());
+        assertEquals(1, gateway.failedBeforeWalCount());
+        assertEquals(0, gateway.walAppendCount());
+
+        assertEquals(SubmitResult.MATCHER_NOT_RUNNING, gateway.trySubmitBatch(List.of(newOrder(2), newOrder(3)), 0));
+        assertTrue(wal.commands.isEmpty());
+        assertEquals(3, gateway.failedBeforeWalCount());
     }
 
     /**

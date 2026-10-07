@@ -12,7 +12,7 @@ import io.github.ike.ullmatcher.ha.readiness.PromotionReadinessPolicy;
 import io.github.ike.ullmatcher.ha.replication.ReplicationMode;
 import io.github.ike.ullmatcher.ha.transport.ReplicationTransportProvider;
 import io.github.ike.ullmatcher.ha.transport.ReplicationTransportType;
-import io.github.ike.ullmatcher.server.cluster.AeronPreviewTransportConfig;
+import io.github.ike.ullmatcher.server.cluster.AeronTransportConfig;
 import io.github.ike.ullmatcher.server.cluster.MatcherClusterConfig;
 import io.github.ike.ullmatcher.server.cluster.ReplicationTransportPolicyConfig;
 import io.github.ike.ullmatcher.server.security.IngressAuthConfig;
@@ -83,7 +83,7 @@ final class MatcherServerAppTest {
         MatcherClusterConfig clusterConfig = clusterConfig(new StubLeaseStore("node-a"), new StubNodeRegistry())
                 .withReplicationTransport(
                         ReplicationTransportType.AERON,
-                        new AeronPreviewTransportConfig(dir.resolve("aeron"), 15_810, 11_810),
+                        new AeronTransportConfig(dir.resolve("aeron"), 15_810, 11_810),
                         ReplicationTransportPolicyConfig.defaults());
         MatcherServerConfig config = baseBuilder(dir).clusterConfig(clusterConfig).build();
 
@@ -190,16 +190,16 @@ final class MatcherServerAppTest {
             app.start();
         }
 
-        MatcherServerConfig previewConfig = baseBuilder(dir)
+        MatcherServerConfig switchedConfig = baseBuilder(dir)
                 .clusterConfig(clusterConfig(leaseStore, registry).withReplicationTransport(
-                        ReplicationTransportType.AERON_PREVIEW,
-                        new AeronPreviewTransportConfig(dir.resolve("aeron"), 15_820, 11_820),
+                        ReplicationTransportType.AERON,
+                        new AeronTransportConfig(dir.resolve("aeron"), 15_820, 11_820),
                         ReplicationTransportPolicyConfig.defaults()))
                 .build();
 
-        assertEquals("replication transport change from GRPC to AERON_PREVIEW requires "
+        assertEquals("replication transport change from GRPC to AERON requires "
                         + "matcher.allowTransportChange=true and matcher.transportChangeWindowId",
-                assertThrows(IllegalStateException.class, () -> new MatcherServerApp(previewConfig)).getMessage());
+                assertThrows(IllegalStateException.class, () -> new MatcherServerApp(switchedConfig)).getMessage());
     }
 
     private static MatcherServerConfig.Builder baseBuilder(Path dir) {
@@ -234,7 +234,7 @@ final class MatcherServerAppTest {
                 ReplicationMode.LOCAL_ONLY,
                 TimeUnit.MILLISECONDS.toNanos(50),
                 ReplicationTransportType.GRPC,
-                new AeronPreviewTransportConfig(Path.of("target", "matcher-aeron-preview"), 15_900, 11_900),
+                new AeronTransportConfig(Path.of("target", "matcher-aeron"), 15_900, 11_900),
                 ReplicationTransportPolicyConfig.defaults()
         );
     }

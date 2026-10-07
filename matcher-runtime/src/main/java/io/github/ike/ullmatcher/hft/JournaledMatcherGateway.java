@@ -152,8 +152,8 @@ public final class JournaledMatcherGateway {
     /**
      * 先强制持久化命令，再在指定时间内尝试发布到撮合环形缓冲区。
      * <p>
-     * 如果返回值的 {@link SubmitResult#walAppended()} 为 {@code true}，说明命令已经进入 WAL；
-     * 调用方不应直接生成新序列号重试，而应按恢复或补偿流程处理。
+     * WAL 追加成功后一定会把命令投入环形缓冲区。追加前失败不会留下序列号义务；
+     * 调用方可以回收这次分配的序列号。
      *
      * @param command 待提交命令
      * @param offerTimeoutNanos 投递超时时间；负数表示一直等待，0 表示只尝试一次
@@ -182,10 +182,6 @@ public final class JournaledMatcherGateway {
         walAppendCount++;
         appendedSinceForce++;
         forceIfRequired(1);
-        if (!acceptingSubmissions.getAsBoolean()) {
-            failedAfterWalCount++;
-            return record(SubmitResult.MATCHER_STOPPED_AFTER_WAL_APPEND);
-        }
         command.retain();
         if (!ring.offer(command)) {
             command.release();
@@ -235,10 +231,6 @@ public final class JournaledMatcherGateway {
         walAppendCount += commands.size();
         appendedSinceForce += commands.size();
         forceIfRequired(commands.size());
-        if (!acceptingSubmissions.getAsBoolean()) {
-            failedAfterWalCount += commands.size();
-            return record(SubmitResult.MATCHER_STOPPED_AFTER_WAL_APPEND);
-        }
         publishBatch(commands);
         acceptedCount += commands.size();
         return record(SubmitResult.ACCEPTED);
@@ -255,6 +247,10 @@ public final class JournaledMatcherGateway {
                 return;
             }
             if (!acceptingSubmissions.getAsBoolean()) {
+                throw new GatewayCapacityException(SubmitResult.MATCHER_NOT_RUNNING);
+            }
+            if (Thread.interrupted()) {
+                Thread.currentThread().interrupt();
                 throw new GatewayCapacityException(SubmitResult.MATCHER_NOT_RUNNING);
             }
             if (offerTimeoutNanos == 0 || (offerTimeoutNanos > 0 && System.nanoTime() - startNanos >= offerTimeoutNanos)) {

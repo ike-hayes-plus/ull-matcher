@@ -26,4 +26,12 @@ final class ZooKeeperLeaseStoreConfigTest {
         assertThrows(IllegalArgumentException.class, () -> new ZooKeeperLeaseStoreConfig("127.0.0.1:2181", "/ull/lease", 0, 5_000));
         assertThrows(IllegalArgumentException.class, () -> new ZooKeeperLeaseStoreConfig("127.0.0.1:2181", "/ull/lease", 15_000, 0));
     }
+
+    @Test
+    void productionSafetyRejectsRemoteHosts() {
+        ZooKeeperLeaseStoreConfig remote = ZooKeeperLeaseStoreConfig.of("10.0.0.8:2181", "/ull/lease");
+        assertThrows(IllegalStateException.class, remote::validateProductionSafety);
+        ZooKeeperLeaseStoreConfig loopback = ZooKeeperLeaseStoreConfig.of("127.0.0.1:2181,localhost:2182", "/ull/lease");
+        loopback.validateProductionSafety();
+    }
 }

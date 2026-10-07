@@ -30,7 +30,7 @@ sdk env
 
 仓库已提交 `.sdkmanrc`。请使用 `sdk env` 选择的项目本地 JDK，不要依赖 shell 的全局默认 Java。
 
-当使用 `matcher.replicationTransport=AERON_PREVIEW` 时，需要补充：
+当使用 `matcher.replicationTransport=AERON` 时，需要补充：
 
 ```bash
 --add-exports=java.base/jdk.internal.misc=ALL-UNNAMED

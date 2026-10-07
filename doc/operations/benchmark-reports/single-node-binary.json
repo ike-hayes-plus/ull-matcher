@@ -1,0 +1,7 @@
+{
+  "success": true,
+  "acceptedOrdersPerSecond": 149049,
+  "tradeEventsPerSecond": 149049,
+  "replicationCommittedSubmissionsPerSecond": 149049,
+  "p99LatencyMs": 0.29
+}

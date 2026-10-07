@@ -14,7 +14,7 @@ import io.github.ike.ullmatcher.ha.transport.ReplicationTransportType;
 import io.github.ike.ullmatcher.hft.WalDurabilityMode;
 import io.github.ike.ullmatcher.runtime.MatchLoopConfig;
 import io.github.ike.ullmatcher.server.api.BinaryIngressLimits;
-import io.github.ike.ullmatcher.server.cluster.AeronPreviewTransportConfig;
+import io.github.ike.ullmatcher.server.cluster.AeronTransportConfig;
 import io.github.ike.ullmatcher.server.cluster.MatcherClusterConfig;
 import io.github.ike.ullmatcher.server.cluster.ReplicationTransportPolicyConfig;
 import io.github.ike.ullmatcher.server.engine.TtlCancelConfig;
@@ -192,14 +192,9 @@ final class MatcherServerConfigBuilderTest {
 
         assertTrue(standalone.requiresGrpcReplicationServer());
         assertTrue(standalone.withClusterConfig(grpcCluster).requiresGrpcReplicationServer());
-        assertTrue(standalone.withClusterConfig(grpcCluster.withReplicationTransport(
-                        ReplicationTransportType.AERON_PREVIEW,
-                        grpcCluster.aeronPreviewTransportConfig(),
-                        ReplicationTransportPolicyConfig.defaults()))
-                .requiresGrpcReplicationServer());
         assertFalse(standalone.withClusterConfig(grpcCluster.withReplicationTransport(
                         ReplicationTransportType.AERON,
-                        grpcCluster.aeronPreviewTransportConfig(),
+                        grpcCluster.aeronTransportConfig(),
                         ReplicationTransportPolicyConfig.defaults()))
                 .requiresGrpcReplicationServer());
     }
@@ -391,29 +386,13 @@ final class MatcherServerConfigBuilderTest {
                 .defaults(new StubLeaseStore(), new StubNodeRegistry(), "10.0.0.10", "symbol-1")
                 .withReplicationTransport(
                         ReplicationTransportType.AERON,
-                        new AeronPreviewTransportConfig(dir.resolve("aeron"), 15_090, 11_001),
+                        new AeronTransportConfig(dir.resolve("aeron"), 15_090, 11_001),
                         ReplicationTransportPolicyConfig.defaults());
         assertEquals("prod mode requires transport security when matcher.replicationTransport=AERON and matcher.advertisedHost is not loopback",
                 assertThrows(IllegalStateException.class, () -> prodBuilder(dir)
                         .clusterConfig(aeron)
                         .build()
                         .validateDeploymentSafety()).getMessage());
-    }
-
-    @Test
-    void prodModeAcceptsAeronPreviewWhenExplicitlyAllowed() throws Exception {
-        Path dir = Files.createTempDirectory("config-builder-prod-preview");
-        MatcherClusterConfig clusterConfig = MatcherClusterConfig
-                .defaults(new StubLeaseStore(), new StubNodeRegistry(), "127.0.0.1", "symbol-1")
-                .withReplicationTransport(
-                        ReplicationTransportType.AERON_PREVIEW,
-                        new AeronPreviewTransportConfig(dir.resolve("aeron"), 15_090, 11_001),
-                        new ReplicationTransportPolicyConfig(false, "", true));
-
-        prodBuilder(dir)
-                .clusterConfig(clusterConfig)
-                .build()
-                .validateDeploymentSafety();
     }
 
     @Test
